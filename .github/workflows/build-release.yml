@@ -59,13 +59,14 @@ jobs:
           pip install pygame pyinstaller
 
       - name: Build with PyInstaller
-        run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
+        run: pyinstaller --onefile --name JumpNDodge --icon=icon.ico JumpNDodge.py
 
       - name: Assemble release folder (Binary + Assets nebeneinander)
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release/JumpNDodge-windows | Out-Null
           Copy-Item dist/JumpNDodge.exe release/JumpNDodge-windows/
+          Copy-Item icon.ico release/JumpNDodge-windows/
           if (Test-Path textures) { Copy-Item -Recurse textures release/JumpNDodge-windows/ }
           if (Test-Path data) { Copy-Item -Recurse data release/JumpNDodge-windows/ }
           if (Test-Path release/JumpNDodge-windows/data/sound) { Remove-Item -Recurse -Force release/JumpNDodge-windows/data/sound }  # nicht lizenziert für Verteilung

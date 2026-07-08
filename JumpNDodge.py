@@ -88,7 +88,7 @@ _icon_surf = None
 _custom_ico_path = None
 try:
     import glob as _g
-    _ico_candidates = _g.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "*.ico"))
+    _ico_candidates = _g.glob(os.path.join(BASE_DIR, "*.ico"))
     if _ico_candidates:
         _custom_ico_path = _ico_candidates[0]
         _icon_surf = pygame.image.load(_custom_ico_path).convert_alpha()
@@ -1627,18 +1627,29 @@ def make_top_obstacle():
     return Obstacle(rx, -55, 50, 50, "floating")
 
 def make_free_roam_obstacle():
-    """Hindernis für den Free-Roam-Modifier: kommt von einer zufälligen Bildschirmkante
-    (links/rechts/oben/unten) und fliegt geradeaus zur gegenüberliegenden Seite."""
+    """Hindernis für den Free-Roam-Modifier: kommt von einer zufälligen Position entlang
+    einer zufälligen Bildschirmkante (nicht nur aus den 4 Ecken) und fliegt geradeaus,
+    mit zufälliger diagonaler Schräge, zur gegenüberliegenden Seite."""
     s = _rand_obs_size()
     edge = random.choice(["left", "right", "top", "bottom"])
-    if edge == "right":
-        return Obstacle(WIDTH, random.randint(0, HEIGHT - s), s, s, "normal", dir_x=-1, dir_y=0)
-    elif edge == "left":
-        return Obstacle(-s, random.randint(0, HEIGHT - s), s, s, "normal", dir_x=1, dir_y=0)
-    elif edge == "top":
-        return Obstacle(random.randint(0, WIDTH - s), -s, s, s, "normal", dir_x=0, dir_y=1)
+    skew = random.uniform(-0.8, 0.8)  # diagonale Schräge relativ zur Haupt-Richtung
+
+    if edge in ("left", "right"):
+        y = random.randint(0, HEIGHT - s)
+        x = -s if edge == "left" else WIDTH
+        dx = 1 if edge == "left" else -1
+        dy = skew
     else:
-        return Obstacle(random.randint(0, WIDTH - s), HEIGHT, s, s, "normal", dir_x=0, dir_y=-1)
+        x = random.randint(0, WIDTH - s)
+        y = -s if edge == "top" else HEIGHT
+        dy = 1 if edge == "top" else -1
+        dx = skew
+
+    # Richtung normalisieren, damit Geschwindigkeit unabhängig von der Schräge konstant bleibt
+    mag = (dx * dx + dy * dy) ** 0.5
+    dx, dy = dx / mag, dy / mag
+
+    return Obstacle(x, y, s, s, "normal", dir_x=dx, dir_y=dy)
 
 # =============================
 # Keybinding System
@@ -2606,10 +2617,10 @@ def draw_menu():
     coin_bg = pygame.Rect(15, 15, 200, 35)
     pygame.draw.rect(base_surface, (255, 255, 255), coin_bg, border_radius=18)
     pygame.draw.rect(base_surface, (200, 200, 200), coin_bg, width=2, border_radius=18)
-    
+
     coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, (40,40,40))
     base_surface.blit(coin_text, (25, 22))
-    
+
     # Version-Info
     version_text = small_font.render("v0.4.0", True, (120, 120, 120))
     base_surface.blit(version_text, (WIDTH - 60, HEIGHT - 25))
@@ -8442,6 +8453,11 @@ def run_game():
                 # current_speed ist während Time Freeze bereits 0 (rp.speed_multiplier())
                 obs.x += obs.dir_x * current_speed
                 obs.y += obs.dir_y * current_speed
+                if rp.freeze_remaining == 0:
+                    if wind_h_enabled:
+                        obs.x += wind_h_strength * 3.5
+                    if wind_v_enabled:
+                        obs.y += wind_v_strength * 3.0
             else:
                 obs.x -= current_speed
                 if wind_h_enabled and rp.freeze_remaining == 0:
