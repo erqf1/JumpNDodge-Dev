@@ -1,0 +1,316 @@
+============================================================
+  JUMPNDODGE – MODDING GUIDE (ENGLISH)
+  Version 1.1  |  Compatible with PyInstaller .exe
+============================================================
+
+TABLE OF CONTENTS
+-----------------
+1. Folder Structure
+2. mod.json – Fields and Meaning
+3. mod.py – Hooks (Event Functions)
+4. The Mod API – All Functions and Variables
+5. Example Mods
+6. Rules and Best Practices
+7. Common Errors and How to Fix Them
+
+
+------------------------------------------------------------
+1. FOLDER STRUCTURE
+------------------------------------------------------------
+
+Every mod lives in its own subfolder inside the "mods/" directory:
+
+  mods/
+  └── MyMod/
+      ├── mod.json     (Required: mod metadata)
+      └── mod.py       (Required: mod game logic)
+
+The folder name ("MyMod") can be chosen freely, but must not
+contain special characters (only letters, numbers, underscores).
+
+The game automatically loads all subfolders that contain a
+mod.json OR mod.py on startup. Broken mods are NOT silently
+skipped — they appear in the Mods menu with a red error code
+(e.g. "ERROR: mod.py is missing"). The game continues normally;
+the broken mod is disabled and cannot be enabled.
+
+
+------------------------------------------------------------
+2. mod.json – FIELDS AND MEANING
+------------------------------------------------------------
+
+mod.json is a JSON file with the following fields:
+
+  {
+      "name":        "My Mod Name",
+      "description": "Short description of what the mod does",
+      "version":     "1.0.0",
+      "author":      "Your Name",
+      "settings": {
+          "heal_enabled": true,
+          "heal_amount":  1,
+          "multiplier":   1.5,
+          "message":      "Hello World"
+      }
+  }
+
+FIELDS:
+  name        – Display name shown in the Mods menu (required)
+  description – Short description (required)
+  version     – Version string (e.g. "1.0.0")
+  author      – Your name or alias
+  settings    – Optional dict of configurable values
+                (bool, int, float, or string)
+                These are shown and editable in the Mods menu.
+                Changes are saved automatically.
+
+Settings types and their UI:
+  bool   → Toggle switch (ON/OFF)
+  int    → Slider with [-] and [+] buttons
+  float  → Slider with [-] and [+] buttons (step 0.1)
+  string → Text input field
+
+
+------------------------------------------------------------
+3. mod.py – HOOKS (EVENT FUNCTIONS)
+------------------------------------------------------------
+
+In mod.py you define functions that the game calls automatically
+at specific points during gameplay.
+
+All functions receive a "game" object as their first argument,
+which is how you interact with the game.
+
+AVAILABLE HOOKS:
+
+  def on_game_start(game):
+      """Called once when a new game round starts."""
+      pass
+
+  def on_update(game):
+      """Called every frame (~60 times per second)."""
+      pass
+
+  def on_enemy_killed(game, enemy):
+      """Called when an obstacle passes the left edge
+         (player survived it successfully).
+         'enemy' is a pygame.Rect object."""
+      pass
+
+  def on_player_damage(game, amount):
+      """Called when the player takes damage.
+         'amount' is always 1 (one life lost)."""
+      pass
+
+You don't need to define all hooks — only the ones you use.
+
+
+------------------------------------------------------------
+4. THE MOD API
+------------------------------------------------------------
+
+Every mod automatically gets access to BOTH API areas —
+Beginner and Pro — without needing to declare anything.
+Just use whichever functions you need.
+
+── BEGINNER API ──────────────────────────────────────────
+Simple functions, perfect for getting started.
+
+PLAYER:
+  game.player_hp          – Lives (readable & writable)
+  game.player_x           – Player X position (readable & writable)
+  game.player_y           – Player Y position (readable & writable)
+  game.player_vy          – Vertical velocity (readable & writable)
+  game.is_jumping         – True while the player is airborne (r/w)
+  game.used_double_jump   – True if double jump was used (r/w)
+
+SCORE / INVENTORY:
+  game.score              – Current score (readable & writable)
+  game.inventory          – List of equipped powers (read-only)
+
+PHYSICS:
+  game.move_speed         – Horizontal movement speed (r/w)
+  game.gravity            – Gravity strength (r/w)
+  game.speed              – Game scroll speed (r/w)
+  game.dt                 – Delta time this frame in ms (read-only)
+
+SCREEN:
+  game.width              – Current screen width  (read-only)
+  game.height             – Current screen height (read-only)
+
+OBSTACLES & PICKUPS:
+  game.obstacle_timer     – Ms since last obstacle (r/w)
+  game.obstacle_delay     – Ms until next obstacle (r/w)
+  game.powerups           – List of active 1-Up pickups (read-only)
+
+ROUND INFO:
+  game.difficulty         – Current difficulty string (read-only)
+  game.elapsed_time       – Seconds since round start (read-only)
+
+METHODS:
+  game.damage_player(amount)      – Reduces HP by 'amount'
+  game.heal_player(amount)        – Increases HP by 'amount'
+  game.player_hp_low()            – Returns True when HP <= 1
+  game.add_score(amount)          – Adds 'amount' to the score
+  game.spawn_enemy(type)          – Spawns an obstacle
+                                     type: "normal" (50x50),
+                                           "large"  (75x75),
+                                           "small"  (30x30)
+  game.spawn_powerup()            – Spawns a 1-Up pickup
+  game.teleport_player(x, y)      – Instantly moves the player
+  game.set_velocity(vy)           – Sets vertical velocity
+  game.set_speed(value)           – Sets the game scroll speed
+  game.flash_screen(ms=500)       – Triggers a screen flash effect
+
+── PRO API ───────────────────────────────────────────────
+Full game state access — for experienced modders.
+Includes everything from the Beginner API, plus:
+
+  game.state                       – Complete internal state dict
+  game.enemies                     – Direct reference to obstacle list
+  game.engine                      – Engine dict: speed, difficulty, dt
+  game.get_entities()              – List of all active obstacles
+  game.get_player_rect()           – pygame.Rect of the player
+  game.clear_enemies()             – Remove all active obstacles
+  game.remove_enemy(rect)          – Remove a specific obstacle
+  game.emit_event(name, data)      – Send an event through the bus
+  game.modify_state_directly(k, v) – Set any state key directly
+
+──────────────────────────────────────────────────────────
+READING MOD SETTINGS:
+  settings = game._g.get('_mod_settings', {})
+  enabled = settings.get('heal_enabled', True)
+
+
+------------------------------------------------------------
+5. EXAMPLE MODS
+------------------------------------------------------------
+
+EXAMPLE 1 – Auto-Heal at Low HP
+---------------------------------
+mod.json:
+  {
+      "name": "Auto Healer",
+      "description": "Automatically heals the player at 1 HP.",
+      "version": "1.0",
+      "author": "You",
+      "settings": { "enabled": true }
+  }
+
+mod.py:
+  _cooldown = 0
+
+  def on_update(game):
+      global _cooldown
+      settings = game._g.get('_mod_settings', {})
+      if not settings.get('enabled', True):
+          return
+      if _cooldown > 0:
+          _cooldown -= 1
+          return
+      if game.player_hp_low():
+          game.heal_player(1)
+          _cooldown = 300   # ~5 seconds at 60 FPS
+
+  def on_game_start(game):
+      global _cooldown
+      _cooldown = 0
+
+
+EXAMPLE 2 – Spawn Enemies on Game Start
+-----------------------------------------
+mod.json:
+  {
+      "name": "Starter Chaos",
+      "description": "Spawns 3 large obstacles at round start.",
+      "version": "1.0",
+      "author": "You"
+  }
+
+mod.py:
+  def on_game_start(game):
+      for _ in range(3):
+          game.spawn_enemy('large')
+
+
+EXAMPLE 3 – Console Logging
+-----------------------------
+mod.py:
+  def on_player_damage(game, amount):
+      print(f"Ouch! HP now: {game.player_hp}")
+
+  def on_enemy_killed(game, enemy):
+      print(f"Survived! Score: {game.score}")
+
+
+------------------------------------------------------------
+6. RULES AND BEST PRACTICES
+------------------------------------------------------------
+
+1. NO INFINITE LOOPS without a delay.
+   Bad example (PLEASE DON'T DO THIS):
+       def on_update(game):
+           while True:
+               pass   # freezes the game!
+
+   Instead, use cooldown variables (see Example 1).
+
+2. STATE BETWEEN FRAMES: Use global variables in mod.py for
+   state that should persist across frames. Reset them in
+   on_game_start().
+
+3. ERROR TOLERANCE: The game catches errors in mods and logs
+   them to the console. That hook call is then skipped, the
+   game continues normally.
+
+4. READING SETTINGS: Always read settings fresh from
+   game._g.get('_mod_settings', {}) — they can change at any
+   time via the Mods menu.
+
+5. USE DIRECT STATE ACCESS WITH CAUTION: Directly modifying
+   game.state can have unexpected side effects.
+
+6. NO NETWORK OR FILE ACCESS in on_update():
+   These freeze the game. Put such code in on_game_start().
+
+7. MULTIPLE MODS: Multiple mods share the same game state.
+   Make sure mods don't interfere with each other.
+
+
+------------------------------------------------------------
+7. COMMON ERRORS AND HOW TO FIX THEM
+------------------------------------------------------------
+
+Problem: Mod does not appear in the menu
+Fix:     Check that mod.json exists and contains valid JSON.
+         Missing quotes are the most common mistake.
+
+Problem: Mod loads but code is never executed
+Fix:     Check that function names are exactly right:
+         on_game_start, on_update, on_enemy_killed,
+         on_player_damage.
+
+Problem: Game freezes
+Fix:     Remove all while/for loops without break from
+         on_update(). Use cooldown variables instead.
+
+Problem: HP change has no effect
+Fix:     Use game.player_hp = X or game.heal_player(X).
+
+
+------------------------------------------------------------
+SECURITY NOTES
+------------------------------------------------------------
+
+- Mods have NO sandbox protection. A mod can execute arbitrary
+  Python code, including file and network access.
+- Do NOT load mods from unknown sources without reading
+  the code first.
+- Directly modifying game.state can manipulate player data.
+- Faulty mods are automatically skipped and their errors
+  are logged to the console. The game will not crash.
+
+
+============================================================
+  Happy Modding!  – JumpNDodge
+============================================================

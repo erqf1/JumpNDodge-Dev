@@ -1,0 +1,44 @@
+name: Build Linux Binary
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies (SDL2 runtime für pygame)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libsdl2-image-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygame pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
+
+      - name: Assemble release folder (Binary + Assets nebeneinander)
+        run: |
+          mkdir -p release/JumpNDodge
+          cp dist/JumpNDodge release/JumpNDodge/
+          cp -r textures release/JumpNDodge/ 2>/dev/null || true
+          cp -r data release/JumpNDodge/ 2>/dev/null || true
+          chmod +x release/JumpNDodge/JumpNDodge
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JumpNDodge-linux
+          path: release/JumpNDodge

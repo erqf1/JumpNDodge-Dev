@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+# Admin-Key nicht öffentlich machen
+key.txt
+
+# PyInstaller Build-Artefakte (werden von Actions frisch erzeugt)
+build/
+dist/
+*.spec
+
+# Claude Code Projekt-Settings (nicht Teil des Spiels)
+.claude/

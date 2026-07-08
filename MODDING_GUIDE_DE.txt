@@ -1,0 +1,318 @@
+============================================================
+  JUMPNDODGE – MODDING-ANLEITUNG (DEUTSCH)
+  Version 1.1  |  Kompatibel mit PyInstaller .exe
+============================================================
+
+INHALTSVERZEICHNIS
+------------------
+1. Ordnerstruktur
+2. mod.json – Felder und Bedeutung
+3. mod.py – Hooks (Event-Funktionen)
+4. Die Mod-API – alle Funktionen und Variablen
+5. Beispiel-Mods
+6. Regeln und Best Practices
+7. Häufige Fehler und deren Behebung
+
+
+------------------------------------------------------------
+1. ORDNERSTRUKTUR
+------------------------------------------------------------
+
+Jede Mod lebt in einem eigenen Unterordner im Verzeichnis "mods/":
+
+  mods/
+  └── MeineMod/
+      ├── mod.json     (Pflicht: Metadaten der Mod)
+      └── mod.py       (Pflicht: Spiellogik der Mod)
+
+Der Ordnername ("MeineMod") ist frei wählbar, darf aber keine
+Sonderzeichen enthalten (nur Buchstaben, Zahlen, Unterstriche).
+
+Das Spiel lädt beim Start automatisch alle Unterordner, die eine
+mod.json ODER mod.py enthalten. Fehlerhafte Mods werden NICHT
+übersprungen — sie erscheinen im Mod-Menü mit einem roten
+Fehlercode (z.B. "ERROR: mod.py is missing"). Das Spiel läuft
+weiter, die fehlerhafte Mod ist deaktiviert und kann nicht
+aktiviert werden.
+
+
+------------------------------------------------------------
+2. mod.json – FELDER UND BEDEUTUNG
+------------------------------------------------------------
+
+mod.json ist eine JSON-Datei mit folgenden Feldern:
+
+  {
+      "name":        "Name der Mod",
+      "description": "Kurze Beschreibung was die Mod macht",
+      "version":     "1.0.0",
+      "author":      "Dein Name",
+      "settings": {
+          "heilung_aktiv": true,
+          "heilmenge":     1,
+          "multiplikator": 1.5,
+          "nachricht":     "Hallo Welt"
+      }
+  }
+
+FELDER:
+  name        – Anzeigename im Mod-Menü (Pflicht)
+  description – Kurze Beschreibung (Pflicht)
+  version     – Versionsnummer als Text (z.B. "1.0.0")
+  author      – Dein Name oder Alias
+  settings    – Optionales Dict mit konfigurierbaren Werten
+                (bool, int, float oder string)
+                Diese werden im Mod-Menü angezeigt und können
+                dort verändert werden. Änderungen werden
+                automatisch gespeichert.
+
+Settings-Typen und ihre UI-Darstellung:
+  bool   → Toggle-Schalter (EIN/AUS)
+  int    → Slider mit [-] und [+] Schaltflächen
+  float  → Slider mit [-] und [+] Schaltflächen (Schritte 0.1)
+  string → Texteingabefeld
+
+
+------------------------------------------------------------
+3. mod.py – HOOKS (EVENT-FUNKTIONEN)
+------------------------------------------------------------
+
+In mod.py definierst du Funktionen, die das Spiel automatisch
+an bestimmten Stellen aufruft.
+
+Alle Funktionen erhalten als erstes Argument ein "game"-Objekt,
+über das du mit dem Spiel interagierst.
+
+VERFÜGBARE HOOKS:
+
+  def on_game_start(game):
+      """Wird einmalig aufgerufen, wenn eine Spielrunde startet."""
+      pass
+
+  def on_update(game):
+      """Wird jeden Frame aufgerufen (~60x pro Sekunde)."""
+      pass
+
+  def on_enemy_killed(game, enemy):
+      """Wird aufgerufen, wenn ein Hindernis den linken Rand
+         passiert (Spieler hat es erfolgreich überlebt).
+         'enemy' ist ein pygame.Rect-Objekt."""
+      pass
+
+  def on_player_damage(game, amount):
+      """Wird aufgerufen, wenn der Spieler Schaden nimmt.
+         'amount' ist immer 1 (ein verlorenes Leben)."""
+      pass
+
+Du musst nicht alle Hooks definieren – nur die, die du brauchst.
+
+
+------------------------------------------------------------
+4. DIE MOD-API
+------------------------------------------------------------
+
+Jede Mod bekommt automatisch Zugriff auf BEIDE API-Bereiche —
+Beginner und Pro — ohne dass man sich festlegen muss.
+Man kann einfach die Funktionen nutzen, die man braucht.
+
+── BEGINNER-API ──────────────────────────────────────────
+Einfache Funktionen, ideal für den Einstieg.
+
+SPIELER:
+  game.player_hp          – Lebenspunkte (lesbar & schreibbar)
+  game.player_x           – X-Position des Spielers (l & s)
+  game.player_y           – Y-Position des Spielers (l & s)
+  game.player_vy          – Vertikale Geschwindigkeit (l & s)
+  game.is_jumping         – True wenn Spieler in der Luft ist (l & s)
+  game.used_double_jump   – True wenn Doppelsprung benutzt (l & s)
+
+SCORE / INVENTAR:
+  game.score              – Aktueller Punktestand (l & s)
+  game.inventory          – Liste der ausgerüsteten Powers (nur lesbar)
+
+PHYSIK:
+  game.move_speed         – Horizontale Bewegungsgeschwindigkeit (l & s)
+  game.gravity            – Schwerkraft-Stärke (l & s)
+  game.speed              – Scroll-Geschwindigkeit des Spiels (l & s)
+  game.dt                 – Delta-Zeit dieses Frames in ms (nur lesbar)
+
+BILDSCHIRM:
+  game.width              – Aktuelle Bildschirmbreite  (nur lesbar)
+  game.height             – Aktuelle Bildschirmhöhe    (nur lesbar)
+
+HINDERNISSE & PICKUPS:
+  game.obstacle_timer     – Ms seit letztem Hindernis (l & s)
+  game.obstacle_delay     – Ms bis zum nächsten Hindernis (l & s)
+  game.powerups           – Liste aktiver 1-Up-Pickups (nur lesbar)
+
+RUNDEN-INFO:
+  game.difficulty         – Aktueller Schwierigkeitsgrad (nur lesbar)
+  game.elapsed_time       – Sekunden seit Rundenstart (nur lesbar)
+
+FUNKTIONEN:
+  game.damage_player(amount)      – Reduziert HP um 'amount'
+  game.heal_player(amount)        – Erhöht HP um 'amount'
+  game.player_hp_low()            – Gibt True zurück wenn HP <= 1
+  game.add_score(amount)          – Addiert 'amount' zum Score
+  game.spawn_enemy(type)          – Spawnt ein Hindernis
+                                     type: "normal" (50x50),
+                                           "large"  (75x75),
+                                           "small"  (30x30)
+  game.spawn_powerup()            – Spawnt ein 1-Up-Pickup
+  game.teleport_player(x, y)      – Teleportiert den Spieler sofort
+  game.set_velocity(vy)           – Setzt die vertikale Geschwindigkeit
+  game.set_speed(value)           – Setzt die Scroll-Geschwindigkeit
+  game.flash_screen(ms=500)       – Löst einen Bildschirmblitz aus
+
+── PRO-API ───────────────────────────────────────────────
+Voller Zugriff auf den Spielzustand — für erfahrene Modder.
+Enthält alles aus der Beginner-API, plus:
+
+  game.state                       – Das vollständige interne State-Dict
+  game.enemies                     – Direkte Referenz zur Hindernis-Liste
+  game.engine                      – Engine-Dict: speed, difficulty, dt
+  game.get_entities()              – Liste aller aktiven Hindernisse
+  game.get_player_rect()           – pygame.Rect des Spielers
+  game.clear_enemies()             – Alle aktiven Hindernisse entfernen
+  game.remove_enemy(rect)          – Ein bestimmtes Hindernis entfernen
+  game.emit_event(name, data)      – Event über den Bus senden
+  game.modify_state_directly(k, v) – Beliebigen State-Key setzen
+
+──────────────────────────────────────────────────────────
+ZUGRIFF AUF MOD-SETTINGS:
+  settings = game._g.get('_mod_settings', {})
+  aktiv = settings.get('heilung_aktiv', True)
+
+
+------------------------------------------------------------
+5. BEISPIEL-MODS
+------------------------------------------------------------
+
+BEISPIEL 1 – Auto-Heal bei niedrigem HP
+-----------------------------------------
+mod.json:
+  {
+      "name": "Auto Healer",
+      "description": "Heilt den Spieler automatisch bei 1 HP.",
+      "version": "1.0",
+      "author": "Du",
+      "settings": { "aktiv": true }
+  }
+
+mod.py:
+  _cooldown = 0
+
+  def on_update(game):
+      global _cooldown
+      settings = game._g.get('_mod_settings', {})
+      if not settings.get('aktiv', True):
+          return
+      if _cooldown > 0:
+          _cooldown -= 1
+          return
+      if game.player_hp_low():
+          game.heal_player(1)
+          _cooldown = 300
+
+  def on_game_start(game):
+      global _cooldown
+      _cooldown = 0
+
+
+BEISPIEL 2 – Feinde beim Spielstart spawnen
+--------------------------------------------
+mod.json:
+  {
+      "name": "Starter Chaos",
+      "description": "Spawnt beim Start 3 große Hindernisse.",
+      "version": "1.0",
+      "author": "Du"
+  }
+
+mod.py:
+  def on_game_start(game):
+      for _ in range(3):
+          game.spawn_enemy('large')
+
+
+BEISPIEL 3 – Konsolen-Logging
+------------------------------
+mod.py:
+  def on_player_damage(game, amount):
+      print(f"Autsch! HP jetzt: {game.player_hp}")
+
+  def on_enemy_killed(game, enemy):
+      print(f"Überlebt! Score: {game.score}")
+
+
+------------------------------------------------------------
+6. REGELN UND BEST PRACTICES
+------------------------------------------------------------
+
+1. KEINE ENDLOSEN SCHLEIFEN ohne Verzögerung
+   Schlechtes Beispiel (BITTE NICHT TUN):
+       def on_update(game):
+           while True:
+               pass   # friert das Spiel ein!
+
+   Nutze stattdessen Cooldown-Variablen (siehe Beispiel 1).
+
+2. ZUSTAND ZWISCHEN FRAMES: Nutze globale Variablen in mod.py
+   für Zustand, der über mehrere Frames erhalten bleiben soll.
+   Setze diese in on_game_start() zurück.
+
+3. FEHLERTOLERANZ: Das Spiel fängt Fehler in Mods ab und
+   loggt sie in der Konsole. Die Mod wird dann für diesen
+   Hook-Aufruf übersprungen, das Spiel läuft weiter.
+
+4. SETTINGS LESEN: Lies Settings immer frisch aus
+   game._g.get('_mod_settings', {}) – sie können sich
+   jederzeit durch das Mod-Menü ändern.
+
+5. DIREKTEN STATE-ZUGRIFF MIT BEDACHT NUTZEN: game.state
+   direkt zu ändern kann unvorhergesehene Effekte haben.
+
+6. KEINE NETZWERK- ODER DATEIZUGRIFFE in on_update():
+   Diese frieren das Spiel ein. Lagere sie in on_game_start().
+
+7. MEHRERE MODS: Mehrere Mods teilen denselben Spielzustand.
+   Achte darauf, dass Mods sich nicht gegenseitig stören.
+
+
+------------------------------------------------------------
+7. HÄUFIGE FEHLER UND DEREN BEHEBUNG
+------------------------------------------------------------
+
+Problem: Mod erscheint nicht im Menü
+Lösung:  Prüfe ob mod.json vorhanden ist und gültiges JSON
+         enthält. Fehlende Anführungszeichen sind ein
+         häufiger Fehler.
+
+Problem: Mod lädt, aber Code wird nicht ausgeführt
+Lösung:  Prüfe ob die Funktionsnamen exakt stimmen:
+         on_game_start, on_update, on_enemy_killed,
+         on_player_damage.
+
+Problem: Spiel friert ein
+Lösung:  Entferne alle while/for-Schleifen ohne Break aus
+         on_update(). Nutze Cooldown-Variablen.
+
+Problem: HP-Änderung hat keinen Effekt
+Lösung:  Schreibe game.player_hp = X oder nutze
+         game.heal_player(X).
+
+
+------------------------------------------------------------
+HINWEISE ZUR SICHERHEIT
+------------------------------------------------------------
+
+- Mods haben KEINEN Sandbox-Schutz. Eine Mod kann beliebigen
+  Python-Code ausführen, inklusive Datei- und Netzwerkzugriffe.
+- Lade KEINE Mods aus unbekannten Quellen, ohne den Code
+  vorher gelesen zu haben.
+- game.state direkt zu ändern kann Spielerdaten manipulieren.
+
+
+============================================================
+  Viel Spaß beim Modden!  – JumpNDodge
+============================================================

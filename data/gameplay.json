@@ -1,0 +1,331 @@
+{
+    "stats": {
+        "total_time_played": 3088.0230066776276,
+        "total_rounds": 138,
+        "total_1ups": 40,
+        "coins": 97370459,
+        "tutorial_seen": true,
+        "total_jumps": 1605,
+        "total_deaths": 34,
+        "total_coins_earned": 396,
+        "score_sum_by_diff": {
+            "Unmöglich": 425,
+            "Albtraum": 161,
+            "Hardcore": 5,
+            "Custom": 541,
+            "Hölle": 55
+        },
+        "rounds_by_diff": {
+            "Unmöglich": 12,
+            "Albtraum": 2,
+            "Hardcore": 1,
+            "Custom": 17,
+            "Hölle": 1
+        },
+        "total_score_sum": 249,
+        "last_daily_reward_date": "2026-07-07",
+        "last_daily_reward_stats": {
+            "base": 97,
+            "extra": 1,
+            "total": 98,
+            "rarity": "Rare"
+        }
+    },
+    "achievements": {},
+    "highscores": {
+        "Leicht": 2,
+        "Mittel": 0,
+        "Schwer": 34,
+        "Hardcore": 5,
+        "Unmöglich": 301,
+        "Albtraum": 81,
+        "Hölle": 71,
+        "Dynamisch": 136,
+        "Custom": 55
+    },
+    "settings": {
+        "language": "Deutsch",
+        "difficulty": "Unmöglich",
+        "fullscreen": false,
+        "music_volume": 0.8,
+        "sfx_volume": 0.8,
+        "dark_mode": true,
+        "sound_enabled": true,
+        "keybindings": {
+            "jump": [
+                32,
+                119,
+                1073741906
+            ],
+            "left": [
+                1073741904,
+                97
+            ],
+            "right": [
+                1073741903,
+                100
+            ],
+            "power1": [
+                113
+            ],
+            "power2": [
+                101
+            ]
+        },
+        "menu_click_volume": 1.3000000000000003,
+        "click_volume": 0.8,
+        "click_back_volume": 0.8,
+        "hit_volume": 2.0,
+        "gameover_volume": 1.0,
+        "menu_music_volume": 1.9000000000000008,
+        "ingame_music_volume": 1.7000000000000006,
+        "game_mode": "custom",
+        "difficulty_per_mode": {
+            "standard": "Unmöglich",
+            "klassik": "Hölle",
+            "2player": "Dynamisch"
+        },
+        "2player_submode": "vs",
+        "custom_speed": 33,
+        "custom_min_delay": 100,
+        "custom_max_delay": 839,
+        "custom_oneups": true,
+        "custom_vertical_obstacles": true,
+        "custom_wind_sides": false,
+        "custom_wind_all": true,
+        "custom_free_roam": false,
+        "custom_wind": true,
+        "max_fps": 0,
+        "show_fps": true,
+        "gui_scale": 0.98,
+        "mono_bg": false,
+        "bg_stars": true,
+        "bg_rings_enabled": true,
+        "bg_animated": true
+    },
+    "powers": {
+        "owned": [
+            "Vision Extension",
+            "Auto Dodge",
+            "Shield",
+            "Recovery",
+            "Extra Slot",
+            "Coin Booster",
+            "Medic",
+            "Ghost Mode",
+            "Double Jump",
+            "Phoenix",
+            "Slow Motion",
+            "Time Freeze",
+            "Nuke"
+        ],
+        "equipped": [
+            "Phoenix",
+            "Time Freeze"
+        ]
+    },
+    "cosmetics": {
+        "owned": [
+            "fire_trail",
+            "ice_trail",
+            "shadow_trail",
+            "yellow_crown",
+            "toxic_trail",
+            "sparkle_trail"
+        ],
+        "equipped": [
+            "shadow_trail"
+        ],
+        "equipped_player": "yellow_crown"
+    },
+    "_profiles": {
+        "active": "wad",
+        "profiles": {
+            "wad": {
+                "name": "wad",
+                "stats": {
+                    "total_time_played": 3088.0230066776276,
+                    "total_rounds": 138,
+                    "total_1ups": 40,
+                    "coins": 97370459,
+                    "tutorial_seen": true,
+                    "total_jumps": 1605,
+                    "total_deaths": 34,
+                    "total_coins_earned": 396,
+                    "score_sum_by_diff": {
+                        "Unmöglich": 425,
+                        "Albtraum": 161,
+                        "Hardcore": 5,
+                        "Custom": 541,
+                        "Hölle": 55
+                    },
+                    "rounds_by_diff": {
+                        "Unmöglich": 12,
+                        "Albtraum": 2,
+                        "Hardcore": 1,
+                        "Custom": 17,
+                        "Hölle": 1
+                    },
+                    "total_score_sum": 249,
+                    "last_daily_reward_date": "2026-07-07",
+                    "last_daily_reward_stats": {
+                        "base": 97,
+                        "extra": 1,
+                        "total": 98,
+                        "rarity": "Rare"
+                    }
+                },
+                "achievements": {},
+                "highscores": {
+                    "Leicht": 2,
+                    "Mittel": 0,
+                    "Schwer": 34,
+                    "Hardcore": 5,
+                    "Unmöglich": 301,
+                    "Albtraum": 81,
+                    "Hölle": 71,
+                    "Dynamisch": 136,
+                    "Custom": 55
+                },
+                "settings": {
+                    "language": "Deutsch",
+                    "difficulty": "Unmöglich",
+                    "fullscreen": false,
+                    "music_volume": 0.8,
+                    "sfx_volume": 0.8,
+                    "dark_mode": true,
+                    "sound_enabled": true,
+                    "keybindings": {
+                        "jump": [
+                            32,
+                            119,
+                            1073741906
+                        ],
+                        "left": [
+                            1073741904,
+                            97
+                        ],
+                        "right": [
+                            1073741903,
+                            100
+                        ],
+                        "power1": [
+                            113
+                        ],
+                        "power2": [
+                            101
+                        ]
+                    },
+                    "menu_click_volume": 1.3000000000000003,
+                    "click_volume": 0.8,
+                    "click_back_volume": 0.8,
+                    "hit_volume": 2.0,
+                    "gameover_volume": 1.0,
+                    "menu_music_volume": 1.9000000000000008,
+                    "ingame_music_volume": 1.7000000000000006,
+                    "game_mode": "custom",
+                    "difficulty_per_mode": {
+                        "standard": "Unmöglich",
+                        "klassik": "Hölle",
+                        "2player": "Dynamisch"
+                    },
+                    "2player_submode": "vs",
+                    "custom_speed": 33,
+                    "custom_min_delay": 100,
+                    "custom_max_delay": 839,
+                    "custom_oneups": true,
+                    "custom_vertical_obstacles": true,
+                    "custom_wind_sides": false,
+                    "custom_wind_all": true,
+                    "custom_free_roam": false,
+                    "custom_wind": true,
+                    "max_fps": 0,
+                    "show_fps": true,
+                    "gui_scale": 0.98,
+                    "mono_bg": false,
+                    "bg_stars": true,
+                    "bg_rings_enabled": true,
+                    "bg_animated": true
+                },
+                "powers": {
+                    "owned": [
+                        "Vision Extension",
+                        "Auto Dodge",
+                        "Shield",
+                        "Recovery",
+                        "Extra Slot",
+                        "Coin Booster",
+                        "Medic",
+                        "Ghost Mode",
+                        "Double Jump",
+                        "Phoenix",
+                        "Slow Motion",
+                        "Time Freeze",
+                        "Nuke"
+                    ],
+                    "equipped": [
+                        "Phoenix",
+                        "Time Freeze"
+                    ]
+                },
+                "cosmetics": {
+                    "owned": [
+                        "fire_trail",
+                        "ice_trail",
+                        "shadow_trail",
+                        "yellow_crown",
+                        "toxic_trail",
+                        "sparkle_trail"
+                    ],
+                    "equipped": [
+                        "shadow_trail"
+                    ],
+                    "equipped_player": "yellow_crown"
+                }
+            }
+        }
+    },
+    "best_times": {
+        "Leicht": 0,
+        "Mittel": 0,
+        "Schwer": 0,
+        "Hardcore": 0,
+        "Unmöglich": 0,
+        "Albtraum": 0,
+        "Hölle": 0,
+        "Dynamisch": 0,
+        "Custom": 27
+    },
+    "story": {
+        "story_coins": 350,
+        "chapter_unlocked": [
+            true,
+            true,
+            false
+        ],
+        "level_progress": [
+            [
+                1,
+                1,
+                1,
+                1,
+                1
+            ],
+            [
+                1,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                0,
+                0,
+                0,
+                0
+            ]
+        ],
+        "completed": false
+    }
+}
