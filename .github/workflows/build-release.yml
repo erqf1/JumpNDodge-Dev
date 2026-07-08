@@ -1,0 +1,95 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies (SDL2 runtime für pygame)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libsdl2-image-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygame pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
+
+      - name: Assemble release folder (Binary + Assets nebeneinander)
+        run: |
+          mkdir -p release/JumpNDodge-linux
+          cp dist/JumpNDodge release/JumpNDodge-linux/
+          [ -d textures ] && cp -r textures release/JumpNDodge-linux/
+          [ -d data ] && cp -r data release/JumpNDodge-linux/
+          chmod +x release/JumpNDodge-linux/JumpNDodge
+          cd release && zip -r JumpNDodge-linux.zip JumpNDodge-linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpNDodge-linux
+          path: release/JumpNDodge-linux.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygame pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
+
+      - name: Assemble release folder (Binary + Assets nebeneinander)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path release/JumpNDodge-windows | Out-Null
+          Copy-Item dist/JumpNDodge.exe release/JumpNDodge-windows/
+          if (Test-Path textures) { Copy-Item -Recurse textures release/JumpNDodge-windows/ }
+          if (Test-Path data) { Copy-Item -Recurse data release/JumpNDodge-windows/ }
+          Compress-Archive -Path release/JumpNDodge-windows/* -DestinationPath release/JumpNDodge-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpNDodge-windows
+          path: release/JumpNDodge-windows.zip
+
+  # Läuft nur bei einem Versions-Tag (z.B. "v1.0.0") und veröffentlicht beide
+  # Builds automatisch als GitHub Release - das ist das "Archiv" für Nutzer.
+  release:
+    needs: [ build-linux, build-windows ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/JumpNDodge-linux/JumpNDodge-linux.zip
+            artifacts/JumpNDodge-windows/JumpNDodge-windows.zip
