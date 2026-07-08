@@ -11,3 +11,9 @@ dist/
 
 # Claude Code Projekt-Settings (nicht Teil des Spiels)
 .claude/
+
+# Texturen aktuell nicht gebraucht (liegen jetzt außerhalb des Ordners)
+textures/
+
+# Sounds sind nicht lizenziert für JumpNDodge - nur lokal/privat nutzen, nie committen/verteilen
+data/sound/
