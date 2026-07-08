@@ -75,13 +75,12 @@ jobs:
           path: release/JumpNDodge-windows.zip
 
   # Läuft nur bei einem Versions-Tag (z.B. "v1.0.0") und veröffentlicht beide
-  # Builds automatisch als GitHub Release - das ist das "Archiv" für Nutzer.
+  # Builds automatisch als GitHub Release im ÖFFENTLICHEN Releases-Repo -
+  # das ist das "Archiv" für Spieler. Der Quellcode bleibt im privaten Repo hier.
   release:
     needs: [ build-linux, build-windows ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -93,9 +92,12 @@ jobs:
           mv artifacts/JumpNDodge-linux/JumpNDodge-linux.zip "artifacts/JumpNDodge-${VERSION}-linux.zip"
           mv artifacts/JumpNDodge-windows/JumpNDodge-windows.zip "artifacts/JumpNDodge-${VERSION}-windows.zip"
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (im öffentlichen Releases-Repo)
         uses: softprops/action-gh-release@v2
         with:
+          repository: erqf1/JumpNDodge-Releases
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
           files: |
             artifacts/JumpNDodge-${{ github.ref_name }}-linux.zip
             artifacts/JumpNDodge-${{ github.ref_name }}-windows.zip
