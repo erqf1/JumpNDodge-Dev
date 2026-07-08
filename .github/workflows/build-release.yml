@@ -87,9 +87,15 @@ jobs:
         with:
           path: artifacts
 
+      - name: Zips mit Versionsnummer aus dem Tag benennen
+        run: |
+          VERSION="${{ github.ref_name }}"
+          mv artifacts/JumpNDodge-linux/JumpNDodge-linux.zip "artifacts/JumpNDodge-${VERSION}-linux.zip"
+          mv artifacts/JumpNDodge-windows/JumpNDodge-windows.zip "artifacts/JumpNDodge-${VERSION}-windows.zip"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/JumpNDodge-linux/JumpNDodge-linux.zip
-            artifacts/JumpNDodge-windows/JumpNDodge-windows.zip
+            artifacts/JumpNDodge-${{ github.ref_name }}-linux.zip
+            artifacts/JumpNDodge-${{ github.ref_name }}-windows.zip
