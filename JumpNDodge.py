@@ -241,6 +241,7 @@ font = pygame.font.SysFont(None, 64)        # Große Schrift für Titel
 menu_font = pygame.font.SysFont(None, 40)   # Mittlere Schrift für Menüs
 small_font = pygame.font.SysFont(None, 26)  # Kleine Schrift für Details
 mono_font = pygame.font.SysFont("consolas", 22)  # Monospace-Schrift für Code/Hints
+tooltip_font = pygame.font.SysFont(None, 32)  # Schrift für Hover-Tooltips (besser lesbar als small_font)
 
 # Liste der unterstützten Sprachen im Spiel
 languages = ["Deutsch", "English", "Русский", "Türkçe", "Schwiizerdütsch"]
@@ -1070,7 +1071,7 @@ default_modded_stats = {
 
 # Standardwerte für Spieleinstellungen
 default_settings = {
-    "language": "Deutsch",                    # Standardsprache
+    "language": "English",                    # Standardsprache
     "difficulty": "Mittel",                   # Standardschwierigkeit
     "fullscreen": False,                      # Vollbildmodus standardmäßig aus
     "music_volume": 0.8,                      # Musik-Lautstärke (0-2)
@@ -2131,7 +2132,11 @@ COSMETICS_DB = {
     "shadow_trail": {"rarity": "Epic", "price_range": [250, 400], "type": "trail", "name": {"Deutsch": "Schattenspur", "English": "Shadow Trail", "Русский": "тень след", "Türkçe": "Gölge İz", "Schwiizerdütsch": "Schatte Spur"}},
     "sparkle_trail": {"rarity": "Epic", "price_range": [350, 500], "type": "trail", "name": {"Deutsch": "Funkelspur", "English": "Sparkle Trail", "Русский": "искрящийся след", "Türkçe": "Parıltı İz", "Schwiizerdütsch": "Funkle Spur"}},
     "toxic_trail": {"rarity": "Epic", "price_range": [400, 600], "type": "trail", "name": {"Deutsch": "Giftspur", "English": "Toxic Trail", "Русский": "токсичный след", "Türkçe": "Toksik İz", "Schwiizerdütsch": "Gift Spur"}},
-    "yellow_crown": {"rarity": "Legendary", "price_range": [2500, 2500], "type": "player", "name": {"Deutsch": "Gelbe Krone", "English": "Yellow Crown", "Русский": "желтая корона", "Türkçe": "Sarı Taç", "Schwiizerdütsch": "Gäl Krone"}}
+    "electric_trail": {"rarity": "Epic", "price_range": [450, 650], "type": "trail", "name": {"Deutsch": "Blitzspur", "English": "Electric Trail", "Русский": "электрический след", "Türkçe": "Elektrik İzi", "Schwiizerdütsch": "Blitz Spur"}},
+    "yellow_crown": {"rarity": "Legendary", "price_range": [2500, 2500], "type": "player", "name": {"Deutsch": "Gelbe Krone", "English": "Yellow Crown", "Русский": "желтая корона", "Türkçe": "Sarı Taç", "Schwiizerdütsch": "Gäl Krone"}},
+    "pixel_eyes": {"rarity": "Common", "price_range": [120, 200], "type": "player", "name": {"Deutsch": "Pixel-Augen", "English": "Pixel Eyes", "Русский": "Пиксельные глаза", "Türkçe": "Piksel Gözler", "Schwiizerdütsch": "Pixel-Ouge"}},
+    "top_hat": {"rarity": "Rare", "price_range": [280, 380], "type": "player", "name": {"Deutsch": "Zylinder", "English": "Top Hat", "Русский": "Цилиндр", "Türkçe": "Silindir Şapka", "Schwiizerdütsch": "Zylinder"}},
+    "devil_horns": {"rarity": "Epic", "price_range": [420, 580], "type": "player", "name": {"Deutsch": "Teufelshörner", "English": "Devil Horns", "Русский": "Дьявольские рога", "Türkçe": "Şeytan Boynuzları", "Schwiizerdütsch": "Tüfels-Hörner"}}
 }
 
 def initialize_cosmetic_prices():
@@ -3284,7 +3289,7 @@ def draw_difficulty_select():
         hint = small_font.render("Keine Coins im Custom-Modus. Freie Bewegung: WASD.", True, (150, 150, 150) if dark else (110, 110, 110))
         base_surface.blit(hint, (card_x, _hint_y))
         if hovered_modifier and hovered_modifier in _modifier_hover:
-            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos)
+            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos, max_width=600)
     else:
         for i, diff in enumerate(difficulties):
             card_y = cards_y0 + i * gap
@@ -3344,7 +3349,7 @@ def draw_difficulty_select():
 
         # Hover tooltip - direkt neben dem Cursor statt fix unter der Kartenliste
         if hovered_diff:
-            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, accent_color=_diff_colors[hovered_diff])
+            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, max_width=600, accent_color=_diff_colors[hovered_diff])
 
     # Start + Back buttons at bottom, side by side
     btn_y = HEIGHT - 54
@@ -6311,8 +6316,16 @@ def draw_cosmetic_inventory():
                 pygame.draw.rect(base_surface, (240, 240, 120), icon_rect, border_radius=4)
             elif cosmetic == "toxic_trail":
                 pygame.draw.rect(base_surface, (120, 200, 80), icon_rect, border_radius=4)
+            elif cosmetic == "electric_trail":
+                pygame.draw.rect(base_surface, (80, 220, 255), icon_rect, border_radius=4)
             elif cosmetic == "yellow_crown":
                 pygame.draw.rect(base_surface, (255, 215, 0), icon_rect, border_radius=4)  # Gold for crown
+            elif cosmetic == "pixel_eyes":
+                pygame.draw.rect(base_surface, (240, 240, 245), icon_rect, border_radius=4)
+            elif cosmetic == "top_hat":
+                pygame.draw.rect(base_surface, (25, 25, 30), icon_rect, border_radius=4)
+            elif cosmetic == "devil_horns":
+                pygame.draw.rect(base_surface, (210, 30, 30), icon_rect, border_radius=4)
             else:
                 pygame.draw.rect(base_surface, (200,200,200), icon_rect, border_radius=4)
 
@@ -6479,14 +6492,25 @@ def draw_cosmetic_shop():
         "shadow_trail":  ("circle",   (60,  40,  80)),
         "sparkle_trail": ("star4",    (255, 240, 80)),
         "toxic_trail":   ("hexagon",  (80,  210, 60)),
+        "electric_trail":("bolt",     (80,  220, 255)),
         "yellow_crown":  ("crown",    (255, 215, 0)),
+        "pixel_eyes":    ("eyes",     (60,  60,  70)),
+        "top_hat":       ("tophat",   (25,  25,  30)),
+        "devil_horns":   ("horns",    (210, 30,  30)),
     }
 
-    # Grid: 3 columns x 2 rows, centered
+    # Grid: 3 Spalten, so viele Zeilen wie nötig. Sortiert nach Typ (Trail vor Player)
+    # und innerhalb davon nach Seltenheit, damit es nicht durcheinander wirkt; eine
+    # unvollständige letzte Zeile wird zentriert statt links hängen zu bleiben.
     cols = 3
     tile_w, tile_h = 220, 155
     spacing_x, spacing_y = 18, 18
-    items = list(COSMETICS_DB.items())
+    _cosm_type_order = {"trail": 0, "player": 1}
+    _cosm_rarity_order = {"Common": 0, "Rare": 1, "Epic": 2, "Legendary": 3, "Mythic": 4}
+    items = sorted(COSMETICS_DB.items(), key=lambda kv: (
+        _cosm_type_order.get(kv[1].get("type"), 9),
+        _cosm_rarity_order.get(kv[1].get("rarity"), 9)
+    ))
     total_grid_w = cols * tile_w + (cols - 1) * spacing_x
     grid_start_x = WIDTH // 2 - total_grid_w // 2
     grid_start_y = 90
@@ -6496,7 +6520,9 @@ def draw_cosmetic_shop():
     for i, (key, meta) in enumerate(items):
         col = i % cols
         row = i // cols
-        x = grid_start_x + col * (tile_w + spacing_x)
+        row_count = min(cols, len(items) - row * cols)
+        row_x_offset = ((cols - row_count) * (tile_w + spacing_x)) // 2
+        x = grid_start_x + row_x_offset + col * (tile_w + spacing_x)
         y = grid_start_y + row * (tile_h + spacing_y)
         item_rect = pygame.Rect(x, y, tile_w, tile_h)
 
@@ -6558,6 +6584,22 @@ def draw_cosmetic_shop():
             pygame.draw.polygon(base_surface, icon_color, [(icx - 9, icy + 2), (icx - 9, icy - 8), (icx - 4, icy - 2)])
             pygame.draw.polygon(base_surface, icon_color, [(icx, icy + 2), (icx, icy - 10), (icx + 5, icy - 2)])
             pygame.draw.polygon(base_surface, icon_color, [(icx + 9, icy + 2), (icx + 9, icy - 8), (icx + 4, icy - 2)])
+        elif icon_shape == "bolt":
+            pts = [(icx + 3, icy - 11), (icx - 5, icy + 1), (icx - 1, icy + 1),
+                   (icx - 4, icy + 11), (icx + 6, icy - 2), (icx + 1, icy - 2)]
+            pygame.draw.polygon(base_surface, icon_color, pts)
+        elif icon_shape == "eyes":
+            pygame.draw.rect(base_surface, (255, 255, 255), (icx - 8, icy - 4, 6, 6))
+            pygame.draw.rect(base_surface, (255, 255, 255), (icx + 2, icy - 4, 6, 6))
+            pygame.draw.rect(base_surface, icon_color, (icx - 6, icy - 2, 2, 2))
+            pygame.draw.rect(base_surface, icon_color, (icx + 4, icy - 2, 2, 2))
+        elif icon_shape == "tophat":
+            pygame.draw.rect(base_surface, icon_color, (icx - 9, icy + 4, 18, 4))
+            pygame.draw.rect(base_surface, icon_color, (icx - 6, icy - 10, 12, 15))
+            pygame.draw.rect(base_surface, (150, 20, 20), (icx - 6, icy + 1, 12, 3))
+        elif icon_shape == "horns":
+            pygame.draw.polygon(base_surface, icon_color, [(icx - 2, icy + 8), (icx - 11, icy - 6), (icx - 4, icy + 3)])
+            pygame.draw.polygon(base_surface, icon_color, [(icx + 2, icy + 8), (icx + 11, icy - 6), (icx + 4, icy + 3)])
 
         # Item name
         name_surf = menu_font.render(item_name, True, (255, 255, 255))
@@ -6606,10 +6648,12 @@ def draw_cosmetic_shop():
     }
 
     hovered_key = None
-    for idx, (key, meta) in enumerate(COSMETICS_DB.items()):
+    for idx, (key, meta) in enumerate(items):
         _c = idx % cols
         _r = idx // cols
-        rx = grid_start_x + _c * (tile_w + spacing_x)
+        _row_count = min(cols, len(items) - _r * cols)
+        _row_x_offset = ((cols - _row_count) * (tile_w + spacing_x)) // 2
+        rx = grid_start_x + _row_x_offset + _c * (tile_w + spacing_x)
         ry = grid_start_y + _r * (tile_h + spacing_y)
         if pygame.Rect(rx, ry, tile_w, tile_h).collidepoint(mouse_pos):
             hovered_key = key
@@ -6626,9 +6670,14 @@ def draw_cosmetic_shop():
         pswatches = _TRAIL_SWATCHES.get(hovered_key, [(200, 200, 200)])
 
         # Panel-Bereich (schmaler Strip, unten zwischen Grid und Back-Button)
-        pv_x, pv_y = grid_start_x, grid_start_y + 2 * (tile_h + spacing_y) + 6
+        # Dynamisch nach der letzten Grid-Zeile positioniert, statt fest auf 2 Zeilen
+        # (COSMETICS_DB kann wachsen -> Grid hat dann mehr als 2 Zeilen)
+        total_rows = (len(items) + cols - 1) // cols
         pv_w = cols * tile_w + (cols - 1) * spacing_x
         pv_h = 88
+        pv_x = grid_start_x
+        # Clamp gegen den Back-Button (HEIGHT - 52), falls das Grid mal zu viele Zeilen hat
+        pv_y = min(grid_start_y + total_rows * (tile_h + spacing_y) + 6, HEIGHT - 52 - pv_h - 10)
 
         # Hintergrund
         pygame.draw.rect(base_surface, get_panel_color(), pygame.Rect(pv_x, pv_y, pv_w, pv_h), border_radius=12)
@@ -6661,6 +6710,22 @@ def draw_cosmetic_shop():
             pygame.draw.polygon(base_surface, _ic, [(icx2 - 16, icy2 + 4), (icx2 - 16, icy2 - 14), (icx2 - 6, icy2 - 4)])
             pygame.draw.polygon(base_surface, _ic, [(icx2, icy2 + 4), (icx2, icy2 - 18), (icx2 + 8, icy2 - 4)])
             pygame.draw.polygon(base_surface, _ic, [(icx2 + 16, icy2 + 4), (icx2 + 16, icy2 - 14), (icx2 + 6, icy2 - 4)])
+        elif _s == "bolt":
+            pts = [(icx2 + 5, icy2 - 19), (icx2 - 9, icy2 + 2), (icx2 - 2, icy2 + 2),
+                   (icx2 - 7, icy2 + 19), (icx2 + 10, icy2 - 3), (icx2 + 2, icy2 - 3)]
+            pygame.draw.polygon(base_surface, _ic, pts)
+        elif _s == "eyes":
+            pygame.draw.rect(base_surface, (255, 255, 255), (icx2 - 14, icy2 - 7, 10, 10))
+            pygame.draw.rect(base_surface, (255, 255, 255), (icx2 + 4, icy2 - 7, 10, 10))
+            pygame.draw.rect(base_surface, _ic, (icx2 - 11, icy2 - 4, 4, 4))
+            pygame.draw.rect(base_surface, _ic, (icx2 + 7, icy2 - 4, 4, 4))
+        elif _s == "tophat":
+            pygame.draw.rect(base_surface, _ic, (icx2 - 16, icy2 + 7, 32, 7))
+            pygame.draw.rect(base_surface, _ic, (icx2 - 11, icy2 - 17, 22, 26))
+            pygame.draw.rect(base_surface, (150, 20, 20), (icx2 - 11, icy2 + 2, 22, 5))
+        elif _s == "horns":
+            pygame.draw.polygon(base_surface, _ic, [(icx2 - 4, icy2 + 14), (icx2 - 19, icy2 - 10), (icx2 - 7, icy2 + 5)])
+            pygame.draw.polygon(base_surface, _ic, [(icx2 + 4, icy2 + 14), (icx2 + 19, icy2 - 10), (icx2 + 7, icy2 + 5)])
 
         # Name + Rarity + Typ
         tx = pv_x + 96
@@ -6863,7 +6928,7 @@ def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
         line = ''
         for w in words:
             test = (line + ' ' + w).strip()
-            if line and small_font.size(test)[0] > max_width - 16:
+            if line and tooltip_font.size(test)[0] > max_width - 16:
                 raw_lines.append(line)
                 line = w
             else:
@@ -6875,14 +6940,14 @@ def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
 
     line_surfs = []
     for ln in raw_lines:
-        ls = small_font.render(ln, True, text_color)
+        ls = tooltip_font.render(ln, True, text_color)
         if ls.get_width() > max_width - 16:
             ls = _fit_surf(ls, max_width - 16)
         line_surfs.append(ls)
     if not line_surfs:
         return
 
-    line_h = small_font.get_height() + 2
+    line_h = tooltip_font.get_height() + 2
     box_w = min(max_width, max(ls.get_width() for ls in line_surfs) + 16)
     box_h = len(line_surfs) * line_h + 12
     x = mouse_pos[0] + 16
@@ -8079,6 +8144,7 @@ def run_game():
     shadow_particles = []
     sparkle_particles = []
     toxic_particles = []
+    electric_particles = []
     PARTICLE_SPEED = 2
 
     # Fire trail effect
@@ -8401,7 +8467,7 @@ def run_game():
             player.right = WIDTH
 
         # Update trail particles for all equipped trails
-        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail"]
+        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail", "electric_trail"]
                           if t in cosmetics_state.get("owned", []) and t in cosmetics_state.get("equipped", [])]
 
         # Add new particles only when moving and trails are equipped
@@ -8409,7 +8475,7 @@ def run_game():
             for trail in equipped_trails:
                 particles = {"fire_trail": fire_particles, "ice_trail": ice_particles,
                            "shadow_trail": shadow_particles, "sparkle_trail": sparkle_particles,
-                           "toxic_trail": toxic_particles}[trail]
+                           "toxic_trail": toxic_particles, "electric_trail": electric_particles}[trail]
 
                 # Different particle counts for different trails
                 particle_count = {
@@ -8417,7 +8483,8 @@ def run_game():
                     "ice_trail": 4,       # Medium ice particles
                     "shadow_trail": 3,    # Sparse shadow particles
                     "sparkle_trail": 6,   # Lots of sparkles
-                    "toxic_trail": 4      # Medium toxic particles
+                    "toxic_trail": 4,     # Medium toxic particles
+                    "electric_trail": 5   # Dense, snappy sparks
                 }.get(trail, 3)
 
                 for _ in range(particle_count):
@@ -8445,6 +8512,9 @@ def run_game():
                     elif trail == "toxic_trail":
                         vy = random.uniform(-1, 0)     # Toxic particles drift slightly up
                         life = random.uniform(40, 65)
+                    elif trail == "electric_trail":
+                        vy = random.uniform(-1.5, 1.5)  # Sparks jitter erratically
+                        life = random.uniform(18, 32)   # Short, snappy zaps
                     else:  # fire_trail
                         vy = random.uniform(-1, 0)      # Fire particles with upward bias
                         life = random.uniform(20, 40)
@@ -8463,7 +8533,7 @@ def run_game():
                     particles.append(particle_data)
 
         # Update all particle types with enhanced physics
-        for particles in [fire_particles, ice_particles, shadow_particles, sparkle_particles, toxic_particles]:
+        for particles in [fire_particles, ice_particles, shadow_particles, sparkle_particles, toxic_particles, electric_particles]:
             particles[:] = [p for p in particles if p['life'] > 0]
             for p in particles:
                 p['x'] += p['vx']
@@ -8481,6 +8551,9 @@ def run_game():
                 elif p['trail_type'] == "toxic_trail":
                     p['vy'] += 0.06   # Toxic particles drift
                     p['vx'] *= 0.99   # Slight air resistance
+                elif p['trail_type'] == "electric_trail":
+                    p['vx'] += random.uniform(-0.15, 0.15)  # Erratic crackling jitter
+                    p['vy'] += random.uniform(-0.15, 0.15)
                 else:  # fire_trail
                     p['vy'] += 0.1    # Fire particles have normal gravity
 
@@ -8837,7 +8910,28 @@ def run_game():
                 (crown_x + 15, crown_y - 8),
                 (crown_x + 20, crown_y)
             ])
-        
+        elif equipped_player == "top_hat":
+            # Zylinder: Krempe + Hutkörper + roter Streifen
+            hat_x = player.centerx
+            hat_top = player.top
+            pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 15, hat_top - 6, 30, 6))
+            pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 10, hat_top - 24, 20, 20))
+            pygame.draw.rect(base_surface, (150, 20, 20), (hat_x - 10, hat_top - 9, 20, 4))
+        elif equipped_player == "devil_horns":
+            # Zwei rote Hörner über dem Spieler
+            hx = player.centerx
+            hy = player.top
+            pygame.draw.polygon(base_surface, (210, 30, 30), [(hx - 6, hy + 4), (hx - 16, hy - 14), (hx - 4, hy - 2)])
+            pygame.draw.polygon(base_surface, (210, 30, 30), [(hx + 6, hy + 4), (hx + 16, hy - 14), (hx + 4, hy - 2)])
+        elif equipped_player == "pixel_eyes":
+            # Blockige Pixel-Augen auf dem Spieler (bewusst nicht realistisch)
+            ex = player.centerx
+            ey = player.centery - 8
+            pygame.draw.rect(base_surface, (255, 255, 255), (ex - 14, ey - 5, 9, 9))
+            pygame.draw.rect(base_surface, (255, 255, 255), (ex + 5, ey - 5, 9, 9))
+            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 11, ey - 2, 4, 4))
+            pygame.draw.rect(base_surface, (20, 20, 25), (ex + 8, ey - 2, 4, 4))
+
         # Obstacles mit Schatten
         for obs in obstacles:
             obs_shadow = pygame.Rect(obs.x + 2, obs.y + 2, obs.width, obs.height)
@@ -9007,13 +9101,13 @@ def run_game():
         draw_ingame_achievement_banner(base_surface)
 
         # Draw all trail particles with enhanced visual effects
-        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail"]
+        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail", "electric_trail"]
                           if t in cosmetics_state.get("owned", []) and t in cosmetics_state.get("equipped", [])]
 
         for trail in equipped_trails:
             particles = {"fire_trail": fire_particles, "ice_trail": ice_particles,
                         "shadow_trail": shadow_particles, "sparkle_trail": sparkle_particles,
-                        "toxic_trail": toxic_particles}[trail]
+                        "toxic_trail": toxic_particles, "electric_trail": electric_particles}[trail]
 
             for p in particles:
                 progress = p['life'] / p['max_life']
@@ -9026,7 +9120,8 @@ def run_game():
                     "ice_trail": 1.0,
                     "shadow_trail": 0.8,
                     "sparkle_trail": 1.5,
-                    "toxic_trail": 1.1
+                    "toxic_trail": 1.1,
+                    "electric_trail": 0.9
                 }.get(trail, 1.0)
 
                 radius = max(1, int(base_size * progress * size_multiplier))
@@ -9081,6 +9176,15 @@ def run_game():
                     else:
                         color = (100, 80, 180)   # Deep purple
 
+                elif trail == "electric_trail":
+                    # Electric: white-hot core fading to deep blue
+                    if progress > 0.7:
+                        color = (225, 250, 255)  # Near-white spark
+                    elif progress > 0.4:
+                        color = (120, 220, 255)  # Bright cyan-blue
+                    else:
+                        color = (40, 130, 220)   # Fading deep blue
+
                 # Draw main particle
                 pygame.draw.circle(base_surface, color, (int(p['x']), int(p['y'])), radius)
 
@@ -9105,6 +9209,12 @@ def run_game():
                     glow_alpha = int(100 * progress)
                     glow_color = (int(color[0] * 0.5), int(color[1] * 0.5), int(color[2] * 0.5))
                     pygame.draw.circle(base_surface, glow_color, (int(p['x']), int(p['y'])), glow_radius)
+
+                elif trail == "electric_trail" and progress > 0.4:
+                    # Sparks get a short flickering jolt line
+                    jx = int(p['x'] + random.uniform(-4, 4))
+                    jy = int(p['y'] + random.uniform(-4, 4))
+                    pygame.draw.line(base_surface, (200, 240, 255), (int(p['x']), int(p['y'])), (jx, jy), 1)
 
         # Screen flash effect
         if flash_timer > 0:
