@@ -27,7 +27,7 @@ jobs:
           pip install pygame pyinstaller
 
       - name: Build game with PyInstaller
-        run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
+        run: pyinstaller --onefile --windowed --name JumpNDodge JumpNDodge.py
 
       - name: Build updater with PyInstaller
         run: pyinstaller --onefile --name updater updater.py
@@ -62,7 +62,7 @@ jobs:
           pip install pygame pyinstaller
 
       - name: Build game with PyInstaller
-        run: pyinstaller --onefile --name JumpNDodge --icon=icon.ico JumpNDodge.py
+        run: pyinstaller --onefile --windowed --name JumpNDodge --icon=icon.ico JumpNDodge.py
 
       - name: Build updater with PyInstaller
         run: pyinstaller --onefile --name updater --icon=icon.ico updater.py
