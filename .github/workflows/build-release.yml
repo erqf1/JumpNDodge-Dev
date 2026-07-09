@@ -38,6 +38,7 @@ jobs:
           cp dist/JumpNDodge release/JumpNDodge-linux/
           cp dist/updater release/JumpNDodge-linux/
           cp icon.ico release/JumpNDodge-linux/
+          echo "${GITHUB_REF_NAME#v}" > release/JumpNDodge-linux/version.txt
           chmod +x release/JumpNDodge-linux/JumpNDodge release/JumpNDodge-linux/updater
           cd release && zip -r JumpNDodge-linux.zip JumpNDodge-linux
 
@@ -73,6 +74,7 @@ jobs:
           Copy-Item dist/JumpNDodge.exe release/JumpNDodge-windows/
           Copy-Item dist/updater.exe release/JumpNDodge-windows/
           Copy-Item icon.ico release/JumpNDodge-windows/
+          ($env:GITHUB_REF_NAME -replace '^v', '') | Set-Content -Path release/JumpNDodge-windows/version.txt -NoNewline
           Compress-Archive -Path release/JumpNDodge-windows/* -DestinationPath release/JumpNDodge-windows.zip
 
       - uses: actions/upload-artifact@v4
