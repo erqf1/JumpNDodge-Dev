@@ -37,8 +37,13 @@ def check_internet(timeout=5):
 
 
 def parse_version(v):
+    """Parst 'v1.0.0' oder '1.0.0-beta' usw. Gibt ein vergleichbares Tupel zurück, das die
+    SemVer-Regel abbildet: eine Version OHNE Suffix gilt als neuer/finaler als dieselbe
+    Version MIT Suffix (z.B. "1.0.0" > "1.0.0-beta"), egal welcher Text im Suffix steht."""
     try:
-        return tuple(int(p) for p in v.strip().lstrip("v").split("."))
+        core, _, suffix = v.strip().lstrip("v").partition("-")
+        core_parts = tuple(int(p) for p in core.split("."))
+        return (core_parts, 0 if suffix else 1)
     except Exception:
         return None
 
