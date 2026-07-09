@@ -26,17 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install pygame pyinstaller
 
-      - name: Build with PyInstaller
+      - name: Build game with PyInstaller
         run: pyinstaller --onefile --name JumpNDodge JumpNDodge.py
 
-      - name: Assemble release folder (Binary + Assets nebeneinander)
+      - name: Build updater with PyInstaller
+        run: pyinstaller --onefile --name updater updater.py
+
+      - name: Assemble release folder (nur Icon + Updater + Hauptspiel, sonst nichts)
         run: |
           mkdir -p release/JumpNDodge-linux
           cp dist/JumpNDodge release/JumpNDodge-linux/
-          [ -d textures ] && cp -r textures release/JumpNDodge-linux/
-          [ -d data ] && cp -r data release/JumpNDodge-linux/
-          rm -rf release/JumpNDodge-linux/data/sound   # nicht lizenziert für Verteilung
-          chmod +x release/JumpNDodge-linux/JumpNDodge
+          cp dist/updater release/JumpNDodge-linux/
+          cp icon.ico release/JumpNDodge-linux/
+          chmod +x release/JumpNDodge-linux/JumpNDodge release/JumpNDodge-linux/updater
           cd release && zip -r JumpNDodge-linux.zip JumpNDodge-linux
 
       - uses: actions/upload-artifact@v4
@@ -58,18 +60,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install pygame pyinstaller
 
-      - name: Build with PyInstaller
+      - name: Build game with PyInstaller
         run: pyinstaller --onefile --name JumpNDodge --icon=icon.ico JumpNDodge.py
 
-      - name: Assemble release folder (Binary + Assets nebeneinander)
+      - name: Build updater with PyInstaller
+        run: pyinstaller --onefile --name updater --icon=icon.ico updater.py
+
+      - name: Assemble release folder (nur Icon + Updater + Hauptspiel, sonst nichts)
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release/JumpNDodge-windows | Out-Null
           Copy-Item dist/JumpNDodge.exe release/JumpNDodge-windows/
+          Copy-Item dist/updater.exe release/JumpNDodge-windows/
           Copy-Item icon.ico release/JumpNDodge-windows/
-          if (Test-Path textures) { Copy-Item -Recurse textures release/JumpNDodge-windows/ }
-          if (Test-Path data) { Copy-Item -Recurse data release/JumpNDodge-windows/ }
-          if (Test-Path release/JumpNDodge-windows/data/sound) { Remove-Item -Recurse -Force release/JumpNDodge-windows/data/sound }  # nicht lizenziert für Verteilung
           Compress-Archive -Path release/JumpNDodge-windows/* -DestinationPath release/JumpNDodge-windows.zip
 
       - uses: actions/upload-artifact@v4
