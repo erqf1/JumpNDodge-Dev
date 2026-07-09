@@ -218,7 +218,16 @@ hit_sound = None              # Sound bei Kollision
 gameover_sound = None         # Sound bei Game Over
 heartbeat_sound = None        # Generierter Heartbeat-Sound für Almost Dead Effekt
 menu_music_path = None        # Pfad zur Menü-Musik
-ingame_music_path = None      # Pfad zur Spiel-Musik
+ingame_music_path = None      # Pfad zur Spiel-Musik (aktuell gewählter Track)
+
+# Auswählbare Ingame-Musik-Tracks: (settings-key, Anzeige-Name, Dateiname). Wird beim Laden
+# automatisch aus allen data/sound/ingame_music_<name>.mp3 befüllt - der Dateiname IST der
+# Anzeige-Name (siehe _discover_ingame_music_tracks()). Neue Tracks einfach als
+# ingame_music_<name>.mp3 in den Sound-Ordner legen, kein Code-Change nötig.
+INGAME_MUSIC_TRACKS = []
+ingame_music_paths = {}       # track-key -> Pfad oder None (falls Datei fehlt)
+_preview_channel = None       # pygame.mixer.Channel der aktuell laufenden Vorhör-Preview
+_preview_track_key = None     # welcher Track gerade als Preview läuft (für Toggle/Icon)
 
 # Dark Mode Farbpalette für dunkles Theme
 DARK_BG = (30, 30, 40)          # Dunkler Hintergrund
@@ -607,10 +616,13 @@ def load_profile(name):
     settings        = {**default_settings,     **p.get("settings", {})}
     powers_state    = {**default_powers,       **p.get("powers", {})}
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
+    powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
         "stats": stats, "achievements": achievements, "highscores": saved_scores,
         "best_times": best_times, "settings": settings, "powers": powers_state, "cosmetics": cosmetics_state,
     })
+    if _powers_changed:
+        save_current_profile()
     global difficulty_index, current_game_mode, two_player_submode, klassik_mode
     lang = settings.get("language", "Deutsch")
     if lang in languages:
@@ -693,13 +705,31 @@ def load_encoded_file(filename, fallback=None):
 # Sound System
 # =============================
 
+def _discover_ingame_music_tracks(base_path):
+    """Findet alle ingame_music_<name>.mp3 im Sound-Ordner. <name> wird direkt als Track-Key
+    und (lesbar aufbereitet) als Anzeige-Name verwendet - z.B. ingame_music_tuff.mp3 -> Tuff."""
+    prefix, suffix = "ingame_music_", ".mp3"
+    tracks = []
+    try:
+        filenames = sorted(os.listdir(base_path))
+    except OSError:
+        filenames = []
+    for fn in filenames:
+        if fn.lower().startswith(prefix) and fn.lower().endswith(suffix):
+            name = fn[len(prefix):-len(suffix)]
+            if name:
+                display = name.replace("_", " ").title()
+                tracks.append((name, display, fn))
+    return tracks
+
+
 def load_sound_theme():
     """Lädt alle Sound-Dateien und Musik-Pfade.
 
     Sucht im 'sound'-Verzeichnis nach den erforderlichen Dateien.
     Bei Fehlern werden None-Werte gesetzt und Warnungen ausgegeben.
     """
-    global menu_click_sound, click_sound, click_back_sound, hit_sound, gameover_sound, heartbeat_sound, menu_music_path, ingame_music_path
+    global menu_click_sound, click_sound, click_back_sound, hit_sound, gameover_sound, heartbeat_sound, menu_music_path, ingame_music_path, ingame_music_paths, INGAME_MUSIC_TRACKS
     # Suche sound/ zuerst in data/, dann direkt in BASE_DIR (Fallback für alte Installs)
     base_path = os.path.join(_DATA_DIR, "sound")
     if not os.path.isdir(base_path):
@@ -750,7 +780,10 @@ def load_sound_theme():
 
     # Lade Musik-Pfade
     menu_music_path = get_path("menu_music.mp3")
-    ingame_music_path = get_path("ingame_music.mp3")
+    INGAME_MUSIC_TRACKS = _discover_ingame_music_tracks(base_path)
+    ingame_music_paths = {key: get_path(filename) for key, _label, filename in INGAME_MUSIC_TRACKS}
+    chosen_track = settings.get("ingame_music_track", "standard")
+    ingame_music_path = ingame_music_paths.get(chosen_track) or next(iter(ingame_music_paths.values()), None)
 
     # Debug-Ausgabe: Zeige geladene Sounds
     print(f"[SOUND] Geladene Sounds:")
@@ -818,7 +851,10 @@ def play_menu_music():
             print(f"[WARN] Konnte Menü-Musik nicht abspielen: {e}")
 
 def play_ingame_music():
-    """Spielt die Spiel-Musik ab."""
+    """Spielt die Spiel-Musik ab (aktuell in den Einstellungen gewählter Track)."""
+    global ingame_music_path
+    chosen_track = settings.get("ingame_music_track", "standard")
+    ingame_music_path = ingame_music_paths.get(chosen_track) or next(iter(ingame_music_paths.values()), None)
     if sound_enabled and ingame_music_path:
         try:
             pygame.mixer.music.load(ingame_music_path)
@@ -832,6 +868,43 @@ def play_ingame_music():
 def stop_music():
     """Stoppt die aktuelle Musik."""
     pygame.mixer.music.stop()
+
+
+def preview_ingame_music_track(track_key, duration_ms=5000):
+    """Spielt bis zu `duration_ms` (Standard 5s) einer Ingame-Musik-Variante zum Vorhören ab,
+    unabhängig von der eigentlichen Musik (eigener Kanal, unterbricht nicht die Menü-Musik).
+    Ein Klick auf einen anderen Track stoppt die laufende Preview sofort und startet die neue.
+    Ein Klick auf den gerade laufenden Track stoppt ihn nur (Toggle)."""
+    global _preview_channel, _preview_track_key
+    was_same = _preview_track_key == track_key
+    if _preview_channel is not None:
+        _preview_channel.stop()
+        _preview_channel = None
+        _preview_track_key = None
+        if was_same:
+            return
+
+    path = ingame_music_paths.get(track_key)
+    if not (sound_enabled and path):
+        return
+    try:
+        sound = pygame.mixer.Sound(path)
+        sound.set_volume(get_pygame_volume(settings.get("ingame_music_volume", 0.8)))
+        _preview_channel = sound.play(loops=0, maxtime=duration_ms)
+        _preview_track_key = track_key
+    except Exception as e:
+        print(f"[WARN] Konnte Musik-Vorschau nicht abspielen: {e}")
+
+
+def is_previewing_track(track_key):
+    """True während der Vorhör-Preview für `track_key` noch läuft. Räumt automatisch auf,
+    sobald die Preview von selbst ausläuft (nach duration_ms), damit die UI (Play/Stop-Icon)
+    ohne weiteren Klick wieder zurückspringt."""
+    global _preview_channel, _preview_track_key
+    if _preview_channel is not None and not _preview_channel.get_busy():
+        _preview_channel = None
+        _preview_track_key = None
+    return _preview_track_key == track_key
 
 
 def get_pygame_volume(user_volume):
@@ -1018,6 +1091,8 @@ default_settings = {
     "gameover_volume": 0.8,                   # Game-Over-Lautstärke
     "menu_music_volume": 0.8,                 # Menü-Musik-Lautstärke
     "ingame_music_volume": 0.8,               # Spiel-Musik-Lautstärke
+    "ingame_music_track": "standard",         # Gewählter Ingame-Musik-Track (siehe INGAME_MUSIC_TRACKS)
+    "show_floor_line": True,                  # Violette Boden-Linie während des Spiels
     "game_mode": "standard",                  # Aktiver Spielmodus: "standard" | "klassik" | "2player"
     "difficulty_per_mode": {                  # Gespeicherte Schwierigkeit pro Modus
         "standard": "Mittel",
@@ -1788,30 +1863,6 @@ POWERS_DB = {
             "Schwiizerdütsch": "Gitt e 5% Chance, automatisch em Hindernis usz'weiche, ohni Läbe z'verluure. Hilft bi unerwartete Kollisione."
         }
     },
-    "Vision Extension": {
-        "rarity": "Common",
-        "name": {
-            "Deutsch": "Vision Extension",
-            "English": "Vision Extension",
-            "Русский": "Расширение зрения",
-            "Türkçe": "Görüş Genişletme",
-            "Schwiizerdütsch": "Vision Extension"
-        },
-        "desc": {
-            "Deutsch": "Hindernisse 100 Pixel früher sehen",
-            "English": "See obstacles 100 pixels farther ahead",
-            "Русский": "Видеть препятствия на 100 пикселей дальше",
-            "Türkçe": "Engelleri 100 piksel daha uzaktan görmek",
-            "Schwiizerdütsch": "Hindernisse 100 Pixel früher sehe"
-        },
-        "detailed_desc": {
-            "Deutsch": "Erlaubt es, Hindernisse 100 Pixel früher zu sehen, was deutlich mehr Reaktionszeit gibt. Hilft bei schnelleren Schwierigkeiten.",
-            "English": "Allows you to see obstacles 100 pixels farther ahead, giving significantly more reaction time. Helps in faster difficulties.",
-            "Русский": "Позволяет видеть препятствия на 100 пикселей дальше, давая значительно больше времени на реакцию. Помогает в быстрых сложностях.",
-            "Türkçe": "Engelleri 100 piksel daha uzaktan görmenizi sağlar, önemli ölçüde daha fazla tepki süresi verir. Daha hızlı zorluklarda yardımcı olur.",
-            "Schwiizerdütsch": "Erlaubt dir, Hindernisse 100 Pixel früher z'sehe, was deutlich meh Reaktionsziit gitt. Hilft bi schnellere Schwierigkeite."
-        }
-    },
     # Rare
     "Double Jump": {
         "rarity": "Rare",
@@ -1898,11 +1949,11 @@ POWERS_DB = {
             "Schwiizerdütsch": "Schild"
         },
         "desc": {
-            "Deutsch": "Blockt 1 Hit alle 40s",
+            "Deutsch": "Blockt 1 Hit, CD 40s",
             "English": "Blocks 1 hit every 40s",
             "Русский": "Блокирует 1 удар каждые 40с",
             "Türkçe": "40s'de 1 vuruş bloklar",
-            "Schwiizerdütsch": "Blockt 1 Hit alle 40s"
+            "Schwiizerdütsch": "Blockt 1 Hit, CD 40s"
         },
         "detailed_desc": {
             "Deutsch": "Blockiert automatisch einen Treffer alle 40 Sekunden. Gibt dir einen kostenlosen Fehlschlag, ohne Leben zu verlieren.",
@@ -1938,30 +1989,6 @@ POWERS_DB = {
         },
         "cd": 40,
         "duration": (2, 2)
-    },
-    "Coin Booster": {
-        "rarity": "Epic",
-        "name": {
-            "Deutsch": "Coin Booster",
-            "English": "Coin Booster",
-            "Русский": "Усилитель монет",
-            "Türkçe": "Para Güçlendirici",
-            "Schwiizerdütsch": "Münze Booster"
-        },
-        "desc": {
-            "Deutsch": "+10% Coins",
-            "English": "+10% Coins",
-            "Русский": "+10% монет",
-            "Türkçe": "+10% para",
-            "Schwiizerdütsch": "+10% Münze"
-        },
-        "detailed_desc": {
-            "Deutsch": "Erhöht die Coin-Sammlung um 10%. Hilft dir, mehr Coins zu sammeln.",
-            "English": "Increases coin collection by 10%. Helps you collect more coins.",
-            "Русский": "Увеличивает сбор монет на 10%. Помогает собирать больше монет.",
-            "Türkçe": "Para toplamayı %10 artırır. Daha fazla para toplamaya yardımcı olur.",
-            "Schwiizerdütsch": "Erhöht di Münze-Sammlig um 10%. Hilft dir, meh Münze z'sammle."
-        }
     },
     # Legendary
     "Nuke": {
@@ -2067,6 +2094,28 @@ POWERS_DB = {
 # Wahrscheinlichkeiten für das Rollen von Powers verschiedener Seltenheit (gewichtete Werte)
 # Summe = 1000, also Wahrscheinlichkeiten: Common 79.5%, Rare 10%, Epic 8%, Legendary 2%, Mythic 0.5%
 RARITY_PROBS = {"Common": 795, "Rare": 100, "Epic": 80, "Legendary": 20, "Mythic": 5}
+
+
+def _strip_unknown_powers(state):
+    """Entfernt Power-Namen aus owned/equipped, die es in POWERS_DB nicht (mehr) gibt -
+    z.B. Geister-Einträge nach dem Entfernen einer Power (Coin Booster) aus alten Spielständen."""
+    changed = False
+    for key in ("owned", "equipped"):
+        lst = state.get(key)
+        if isinstance(lst, list):
+            cleaned = [name for name in lst if name in POWERS_DB]
+            if cleaned != lst:
+                state[key] = cleaned
+                changed = True
+    return state, changed
+
+
+# Bestehenden, schon geladenen powers_state direkt beim Start bereinigen und - falls sich
+# was geändert hat - einmalig zurückspeichern (POWERS_DB steht hier oben erst fest, daher
+# nicht schon bei load_section() weiter oben möglich).
+powers_state, _powers_changed = _strip_unknown_powers(powers_state)
+if _powers_changed:
+    save_section("powers", powers_state)
 
 
 
@@ -3229,15 +3278,13 @@ def draw_difficulty_select():
             ts = small_font.render(tlabel, True, (255, 255, 255) if active else get_text_color())
             base_surface.blit(ts, (tr.centerx - ts.get_width() // 2, tr.centery - ts.get_height() // 2))
 
-        # Hover-Beschreibung: ersetzt den generischen Hinweis, solange ein Modifier gehovert wird
+        # Genereller Hinweis (immer sichtbar); die Modifier-Erklärung selbst kommt jetzt als
+        # Cursor-Tooltip statt hier fix eingeblendet zu werden.
         _hint_y = toggle_y + _toggle_rows * (th + row_gap) + 4
+        hint = small_font.render("Keine Coins im Custom-Modus. Freie Bewegung: WASD.", True, (150, 150, 150) if dark else (110, 110, 110))
+        base_surface.blit(hint, (card_x, _hint_y))
         if hovered_modifier and hovered_modifier in _modifier_hover:
-            for li, tline in enumerate(_modifier_hover[hovered_modifier]):
-                ts2 = _fit_surf(small_font.render(tline, True, (100, 230, 230) if dark else (0, 110, 115)), card_w)
-                base_surface.blit(ts2, (card_x, _hint_y + li * 22))
-        else:
-            hint = small_font.render("Keine Coins im Custom-Modus. Freie Bewegung: WASD.", True, (150, 150, 150) if dark else (110, 110, 110))
-            base_surface.blit(hint, (card_x, _hint_y))
+            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos)
     else:
         for i, diff in enumerate(difficulties):
             card_y = cards_y0 + i * gap
@@ -3295,22 +3342,9 @@ def draw_difficulty_select():
             base_surface.blit(badge, (card_rect.right - badge.get_width() - 14,
                                       card_y + card_h // 2 - badge.get_height() // 2))
 
-        # Hover tooltip
-        tooltip_y = cards_y0 + len(difficulties) * gap + 4
+        # Hover tooltip - direkt neben dem Cursor statt fix unter der Kartenliste
         if hovered_diff:
-            tip_lines = _diff_hover[hovered_diff]
-            tip_w = card_w
-            tip_h = 14 + len(tip_lines) * 24
-            tip_x = card_x
-            tip_rect = pygame.Rect(tip_x, tooltip_y, tip_w, tip_h)
-            tip_col = _diff_colors[hovered_diff]
-            tip_bg = (30, 30, 35) if dark else (245, 245, 248)
-            tip_txt = (220, 220, 220) if dark else (40, 40, 40)
-            pygame.draw.rect(base_surface, tip_bg, tip_rect, border_radius=8)
-            pygame.draw.rect(base_surface, tip_col, tip_rect, width=2, border_radius=8)
-            for li, tline in enumerate(tip_lines):
-                ts = _fit_surf(small_font.render(tline, True, tip_txt), tip_w - 24)
-                base_surface.blit(ts, (tip_x + 12, tooltip_y + 8 + li * 24))
+            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, accent_color=_diff_colors[hovered_diff])
 
     # Start + Back buttons at bottom, side by side
     btn_y = HEIGHT - 54
@@ -4498,14 +4532,15 @@ def draw_settings_menu():
     val_txt = menu_font.render(f"{int(gui_scale * 100)}%", True, get_text_color())
     base_surface.blit(val_txt, (slider_cx + slider_w // 2 + 10, slider_y - val_txt.get_height() // 2))
 
-    # Hintergrund-Toggles (Sterne / Ringe / Animiert / Mono)
+    # Hintergrund-Toggles (Sterne / Ringe / Animiert / Mono / Boden)
     _bg_toggle_defs = [
         ("bg_stars",          "Sterne"),
         ("bg_rings_enabled",  "Ringe"),
         ("bg_animated",       "Animiert"),
         ("mono_bg",           "Mono"),
+        ("show_floor_line",   "Boden"),
     ]
-    _toggle_total_w = 4 * 80 + 3 * 8
+    _toggle_total_w = 5 * 80 + 4 * 8
     _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
     _toggle_y = 158
     bg_lbl = menu_font.render("Hintergrund:", True, get_text_color())
@@ -4696,6 +4731,7 @@ def draw_settings_sound_menu():
     ]
     minus_rects = []
     plus_rects = []
+    track_rects = []
     y = start_y + 2 * gap
     for label, key in volumes:
         # Label
@@ -4721,6 +4757,34 @@ def draw_settings_sound_menu():
         plus_text = menu_font.render("+", True, get_text_color())
         base_surface.blit(plus_text, (plus_rect.centerx - plus_text.get_width()//2, plus_rect.centery - plus_text.get_height()//2))
         plus_rects.append((plus_rect, key, 0.1))
+
+        # Ingame-Musik-Track-Auswahl: rechts neben der Lautstärke dieser Zeile.
+        # Anklicken wählt den Track UND spielt ihn für max. 5s zum Vorhören ab;
+        # ein anderer Track anklicken stoppt die laufende Vorschau sofort.
+        if key == "ingame_music_volume":
+            chosen_track = settings.get("ingame_music_track", "standard")
+            track_btn_w, track_btn_h, track_gap = 72, 30, 6
+            tx = start_x + 300
+            for track_key, track_label, _filename in INGAME_MUSIC_TRACKS:
+                tr = pygame.Rect(tx, y, track_btn_w, track_btn_h)
+                is_selected = (track_key == chosen_track)
+                previewing = is_previewing_track(track_key)
+                is_hovered = tr.collidepoint(mouse_pos)
+                if previewing:
+                    bg, border = (220, 160, 60), (255, 200, 100)
+                elif is_selected:
+                    bg, border = (70, 160, 90), (100, 200, 120)
+                else:
+                    bg = get_button_hover_color() if is_hovered else get_button_color()
+                    border = (180, 180, 180)
+                pygame.draw.rect(base_surface, bg, tr, border_radius=8)
+                pygame.draw.rect(base_surface, border, tr, width=2, border_radius=8)
+                txt_col = (255, 255, 255) if (is_selected or previewing) else get_text_color()
+                txt = small_font.render(track_label, True, txt_col)
+                base_surface.blit(txt, (tr.centerx - txt.get_width() // 2, tr.centery - txt.get_height() // 2))
+                track_rects.append((tr, track_key))
+                tx += track_btn_w + track_gap
+
         y += 40
 
     # Footer
@@ -4732,7 +4796,7 @@ def draw_settings_sound_menu():
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
 
     pygame.display.flip()
-    return toggle_rect, back_rect, minus_rects, plus_rects
+    return toggle_rect, back_rect, minus_rects, plus_rects, track_rects
 
 
 # Kleine Umleitungsfunktionen zur Wiederverwendung bestehender Abläufe
@@ -6776,14 +6840,73 @@ def shop_menu_loop():
 # =============================
 
 loadout_item_rects = []
-loadout_tab = 0  # 0 = owned, 1 = equipped
+loadout_tab = 0  # 0 = owned, 1 = all
 loadout_scroll = 0
 cosmetic_tab = 0  # 0 = trails, 1 = player
 cosmetic_shop_scroll = 0.0
 
+def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
+    """Zeichnet eine kleine Erklärungs-Box in der Nähe des Cursors (an den Bildschirmrand
+    geklemmt, damit sie nie abgeschnitten wird) - die einheitliche Hover-Erklärung für's
+    ganze Spiel (Powers, Schwierigkeiten, Custom-Modifier, Cosmetics, ...).
+
+    `content` ist entweder ein einzelner String (wird automatisch wortweise umgebrochen)
+    oder eine Liste/ein Tupel bereits fertiger Zeilen (wird 1:1 dargestellt, zu lange
+    Zeilen werden verkleinert statt neu umgebrochen - z.B. für die zweizeiligen
+    Schwierigkeits-Erklärungen). `accent_color` färbt optional den Rahmen ein."""
+    if not content:
+        return
+    text_color = (240, 240, 245)
+    if isinstance(content, str):
+        words = content.split(' ')
+        raw_lines = []
+        line = ''
+        for w in words:
+            test = (line + ' ' + w).strip()
+            if line and small_font.size(test)[0] > max_width - 16:
+                raw_lines.append(line)
+                line = w
+            else:
+                line = test
+        if line:
+            raw_lines.append(line)
+    else:
+        raw_lines = list(content)
+
+    line_surfs = []
+    for ln in raw_lines:
+        ls = small_font.render(ln, True, text_color)
+        if ls.get_width() > max_width - 16:
+            ls = _fit_surf(ls, max_width - 16)
+        line_surfs.append(ls)
+    if not line_surfs:
+        return
+
+    line_h = small_font.get_height() + 2
+    box_w = min(max_width, max(ls.get_width() for ls in line_surfs) + 16)
+    box_h = len(line_surfs) * line_h + 12
+    x = mouse_pos[0] + 16
+    y = mouse_pos[1] + 16
+    if x + box_w > WIDTH:
+        x = mouse_pos[0] - box_w - 16
+    if y + box_h > HEIGHT:
+        y = mouse_pos[1] - box_h - 16
+    x = max(4, min(x, WIDTH - box_w - 4))
+    y = max(4, min(y, HEIGHT - box_h - 4))
+
+    tip_surf = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    pygame.draw.rect(tip_surf, (25, 25, 35, 235), tip_surf.get_rect(), border_radius=8)
+    border_col = (*accent_color, 255) if accent_color else (150, 180, 220, 255)
+    pygame.draw.rect(tip_surf, border_col, tip_surf.get_rect(), width=2 if accent_color else 1, border_radius=8)
+    for i, ls in enumerate(line_surfs):
+        tip_surf.blit(ls, (8, 6 + i * line_h))
+    base_surface.blit(tip_surf, (x, y))
+
+
 def draw_loadout():
     global loadout_item_rects, loadout_tab, loadout_overlay
     fill_bg(rings=True)
+    mouse_pos = get_mouse_pos_logical()
     title = font.render(get_text("loadout"), True, get_text_color())
     base_surface.blit(title, (WIDTH//2 - title.get_width()//2, 20))
 
@@ -6791,99 +6914,85 @@ def draw_loadout():
     slot_txt = small_font.render(f"Slots: {len(powers_state['equipped'])}/{slots}", True, get_text_color())
     base_surface.blit(slot_txt, (20, 20))
 
-    # Tabs at top (Owned / Equipped / All) - Verbessertes Design
+    # Tabs at top (Owned / All) - der frühere "Ausgerüstet"-Tab wurde entfernt: er zeigte nur
+    # eine Teilmenge, die (mit dem ⚡-Indikator) schon in Owned/All sichtbar ist, und sein
+    # einziger Klick-Effekt war ein Neuordnen statt eines echten Unequip.
     tab_w = 150
     tab_h = 40
-    x_start = WIDTH//2 - (3 * tab_w + 2 * 8) // 2
+    x_start = WIDTH//2 - (2 * tab_w + 8) // 2
     y_tabs = 80
 
     owned_label = get_text("owned_tab")
-    equip_label = get_text("equipped_tab")
     all_label = get_text("all_tab")
 
     # Tab-Rectangles
     owned_rect = pygame.Rect(x_start, y_tabs, tab_w, tab_h)
-    equip_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
-    all_rect = pygame.Rect(x_start + 2*(tab_w + 8), y_tabs, tab_w, tab_h)
+    all_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
 
-    # Tab-Farben basierend auf Aktivität
-    tab_colors = [
-        (get_button_color(), get_button_hover_color()) if loadout_tab == 0 else (get_panel_color(), (180, 180, 180)),
-        (get_button_color(), get_button_hover_color()) if loadout_tab == 1 else (get_panel_color(), (180, 180, 180)),
-        (get_button_color(), get_button_hover_color()) if loadout_tab == 2 else (get_panel_color(), (180, 180, 180))
-    ]
-    
-    # Tabs zeichnen mit verbessertem Design
-    for i, (rect, label, (bg_color, border_color)) in enumerate([(owned_rect, owned_label, tab_colors[0]),
-                                                                (equip_rect, equip_label, tab_colors[1]),
-                                                                (all_rect, all_label, tab_colors[2])]):
-        # Hintergrund
+    # Tabs zeichnen mit Hover-Highlight
+    for i, (rect, label) in enumerate([(owned_rect, owned_label), (all_rect, all_label)]):
+        active = loadout_tab == i
+        hovered = rect.collidepoint(mouse_pos)
+        if active:
+            bg_color, border_color = get_button_color(), get_button_hover_color()
+        else:
+            bg_color = get_button_hover_color() if hovered else get_panel_color()
+            border_color = (150, 180, 220) if hovered else (180, 180, 180)
         pygame.draw.rect(base_surface, bg_color, rect, border_radius=12)
-        # Border
         pygame.draw.rect(base_surface, border_color, rect, width=2, border_radius=12)
-        # Text zentriert
         text_surf = small_font.render(label, True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
                                 rect.centery - text_surf.get_height() // 2))
 
-        # Kleine Indikatoren für Anzahl
-        if i == 0:  # Owned
-            count = len(powers_state.get("owned", []))
-            count_text = small_font.render(f"({count})", True, get_text_color())
-            base_surface.blit(count_text, (rect.right - count_text.get_width() - 8, rect.y + 4))
-        elif i == 1:  # Equipped
-            count = len(powers_state.get("equipped", []))
-            count_text = small_font.render(f"({count})", True, get_text_color())
-            base_surface.blit(count_text, (rect.right - count_text.get_width() - 8, rect.y + 4))
-        elif i == 2:  # All
-            count = len(POWERS_LIST)
-            count_text = small_font.render(f"({count})", True, get_text_color())
-            base_surface.blit(count_text, (rect.right - count_text.get_width() - 8, rect.y + 4))
+        # Kleiner Indikator für Anzahl
+        count = len(powers_state.get("owned", [])) if i == 0 else len(POWERS_LIST)
+        count_text = small_font.render(f"({count})", True, get_text_color())
+        base_surface.blit(count_text, (rect.right - count_text.get_width() - 8, rect.y + 4))
 
     info = small_font.render(get_text("click_equip"), True, get_text_color())
     base_surface.blit(info, (WIDTH//2 - info.get_width()//2, HEIGHT-40))
 
     y = 140 - loadout_scroll
     loadout_item_rects = []
-    # Choose items based on tab:
+    # Choose items based on tab: 0 = Owned, 1 = All
     if loadout_tab == 0:
         items = powers_state.get("owned", [])
-    elif loadout_tab == 1:
-        items = powers_state.get("equipped", [])
     else:
-        # All powers (stable list)
         items = POWERS_LIST
 
     if not items:
         msg = small_font.render(get_text("no_owned"), True, DARK_GRAY)
         base_surface.blit(msg, (100, y))
 
+    hovered_name = None
     for idx, name in enumerate(items):
         rar = POWERS_DB.get(name, {}).get("rarity", "?")
         color = rarity_colors.get(rar, GRAY)
         rect = pygame.Rect(100, y, 600, 40)
+        row_hovered = rect.collidepoint(mouse_pos)
+        if row_hovered:
+            hovered_name = name
 
         # Verbessertes Design für Power-Einträge
         owned = name in powers_state.get("owned", [])
         equipped = name in powers_state.get("equipped", [])
 
         # Hintergrund basierend auf Status
-        if loadout_tab == 2 and not owned:  # Locked in All tab
+        if loadout_tab == 1 and not owned:  # Locked in All tab
             bg_color = get_panel_color()
             border_color = (200, 200, 200)
-        elif equipped:  # Equipped
+        elif equipped:  # Equipped (wird in Owned wie All angezeigt)
             bg_color = get_button_hover_color()
             border_color = (100, 200, 100)
-        elif loadout_tab == 1:  # Equipped tab
-            bg_color = get_bg_color()
-            border_color = (150, 200, 150)
         else:  # Normal
             bg_color = get_panel_color()
             border_color = (200, 200, 200)
+        if row_hovered:
+            border_color = (150, 180, 220)
 
         # Hintergrund zeichnen
         pygame.draw.rect(base_surface, bg_color, rect, border_radius=8)
-        pygame.draw.rect(base_surface, border_color, rect, width=1, border_radius=8)
+        pygame.draw.rect(base_surface, border_color, rect, width=2 if row_hovered else 1, border_radius=8)
 
         # Seltenheits-Indikator (größer und schöner)
         rarity_rect = pygame.Rect(105, y + 5, 30, 30)
@@ -6893,7 +7002,7 @@ def draw_loadout():
         # Power-Name und Status
         translated_name = get_power_name(name)
         label = translated_name
-        if loadout_tab == 2 and not owned:
+        if loadout_tab == 1 and not owned:
             label += f" 🔒 {get_text('locked')}"
         elif equipped:
             label += f" ⚡ {get_text('equipped')}"
@@ -6906,14 +7015,21 @@ def draw_loadout():
         rarity_text = small_font.render(f"[{rar}]", True, get_text_color())
         base_surface.blit(rarity_text, (145, y + 22))
 
-        # Beschreibung (falls verfügbar)
+        # Beschreibung (falls verfügbar) - im All-Tab direkt in der Zeile sichtbar,
+        # im Owned-Tab reicht der Platz nicht, dafür gibt's die Hover-Tooltip weiter unten
         desc = get_power_desc(name)
-        if desc and loadout_tab == 2:  # Nur im All-Tab anzeigen
+        if desc and loadout_tab == 1:
             desc_text = small_font.render(desc, True, get_text_color())
             base_surface.blit(desc_text, (300, y + 15))
 
         loadout_item_rects.append((rect, name))
         y += 45
+
+    # Hover-Tooltip mit der Kurzbeschreibung - v.a. im Owned-Tab nützlich (wo die
+    # Beschreibung nicht direkt in der Zeile steht); im All-Tab steht sie schon in der
+    # Zeile, dort würde der Tooltip sie nur redundant verdoppeln.
+    if hovered_name and not (loadout_tab == 1 and get_power_desc(hovered_name)):
+        draw_hover_tooltip(get_power_desc(hovered_name), mouse_pos)
 
     # If an overlay (power detail) is active, draw it
     if 'loadout_overlay' in globals() and loadout_overlay:
@@ -7027,7 +7143,7 @@ def loadout_loop():
                         in_loadout = False
                         in_menu = True
                 elif event.key == pygame.K_TAB:
-                    loadout_tab = (loadout_tab + 1) % 3
+                    loadout_tab = (loadout_tab + 1) % 2
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     # Close overlay on ENTER/SPACE
                     if loadout_overlay:
@@ -7036,27 +7152,21 @@ def loadout_loop():
                 adjust_loadout_scroll(-event.y * 30)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Only left click
                 mx, my = get_mouse_pos_logical()
-                # Tab clicks - Angepasst an neues Design
+                # Tab clicks - Owned / All
                 tab_w = 150
                 tab_h = 40
-                x_start = WIDTH//2 - (3 * tab_w + 2 * 8) // 2
+                x_start = WIDTH//2 - (2 * tab_w + 8) // 2
                 y_tabs = 80
                 owned_rect = pygame.Rect(x_start, y_tabs, tab_w, tab_h)
-                equip_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
-                all_rect = pygame.Rect(x_start + 2*(tab_w + 8), y_tabs, tab_w, tab_h)
+                all_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
                 if owned_rect.collidepoint((mx,my)):
                     play_sound(click_sound, "click_volume")
                     loadout_tab = 0
                     loadout_overlay = None
                     continue
-                if equip_rect.collidepoint((mx,my)):
-                    play_sound(click_sound)
-                    loadout_tab = 1
-                    loadout_overlay = None
-                    continue
                 if all_rect.collidepoint((mx,my)):
                     play_sound(click_sound)
-                    loadout_tab = 2
+                    loadout_tab = 1
                     loadout_overlay = None
                     continue
 
@@ -7069,42 +7179,31 @@ def loadout_loop():
                     if rect.collidepoint((mx,my)):
                         play_sound(click_sound)
                         # If in All tab: show details popup
-                        if loadout_tab == 2:
+                        if loadout_tab == 1:
                             desc = get_power_desc(name, detailed=True)
                             rar = POWERS_DB.get(name, {}).get('rarity', '?')
                             loadout_overlay = {'name': name, 'desc': desc, 'rarity': rar}
                             break
-                        # Existing behavior preserved for Owned/Equipped tabs
-                        if loadout_tab == 0:
-                            if name == "Extra Slot":
-                                push_overlay("Extra Slot ist passiv und kann nicht ausgerüstet werden", (180, 80, 80))
-                                continue
-                            if name in powers_state["equipped"]:
-                                push_overlay(f"{name} bereits ausgerüstet", (120,120,120))
+                        # Owned tab: equip (with auto-swap if slots are full)
+                        if name == "Extra Slot":
+                            push_overlay("Extra Slot ist passiv und kann nicht ausgerüstet werden", (180, 80, 80))
+                            continue
+                        if name in powers_state["equipped"]:
+                            push_overlay(f"{name} bereits ausgerüstet", (120,120,120))
+                        else:
+                            if len(powers_state["equipped"]) < get_max_slots():
+                                powers_state["equipped"].append(name)
+                                push_overlay(f"Equipped: {get_power_name(name)}", (80,160,80))
                             else:
-                                if len(powers_state["equipped"]) < get_max_slots():
+                                # Auto-swap oldest
+                                if powers_state["equipped"]:
+                                    dropped = powers_state["equipped"].pop(0)
+                                    powers_state["equipped"].append(name)
+                                    push_overlay(f"Auto-Swap: {get_power_name(dropped)} → {get_power_name(name)}", (180,140,20))
+                                else:
                                     powers_state["equipped"].append(name)
                                     push_overlay(f"Equipped: {get_power_name(name)}", (80,160,80))
-                                else:
-                                    # Auto-swap oldest
-                                    if powers_state["equipped"]:
-                                        dropped = powers_state["equipped"].pop(0)
-                                        powers_state["equipped"].append(name)
-                                        push_overlay(f"Auto-Swap: {get_power_name(dropped)} → {get_power_name(name)}", (180,140,20))
-                                    else:
-                                        powers_state["equipped"].append(name)
-                                        push_overlay(f"Equipped: {get_power_name(name)}", (80,160,80))
-                            save_section("powers", powers_state)
-                        else:
-                            if name == "Extra Slot":
-                                push_overlay("Extra Slot ist passiv und bleibt dauerhaft aktiv", (180, 80, 80))
-                                continue
-                            # in equipped tab — let click move it to end (refresh) rather than unequip
-                            if name in powers_state["equipped"]:
-                                powers_state["equipped"].remove(name)
-                                powers_state["equipped"].append(name)
-                                save_section("powers", powers_state)
-                                push_overlay(f"{get_power_name(name)} -> newest slot", (120,160,200))
+                        save_section("powers", powers_state)
                         break
 
 
@@ -7710,7 +7809,7 @@ def show_1up_text_overlay(player_rect=None):
 
 # Compute coins on game over
 
-def compute_coins(score, difficulty, survived_seconds, booster_active=False):
+def compute_coins(score, difficulty, survived_seconds):
     if klassik_mode:
         return 0
     if survived_seconds < min_survive_seconds_for_coins:
@@ -7719,8 +7818,6 @@ def compute_coins(score, difficulty, survived_seconds, booster_active=False):
         return 0
     ratio = coin_rules[difficulty]
     coins = math.ceil(score / ratio) if isinstance(ratio, float) else score // ratio
-    if booster_active:
-        coins = int(round(coins * 1.10))  # +10%
     return coins
 
 
@@ -7733,9 +7830,7 @@ class RuntimePowers:
         self.double_jump = "Double Jump" in self.equipped
         self.slow_motion = "Slow Motion" in self.equipped
         self.shield = "Shield" in self.equipped
-        self.booster = "Coin Booster" in self.equipped
         self.auto_dodge = "Auto Dodge" in self.equipped
-        self.vision_extension = "Vision Extension" in self.equipped
         self.phoenix = "Phoenix" in self.equipped
         # cooldown tracking (ms)
         self.timers = {name: 0 for name in self.equipped}
@@ -7955,7 +8050,7 @@ def _run_pause_menu(frozen=None):
 # Main game loop per run
 
 def run_game():
-    global stats, flash_timer, modded_scores, modded_stats
+    global stats, flash_timer, modded_scores, modded_stats, game_running, in_menu
     clock = pygame.time.Clock()
     if current_game_mode == "custom":
         difficulty = "Custom"
@@ -8213,6 +8308,14 @@ def run_game():
             flash_timer -= dt
         fill_bg(rings=True)
 
+        # Violette Boden-Linie auf Höhe der tatsächlichen Boden-Physik (HEIGHT - 50, siehe
+        # Landing-Klemme weiter unten) - abschaltbar in den Einstellungen, im Free-Roam-
+        # Modifier ohnehin ausgeblendet (da gibt's keinen festen Boden).
+        if settings.get("show_floor_line", True) and not free_roam_enabled:
+            floor_line_y = HEIGHT - 48
+            pygame.draw.line(base_surface, (60, 30, 110), (0, floor_line_y - 1), (WIDTH, floor_line_y - 1), 1)
+            pygame.draw.line(base_surface, (140, 80, 220), (0, floor_line_y), (WIDTH, floor_line_y), 2)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -8419,7 +8522,7 @@ def run_game():
             oneup_chance = 0.015 * (1.15 if "Medic" in rp.equipped else 1.0)
             if difficulty == "Custom" and not settings.get("custom_oneups", True):
                 oneup_chance = 0.0
-            spawn_x = WIDTH + (100 if rp.vision_extension else 0)
+            spawn_x = WIDTH
             if random.random() < oneup_chance:
                 powerups.append(pygame.Rect(spawn_x, HEIGHT - 100, 50, 50))
             elif free_roam_enabled:
@@ -8448,7 +8551,8 @@ def run_game():
 
         # Move & score
         for obs in obstacles[:]:
-            if obs.dir_x is not None or obs.dir_y is not None:
+            is_free_roam_obs = obs.dir_x is not None or obs.dir_y is not None
+            if is_free_roam_obs:
                 # Free-Roam-Hindernis: feste Richtung von einer zufälligen Kante,
                 # current_speed ist während Time Freeze bereits 0 (rp.speed_multiplier())
                 obs.x += obs.dir_x * current_speed
@@ -8462,7 +8566,16 @@ def run_game():
                 obs.x -= current_speed
                 if wind_h_enabled and rp.freeze_remaining == 0:
                     obs.x += wind_h_strength * 3.5  # horizontaler Wind wirkt auf Boden-Hindernisse (horizontale Bewegung)
-            if obs.right < 0 or obs.left > WIDTH or obs.bottom < 0 or obs.top > HEIGHT:
+            # Normale Boden-Hindernisse bewegen sich nur nach links, daher reicht "links raus".
+            # "obs.left > WIDTH" NICHT für sie prüfen: eine Power, die sie weiter rechts als
+            # WIDTH spawnen lässt (z.B. für mehr Vorwarnzeit), würde sie sonst im allerersten
+            # Frame nach dem Spawnen sofort wieder löschen, bevor sie je sichtbar werden.
+            # Free-Roam-Hindernisse können sich in jede Richtung bewegen, brauchen alle 4 Kanten.
+            if is_free_roam_obs:
+                off_screen = obs.right < 0 or obs.left > WIDTH or obs.bottom < 0 or obs.top > HEIGHT
+            else:
+                off_screen = obs.right < 0
+            if off_screen:
                 obstacles.remove(obs)
                 score += 1
                 ctx["score"] = score
@@ -8552,7 +8665,7 @@ def run_game():
                         final_score_display = score
 
                         # Coins calc
-                        gained = compute_coins(score, difficulty, round_duration, booster_active=rp.booster)
+                        gained = compute_coins(score, difficulty, round_duration)
                         # Recovery: +3 coins if survived required time on hard+ difficulties
                         if "Recovery" in rp.equipped:
                             if difficulty in ["Schwer", "Hardcore", "Unmöglich", "Dynamisch"]:
@@ -8639,7 +8752,7 @@ def run_game():
                         end_time = time.time()
                         round_duration = end_time - round_start_time
                         final_score_display = score
-                        gained = compute_coins(score, difficulty, round_duration, booster_active=rp.booster)
+                        gained = compute_coins(score, difficulty, round_duration)
                         if "Recovery" in rp.equipped:
                             if difficulty in ["Schwer", "Hardcore", "Unmöglich", "Dynamisch"]:
                                 required_time = 15 if difficulty == "Schwer" else 10
@@ -10087,8 +10200,9 @@ while True:
                     _bg_toggle_defs = [
                         ("bg_stars", True), ("bg_rings_enabled", True),
                         ("bg_animated", True), ("mono_bg", False),
+                        ("show_floor_line", True),
                     ]
-                    _toggle_total_w = 4 * 80 + 3 * 8
+                    _toggle_total_w = 5 * 80 + 4 * 8
                     _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
                     _toggle_y = 155
                     _hit_toggle = False
@@ -10242,7 +10356,7 @@ while True:
         clock.tick(60)
 
     elif in_settings_sound_menu:
-        toggle_rect, back_rect, minus_rects, plus_rects = draw_settings_sound_menu()
+        toggle_rect, back_rect, minus_rects, plus_rects, track_rects = draw_settings_sound_menu()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -10258,6 +10372,7 @@ while True:
                     play_sound(click_back_sound, "click_volume")
                     back_to_settings_from_sound()
                 else:
+                    clicked = False
                     for rect, key, delta in minus_rects + plus_rects:
                         if rect.collidepoint(mouse_pos):
                             play_sound(click_sound, "click_volume")
@@ -10275,7 +10390,15 @@ while True:
                                 adjust_menu_music_volume(delta)
                             elif key == "ingame_music_volume":
                                 adjust_ingame_music_volume(delta)
+                            clicked = True
                             break
+                    if not clicked:
+                        for rect, track_key in track_rects:
+                            if rect.collidepoint(mouse_pos):
+                                settings["ingame_music_track"] = track_key
+                                save_section("settings", settings)
+                                preview_ingame_music_track(track_key)
+                                break
         clock.tick(60)
 
     elif in_help:
