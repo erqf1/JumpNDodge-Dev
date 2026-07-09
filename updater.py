@@ -10,7 +10,7 @@ import urllib.request
 import urllib.error
 
 # ================== CONFIG ==================
-RELEASES_REPO = "erqf1/JumpNDodge"
+RELEASES_REPO = "erqf1/JumpNDodge-Archive"
 API_RELEASES = f"https://api.github.com/repos/{RELEASES_REPO}/releases"
 VERSION_FILE = "version.txt"
 IS_WINDOWS = platform.system() == "Windows"
