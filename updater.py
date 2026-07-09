@@ -11,7 +11,7 @@ import urllib.error
 
 # ================== CONFIG ==================
 RELEASES_REPO = "erqf1/JumpNDodge"
-API_LATEST = f"https://api.github.com/repos/{RELEASES_REPO}/releases/latest"
+API_RELEASES = f"https://api.github.com/repos/{RELEASES_REPO}/releases"
 VERSION_FILE = "version.txt"
 IS_WINDOWS = platform.system() == "Windows"
 APP_EXE = "JumpNDodge.exe" if IS_WINDOWS else "JumpNDodge"
@@ -61,12 +61,20 @@ def read_local_version(path):
 
 
 def fetch_latest_release():
+    """Holt die neueste Release mit einem echten Versions-Tag. Nutzt bewusst die volle
+    Releases-Liste statt /releases/latest, da GitHubs "Latest"-Slot auch von anderen
+    Releases belegt sein kann, die keine Spielversion sind (z.B. der dauerhafte
+    "installer"-Release) - solche werden hier einfach übersprungen."""
     req = urllib.request.Request(
-        API_LATEST,
+        API_RELEASES,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "JumpNDodge-Updater"},
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        releases = json.loads(resp.read().decode("utf-8"))
+    for release in releases:
+        if parse_version(release.get("tag_name", "")) is not None:
+            return release
+    return None
 
 
 def find_asset_url(release_json):
@@ -153,6 +161,11 @@ def main():
         release = fetch_latest_release()
     except Exception as e:
         log(f"Konnte GitHub-Version nicht abrufen: {e}")
+        launch_app(app_dir)
+        return
+
+    if release is None:
+        log("Keine gültige Versions-Release auf GitHub gefunden -> breche Update ab")
         launch_app(app_dir)
         return
 
