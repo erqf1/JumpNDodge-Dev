@@ -103,7 +103,7 @@ jobs:
       - name: Create GitHub Release (im öffentlichen Releases-Repo)
         uses: softprops/action-gh-release@v2
         with:
-          repository: erqf1/JumpNDodge-Releases
+          repository: erqf1/JumpNDodge
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}
           files: |
