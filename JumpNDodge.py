@@ -61,8 +61,14 @@ def get_mouse_pos_logical():
     Returns:
         tuple: (lx, ly) - Logische x,y Koordinaten
     """
+    global _last_mouse_phys_pos, _kb_nav_active
     try:
         mx, my = pygame.mouse.get_pos()  # Physikalische Mausposition
+        # Echte Mausbewegung schaltet den (nur per Tastendruck aktivierten) Fokus-Ring
+        # wieder aus - man ist dann wieder "in der Maus", bis erneut eine Pfeiltaste kommt.
+        if _last_mouse_phys_pos is not None and (mx, my) != _last_mouse_phys_pos:
+            _kb_nav_active = False
+        _last_mouse_phys_pos = (mx, my)
         lx = int((mx - offset_x) / scale_x)  # Umrechnung in logische x-Koordinate
         ly = int((my - offset_y) / scale_y)  # Umrechnung in logische y-Koordinate
         return (lx, ly)
@@ -142,6 +148,7 @@ _gui_scale_dragging = False
 _custom_speed_dragging = False
 _custom_min_delay_dragging = False
 _custom_max_delay_dragging = False
+_ds_slider_edit = None  # Index (0/1/2) des per Tastatur "aktivierten" Custom-Sliders, sonst None
 
 def draw_bg_effects(surface, w, h, show_rings=True):
     """Animierte Sterne (Herzschlag-Puls) und optional pulsierende/driftende Ringe."""
@@ -1260,7 +1267,7 @@ texts = {
         "sparkle_trail": "Funkelspur",
         "toxic_trail": "Giftspur",
         "start": "Start", "language": "Sprache", "difficulty": "Schwierigkeit",
-        "game_over": "Spiel vorbei!", "retry": "R: Neustart | ESC: Beenden",
+        "game_over": "Spiel vorbei!", "retry": "Neustart",
         "score": "Punkte", "lives": "Leben", "highscore": "Rekord", "stats": "Statistiken",
         "back": "Zurück", "stat_highscores": "Highscores", "stat_achievements": "Erfolge", "stat_total": "Gesamt", "stat_modded": "Modded",
         "no_achievements": "Noch keine Erfolge freigeschaltet.", "total_time": "Gesamte Spielzeit",
@@ -1309,7 +1316,7 @@ texts = {
         "sparkle_trail": "Sparkle Trail",
         "toxic_trail": "Toxic Trail",
         "start": "Start", "language": "Language", "difficulty": "Difficulty",
-        "game_over": "Game Over!", "retry": "R: Retry | ESC: Quit",
+        "game_over": "Game Over!", "retry": "Retry",
         "score": "Score", "lives": "Lives", "highscore": "Highscore", "stats": "Statistics",
         "back": "Back", "stat_highscores": "Highscores", "stat_achievements": "Achievements", "stat_total": "Overall", "stat_modded": "Modded",
         "no_achievements": "No achievements unlocked yet.", "total_time": "Total Time Played",
@@ -1360,7 +1367,7 @@ texts = {
         "sparkle_trail": "искрящийся след",
         "toxic_trail": "токсичный след",
         "start": "Старт", "language": "Язык", "difficulty": "Сложность",
-        "game_over": "Конец игры!", "retry": "R: Повтор | ESC: Выйти",
+        "game_over": "Конец игры!", "retry": "Повтор",
         "score": "Очки", "lives": "Жизни", "highscore": "Рекорд", "stats": "Статистика",
         "back": "Назад", "stat_highscores": "Рекорды", "stat_achievements": "Достижения", "stat_total": "Всего", "stat_modded": "Modded",
         "no_achievements": "Нет достижений.", "total_time": "Общее время",
@@ -1411,7 +1418,7 @@ texts = {
         "sparkle_trail": "Parıltı İz",
         "toxic_trail": "Toksik İz",
         "start": "Başlat", "language": "Dil", "difficulty": "Zorluk",
-        "game_over": "Oyun Bitti!", "retry": "R: Tekrar | ESC: Çıkış",
+        "game_over": "Oyun Bitti!", "retry": "Tekrar",
         "score": "Skor", "lives": "Can", "highscore": "Rekor", "stats": "İstatistik",
         "back": "Geri", "stat_highscores": "Rekorlar", "stat_achievements": "Başarılar", "stat_total": "Toplam", "stat_modded": "Modded",
         "no_achievements": "Henüz başarı yok.", "total_time": "Toplam Süre",
@@ -1462,7 +1469,7 @@ texts = {
         "sparkle_trail": "Funkle Spur",
         "toxic_trail": "Gift Spur",
         "start": "Start", "language": "Sproch", "difficulty": "Schwierigkeit",
-        "game_over": "Fertig!", "retry": "R: Nomol | ESC: Usstieg",
+        "game_over": "Fertig!", "retry": "Nomol",
         "score": "Punkt", "lives": "Läbe", "highscore": "Rekord", "stats": "Statistik",
         "back": "Zrugg", "stat_highscores": "Rekord", "stat_achievements": "Erfolg", "stat_total": "Total", "stat_modded": "Modded",
         "no_achievements": "Kei Erfolg bis jetzt.", "total_time": "Ziit gspiilt",
@@ -1784,6 +1791,98 @@ def any_action_pressed(keys, action):
 
 def action_matches_key(event_key, action):
     return event_key in get_keybindings().get(action, [])
+
+# =============================
+# Menu Navigation (WASD/Pfeile, Space/Enter, Backspace/Esc/CapsLock)
+# =============================
+# Fixe UI-Konvention, bewusst NICHT in _DEFAULT_KB (draw_controls_menu() iteriert
+# _DEFAULT_KB.keys() fürs Rebind-UI - alles dort würde umbindbar, auch die Fähigkeit
+# selbst, Menüs überhaupt zu navigieren).
+
+_NAV_UP, _NAV_DOWN   = (pygame.K_UP, pygame.K_w), (pygame.K_DOWN, pygame.K_s)
+_NAV_LEFT, _NAV_RIGHT = (pygame.K_LEFT, pygame.K_a), (pygame.K_RIGHT, pygame.K_d)
+_NAV_CONFIRM_KEYS = (pygame.K_SPACE, pygame.K_RETURN)
+_NAV_BACK_KEYS    = (pygame.K_ESCAPE, pygame.K_CAPSLOCK)   # + Backspace, bedingt (siehe is_back_key)
+
+_nav_focus = {}   # screen_id (str) -> int Fokusindex; lazy befüllt, kein expliziter Reset
+
+# Fokus-Ring nur sichtbar, nachdem tatsächlich eine Pfeil-/WASD-Taste gedrückt wurde ("man ist
+# in der Tastatur"); jede echte Mausbewegung (siehe get_mouse_pos_logical) schaltet ihn wieder
+# aus, sodass Maus und Tastatur sich nicht gegenseitig ins Gehege kommen.
+_kb_nav_active = False
+_last_mouse_phys_pos = None
+
+def nav_direction(key):
+    d = None
+    if key in _NAV_UP: d = "up"
+    elif key in _NAV_DOWN: d = "down"
+    elif key in _NAV_LEFT: d = "left"
+    elif key in _NAV_RIGHT: d = "right"
+    if d is not None:
+        global _kb_nav_active
+        _kb_nav_active = True
+    return d
+
+def is_nav_confirm(key):
+    return key in _NAV_CONFIRM_KEYS
+
+def is_back_key(key, allow_backspace=True):
+    """allow_backspace=False an Stellen, wo Backspace bereits ein Zeichen in
+    einem aktiven Textfeld löscht (Profilname, Mods-Menü-Textedit)."""
+    if key in _NAV_BACK_KEYS:
+        return True
+    return allow_backspace and key == pygame.K_BACKSPACE
+
+def nav_get_focus(screen_id, count, default_idx=0):
+    if count <= 0:
+        return None
+    idx = _nav_focus.get(screen_id, default_idx)
+    return idx if 0 <= idx < count else default_idx
+
+def nav_set_focus(screen_id, idx):
+    _nav_focus[screen_id] = idx
+
+def nav_is_focused(screen_id, idx, count, default_idx=0):
+    if not _kb_nav_active:
+        return False
+    return nav_get_focus(screen_id, count, default_idx) == idx
+
+def nav_move(rects, current_idx, direction, lateral_weight=2.5):
+    """Geometrische Nearest-Neighbour-Fokusbewegung. Ein Codepfad für Listen
+    UND Grids: eine einspaltige Liste hat bei 'down' keine lateralen Kandidaten
+    und reduziert sich automatisch auf next-in-list; ein mehrspaltiges Grid nach
+    rechts findet die nächste Karte rechts. Kein Wrap-Around: am Ende einer
+    Liste ist z.B. 'down' ein No-op statt Sprung nach oben (Layouts hier mischen
+    Spalten/Zeilen/freistehende Buttons auf demselben Screen, "wrap" hätte keine
+    einheitliche Bedeutung)."""
+    if not rects:
+        return current_idx
+    if current_idx is None or not (0 <= current_idx < len(rects)):
+        return 0
+    cx, cy = rects[current_idx].center
+    best_i, best_score = None, None
+    for i, r in enumerate(rects):
+        if i == current_idx:
+            continue
+        dx, dy = r.centerx - cx, r.centery - cy
+        if   direction == "right" and dx > 0: primary, lateral = dx, dy
+        elif direction == "left"  and dx < 0: primary, lateral = -dx, dy
+        elif direction == "down"  and dy > 0: primary, lateral = dy, dx
+        elif direction == "up"    and dy < 0: primary, lateral = -dy, dx
+        else: continue
+        score = primary + lateral_weight * abs(lateral)
+        if best_score is None or score < best_score:
+            best_score, best_i = score, i
+    return best_i if best_i is not None else current_idx
+
+def nav_reveal_delta(rect, fade_top, fade_bottom):
+    """Für scrollbare Screens: wie viele Pixel ein Scroll-Offset sich ändern
+    muss, damit `rect` (an der aktuellen Scroll-Position berechnet) vollständig
+    sichtbar wird. Aufrufer addiert das auf die eigene Scroll-Variable und
+    clampt genauso wie der bestehende Scrollbar-Code (0, wenn schon sichtbar)."""
+    if rect.top < fade_top: return rect.top - fade_top
+    if rect.bottom > fade_bottom: return rect.bottom - fade_bottom
+    return 0
 
 # Coins rules from your spec (mapping Hard=Schwer)
 coin_rules = {
@@ -2386,9 +2485,10 @@ def switch_difficulty():
 
 def start_game():
     play_sound(menu_click_sound)
-    global in_menu, in_difficulty_select
+    global in_menu, in_difficulty_select, _ds_slider_edit
     in_menu = False
     in_difficulty_select = True
+    _ds_slider_edit = None
 
 
 def actually_start_game():
@@ -2654,6 +2754,9 @@ def draw_menu():
         btn.rect.x = bx
         btn.rect.y = 155 + i * 56
 
+    _menu_has_mods  = len(mod_system.mods) > 0
+    _menu_nav_total = len(buttons) + (1 if _menu_has_mods else 0) + 1  # + Mods-Button (bedingt) + Daily-Reward
+
     # Schöner Gradient-Hintergrund
     fill_bg(rings=True)
 
@@ -2682,8 +2785,8 @@ def draw_menu():
     # Buttons mit verbessertem Design
     for i, button in enumerate(buttons):
         # Hover-Effekt
-        is_hovered = button.rect.collidepoint(mouse_pos)
-        
+        is_hovered = button.rect.collidepoint(mouse_pos) or nav_is_focused("menu", i, _menu_nav_total)
+
         # Button-Hintergrund mit Gradient-Effekt
         if is_hovered:
             # Hover-Farbe
@@ -2702,11 +2805,11 @@ def draw_menu():
         # Icons entfernt - werden nicht korrekt angezeigt
     
     # Mods Button (only shown when at least one mod is loaded)
-    if len(mod_system.mods) > 0:
+    if _menu_has_mods:
         _mc = mod_system.get_active_count()
         _mb_label = f"Mods ({_mc})" if _mc > 0 else "Mods"
         mods_btn_rect = pygame.Rect(20, HEIGHT - 56, 130, 36)
-        _mb_hovered   = mods_btn_rect.collidepoint(mouse_pos)
+        _mb_hovered   = mods_btn_rect.collidepoint(mouse_pos) or nav_is_focused("menu", len(buttons), _menu_nav_total)
         _mb_bg  = (80, 60, 200) if _mb_hovered else (60, 40, 160)
         _mb_brd = (180, 160, 255) if _mb_hovered else (100, 80, 200)
         pygame.draw.rect(base_surface, _mb_bg,  mods_btn_rect, border_radius=10)
@@ -2717,8 +2820,9 @@ def draw_menu():
 
     # Daily Rewards Button in der oberen rechten Ecke
     daily_reward_rect = pygame.Rect(WIDTH - 200, 15, 180, 40)
-    is_hovered = daily_reward_rect.collidepoint(mouse_pos)
-    
+    _daily_idx = len(buttons) + (1 if _menu_has_mods else 0)
+    is_hovered = daily_reward_rect.collidepoint(mouse_pos) or nav_is_focused("menu", _daily_idx, _menu_nav_total)
+
     if is_hovered:
         pygame.draw.rect(base_surface, (255, 215, 0), daily_reward_rect, border_radius=8)
         pygame.draw.rect(base_surface, (200, 150, 0), daily_reward_rect, width=2, border_radius=8)
@@ -2816,6 +2920,8 @@ def draw_mods_menu():
         # --- Card background ---
         card_rect = pygame.Rect(0, y, CARD_W, card_h)
         if card_rect.bottom < 0 or card_rect.top > visible_h:
+            # Off-screen Karten werden nicht in hit_rects aufgenommen -> per Tastatur aktuell
+            # nicht erreichbar, bis reingescrollt wurde (Mausrad funktioniert weiterhin).
             y += card_h + CARD_MARGIN
             continue
 
@@ -2951,6 +3057,15 @@ def draw_mods_menu():
     total_h = y + _mods_scroll
     base_surface.blit(clip_surf, (CARD_X, content_top))
 
+    # Tastatur-Fokus-Rahmen (einheitlicher Overlay-Pass für alle Controls + Back;
+    # nur für aktuell sichtbare/registrierte hit_rects, siehe Kommentar bei "continue" oben)
+    _mods_nav_total = len(hit_rects) + 1
+    for _hi, (_ha, _hd, _hr) in enumerate(hit_rects):
+        if nav_is_focused("mods_menu", _hi, _mods_nav_total):
+            pygame.draw.rect(base_surface, (255, 255, 255), _hr, width=2, border_radius=4)
+    if nav_is_focused("mods_menu", len(hit_rects), _mods_nav_total):
+        pygame.draw.rect(base_surface, (255, 255, 255), back_rect, width=2, border_radius=10)
+
     # ---- Scrollbar ----
     if total_h > visible_h:
         sb_x    = WIDTH - 10
@@ -2995,7 +3110,7 @@ def _load_mod_settings():
 
 
 def _mods_handle_click(action, data):
-    """Process a click in the mods menu and save afterwards."""
+    """Process a click (or keyboard-confirm) in the mods menu and save afterwards."""
     global _mods_edit, _mods_edit_text
 
     if action == 'toggle_mod':
@@ -3114,6 +3229,13 @@ def draw_difficulty_select():
 
     dark = is_dark_mode()
 
+    # Fokus-Reihenfolge: Sidebar-Tabs (+Co-op/VS falls 2-Player) -> Hauptbereich (Slider+Toggles/Karten) -> Start, Back
+    _ds_sidebar_count = 4 + (2 if current_game_mode == "2player" else 0)
+    _ds_main_count = 8 if current_game_mode == "custom" else len(difficulties)  # 3 Slider + 5 Toggle
+    _ds_total = _ds_sidebar_count + _ds_main_count + 2
+    _ds_start_idx = _ds_sidebar_count + _ds_main_count
+    _ds_back_idx = _ds_start_idx + 1
+
     # Hintergrund: Menü-BG weiterhin sichtbar
     fill_bg(rings=True)
 
@@ -3144,10 +3266,11 @@ def draw_difficulty_select():
     _c_bg = _custom_accent if _c_active else ((35, 35, 50) if dark else (200, 205, 220))
     _c_brd = (100, 230, 230) if _c_active else ((80, 80, 100) if dark else (150, 155, 175))
     _c_tc = (255, 255, 255) if _c_active else ((160, 160, 180) if dark else (80, 85, 110))
-    if custom_btn_rect.collidepoint(mouse_pos) and not _c_active:
+    _c_focused = nav_is_focused("difficulty_select", 0, _ds_total)
+    if (custom_btn_rect.collidepoint(mouse_pos) or _c_focused) and not _c_active:
         _c_bg = (0, 70, 75) if dark else (100, 190, 195)
     pygame.draw.rect(base_surface, _c_bg, custom_btn_rect, border_radius=12)
-    pygame.draw.rect(base_surface, _c_brd, custom_btn_rect, width=3, border_radius=12)
+    pygame.draw.rect(base_surface, (255, 255, 255) if _c_focused else _c_brd, custom_btn_rect, width=3, border_radius=12)
     _c_lbl = menu_font.render("Custom", True, _c_tc)
     base_surface.blit(_c_lbl, (custom_btn_rect.centerx - _c_lbl.get_width() // 2, custom_btn_rect.top + 8))
     _c_sub = small_font.render("Slider & Modifier", True, _c_tc)
@@ -3162,11 +3285,12 @@ def draw_difficulty_select():
     klassik_btn_rect  = pygame.Rect(SIDEBAR_X, standard_btn_rect.bottom + 8, SIDEBAR_W, 42)
     tp_btn_rect       = pygame.Rect(SIDEBAR_X, klassik_btn_rect.bottom + 8, SIDEBAR_W, 42)
 
-    for prect, label, is_active, accent in [
+    for _pi, (prect, label, is_active, accent) in enumerate([
         (standard_btn_rect, "Standard", current_game_mode == "standard", None),
         (klassik_btn_rect,  "Klassik",  current_game_mode == "klassik",  _klassik_accent),
         (tp_btn_rect,       "2 Player", current_game_mode == "2player",  _2p_accent),
-    ]:
+    ]):
+        _p_focused = nav_is_focused("difficulty_select", 1 + _pi, _ds_total)
         if is_active:
             p_bg  = accent if accent else ((50, 80, 160) if dark else (60, 100, 200))
             p_brd = (255, 220, 80) if accent == _klassik_accent else \
@@ -3176,7 +3300,7 @@ def draw_difficulty_select():
             p_bg  = (35, 35, 50) if dark else (200, 205, 220)
             p_brd = (80, 80, 100) if dark else (150, 155, 175)
             p_tc  = (160, 160, 180) if dark else (80, 85, 110)
-        if prect.collidepoint(mouse_pos) and not is_active:
+        if (prect.collidepoint(mouse_pos) or _p_focused) and not is_active:
             if accent == _klassik_accent:
                 p_bg = (100, 75, 0) if dark else (200, 165, 40)
             elif accent == _2p_accent:
@@ -3184,7 +3308,7 @@ def draw_difficulty_select():
             else:
                 p_bg = (45, 55, 80) if dark else (180, 185, 210)
         pygame.draw.rect(base_surface, p_bg,  prect, border_radius=10)
-        pygame.draw.rect(base_surface, p_brd, prect, width=2, border_radius=10)
+        pygame.draw.rect(base_surface, (255, 255, 255) if _p_focused else p_brd, prect, width=2, border_radius=10)
         lsurf = small_font.render(label, True, p_tc)
         base_surface.blit(lsurf, (prect.centerx - lsurf.get_width() // 2,
                                   prect.centery - lsurf.get_height() // 2))
@@ -3195,10 +3319,11 @@ def draw_difficulty_select():
         sub_y = tp_btn_rect.bottom + 10
         tab_coop_rect = pygame.Rect(SIDEBAR_X, sub_y, sub_w, 32)
         tab_vs_rect   = pygame.Rect(SIDEBAR_X + sub_w + 8, sub_y, sub_w, 32)
-        for srect, slabel, s_active in [
+        for _si, (srect, slabel, s_active) in enumerate([
             (tab_coop_rect, "Co-op", two_player_submode == "coop"),
             (tab_vs_rect,   "VS",    two_player_submode == "vs"),
-        ]:
+        ]):
+            _s_focused = nav_is_focused("difficulty_select", 4 + _si, _ds_total)
             if s_active:
                 s_bg  = (100, 40, 160) if dark else (120, 50, 190)
                 s_brd = (200, 140, 255)
@@ -3207,10 +3332,10 @@ def draw_difficulty_select():
                 s_bg  = (35, 35, 50) if dark else (210, 210, 225)
                 s_brd = (80, 80, 100) if dark else (150, 150, 175)
                 s_tc  = (150, 150, 170) if dark else (70, 70, 100)
-            if srect.collidepoint(mouse_pos) and not s_active:
+            if (srect.collidepoint(mouse_pos) or _s_focused) and not s_active:
                 s_bg = (55, 30, 80) if dark else (185, 185, 210)
             pygame.draw.rect(base_surface, s_bg,  srect, border_radius=8)
-            pygame.draw.rect(base_surface, s_brd, srect, width=2, border_radius=8)
+            pygame.draw.rect(base_surface, (255, 255, 255) if _s_focused else s_brd, srect, width=2, border_radius=8)
             ss = small_font.render(slabel, True, s_tc)
             base_surface.blit(ss, (srect.centerx - ss.get_width() // 2,
                                    srect.centery - ss.get_height() // 2))
@@ -3223,6 +3348,7 @@ def draw_difficulty_select():
     gap = 56
 
     hovered_diff = None
+    hovered_diff_rect = None
 
     if current_game_mode == "custom":
         # ---- Custom-Modus: Slider für Geschwindigkeit & Hindernis-Pause, Modifier-Toggles ----
@@ -3235,18 +3361,24 @@ def draw_difficulty_select():
         slider_x = card_x + _label_w + 24
         slider_w = card_w - (_label_w + 24) - 80
 
-        for label, value, lo, hi, y, value_txt in [
+        for si, (label, value, lo, hi, y, value_txt) in enumerate([
             ("Geschwindigkeit:", custom_speed,     4,   35,   cards_y0 + 30,  str(int(custom_speed))),
             ("Min-Pause:",       custom_min_delay, 100, 2000, cards_y0 + 100, f"{custom_min_delay/1000:.2f}s"),
             ("Max-Pause:",       custom_max_delay, 200, 2500, cards_y0 + 170, f"{custom_max_delay/1000:.2f}s"),
-        ]:
+        ]):
+            _sl_focused = nav_is_focused("difficulty_select", _ds_sidebar_count + si, _ds_total)
+            _sl_editing = (_ds_slider_edit == si)
+            row_rect = pygame.Rect(card_x, y - 20, card_w, 40)
+            if _sl_focused:
+                pygame.draw.rect(base_surface, (255, 255, 255), row_rect, width=2, border_radius=8)
             track_rect = pygame.Rect(slider_x, y - 4, slider_w, 8)
             pygame.draw.rect(base_surface, get_panel_color(), track_rect, border_radius=4)
-            pygame.draw.rect(base_surface, (150, 180, 220), track_rect, width=2, border_radius=4)
+            pygame.draw.rect(base_surface, (255, 210, 60) if _sl_editing else (150, 180, 220), track_rect, width=2, border_radius=4)
             frac = max(0.0, min(1.0, (value - lo) / (hi - lo)))
             handle_x = int(slider_x + frac * slider_w)
-            pygame.draw.circle(base_surface, (0, 160, 170), (handle_x, y), 10)
-            pygame.draw.circle(base_surface, (150, 230, 230), (handle_x, y), 10, 2)
+            handle_r = 13 if _sl_editing else 10
+            pygame.draw.circle(base_surface, (255, 200, 40) if _sl_editing else (0, 160, 170), (handle_x, y), handle_r)
+            pygame.draw.circle(base_surface, (255, 230, 150) if _sl_editing else (150, 230, 230), (handle_x, y), handle_r, 2)
             lbl_surf = menu_font.render(label, True, get_text_color())
             base_surface.blit(lbl_surf, (card_x, y - lbl_surf.get_height() // 2))
             val_surf = menu_font.render(value_txt, True, get_text_color())
@@ -3268,16 +3400,21 @@ def draw_difficulty_select():
         toggle_y = mod_y + 34
         _toggle_rows = -(-len(toggle_defs) // cols)  # aufgerundete Division
         hovered_modifier = None
+        hovered_modifier_rect = None
         for ti, (skey, default, tlabel) in enumerate(toggle_defs):
             active = settings.get(skey, default)
             col, row = ti % cols, ti // cols
             tr = pygame.Rect(card_x + col * (tw + tgap), toggle_y + row * (th + row_gap), tw, th)
-            is_mod_hovered = tr.collidepoint(mouse_pos)
+            _t_focused = nav_is_focused("difficulty_select", _ds_sidebar_count + 3 + ti, _ds_total)
+            _t_mouse_hover = tr.collidepoint(mouse_pos)
+            is_mod_hovered = _t_mouse_hover or _t_focused
             if is_mod_hovered:
                 hovered_modifier = skey
+                hovered_modifier_rect = None if _t_mouse_hover else tr
             bg_col = (0, 140, 150) if active else get_button_color()
-            border_col = (120, 240, 240) if (is_mod_hovered and not active) else \
-                         ((100, 220, 220) if active else (160, 160, 160))
+            border_col = (255, 255, 255) if _t_focused else \
+                         ((120, 240, 240) if (is_mod_hovered and not active) else \
+                         ((100, 220, 220) if active else (160, 160, 160)))
             pygame.draw.rect(base_surface, bg_col, tr, border_radius=8)
             pygame.draw.rect(base_surface, border_col, tr, width=(3 if is_mod_hovered else 2), border_radius=8)
             ts = small_font.render(tlabel, True, (255, 255, 255) if active else get_text_color())
@@ -3289,12 +3426,13 @@ def draw_difficulty_select():
         hint = small_font.render("Keine Coins im Custom-Modus. Freie Bewegung: WASD.", True, (150, 150, 150) if dark else (110, 110, 110))
         base_surface.blit(hint, (card_x, _hint_y))
         if hovered_modifier and hovered_modifier in _modifier_hover:
-            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos, max_width=600)
+            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos, max_width=600, anchor_rect=hovered_modifier_rect)
     else:
         for i, diff in enumerate(difficulties):
             card_y = cards_y0 + i * gap
             card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
-            is_hovered = card_rect.collidepoint(mouse_pos)
+            _diff_mouse_hover = card_rect.collidepoint(mouse_pos)
+            is_hovered = _diff_mouse_hover or nav_is_focused("difficulty_select", _ds_sidebar_count + i, _ds_total)
             is_selected = (i == difficulty_index)
             col = _diff_colors[diff]
             _col_bright = sum(col) > 60  # Farbe hell genug für sichtbaren Rahmen?
@@ -3302,6 +3440,7 @@ def draw_difficulty_select():
 
             if is_hovered:
                 hovered_diff = diff
+                hovered_diff_rect = None if _diff_mouse_hover else card_rect
 
             # Card background — dark-mode aware selection highlight
             if is_selected:
@@ -3347,9 +3486,9 @@ def draw_difficulty_select():
             base_surface.blit(badge, (card_rect.right - badge.get_width() - 14,
                                       card_y + card_h // 2 - badge.get_height() // 2))
 
-        # Hover tooltip - direkt neben dem Cursor statt fix unter der Kartenliste
+        # Hover tooltip - direkt neben dem Cursor (Maus) bzw. neben der Karte (Tastatur)
         if hovered_diff:
-            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, max_width=600, accent_color=_diff_colors[hovered_diff])
+            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, max_width=600, accent_color=_diff_colors[hovered_diff], anchor_rect=hovered_diff_rect)
 
     # Start + Back buttons at bottom, side by side
     btn_y = HEIGHT - 54
@@ -3358,20 +3497,22 @@ def draw_difficulty_select():
     back_rect  = pygame.Rect(WIDTH // 2 - 208, btn_y, 200, btn_h)
 
     # Start button (accent color)
-    start_hov = start_rect.collidepoint(mouse_pos)
+    _start_focused = nav_is_focused("difficulty_select", _ds_start_idx, _ds_total)
+    start_hov = start_rect.collidepoint(mouse_pos) or _start_focused
     start_bg = (0, 140, 60) if start_hov else (0, 110, 50)
     pygame.draw.rect(base_surface, start_bg, start_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (0, 200, 80), start_rect, width=2, border_radius=10)
+    pygame.draw.rect(base_surface, (255, 255, 255) if _start_focused else (0, 200, 80), start_rect, width=2, border_radius=10)
     start_lbl = menu_font.render(get_text("start"), True, (255, 255, 255))
     base_surface.blit(start_lbl, (start_rect.centerx - start_lbl.get_width() // 2,
                                   start_rect.centery - start_lbl.get_height() // 2))
 
     # Back button
-    back_hov = back_rect.collidepoint(mouse_pos)
+    _back_focused = nav_is_focused("difficulty_select", _ds_back_idx, _ds_total)
+    back_hov = back_rect.collidepoint(mouse_pos) or _back_focused
     pygame.draw.rect(base_surface,
                      get_button_hover_color() if back_hov else get_button_color(),
                      back_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (160, 160, 160), back_rect, width=2, border_radius=10)
+    pygame.draw.rect(base_surface, (255, 255, 255) if _back_focused else (160, 160, 160), back_rect, width=2, border_radius=10)
     back_lbl = menu_font.render(get_text("back"), True, get_text_color())
     base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2,
                                  back_rect.centery - back_lbl.get_height() // 2))
@@ -3785,6 +3926,9 @@ def draw_language_select():
     mouse_pos = get_mouse_pos_logical()
     accent = (80, 140, 255) if not dark else (120, 170, 255)
 
+    _ls_total = 5 + (0 if _lang_from_settings else 2) + 1  # 5 Karten + (2 Hell/Dunkel, bedingt) + Weiter
+    _ls_weiter_idx = _ls_total - 1
+
     # --- Titel (mit Schatten wie Hauptmenü) ---
     t1        = font.render("JumpNDodge", True, accent)
     t1_shadow = font.render("JumpNDodge", True, (80, 80, 110) if dark else (140, 140, 170))
@@ -3812,7 +3956,7 @@ def draw_language_select():
         flag_rect = pygame.Rect(cx + 6, cy + 6, card_w - 12, flag_h)
         card_rects[i] = card_rect
 
-        hovered  = card_rect.collidepoint(mouse_pos)
+        hovered  = card_rect.collidepoint(mouse_pos) or nav_is_focused("language_select", i, _ls_total, default_idx=_ls_weiter_idx)
         selected = (settings.get("language", "Deutsch") == _LANG_KEYS_MAP.get(ld["key"], ld["key"]))
 
         # Schatten
@@ -3881,8 +4025,8 @@ def draw_language_select():
         light_sel = not dark
         dark_sel  = dark
 
-        for rect, label, sel in [(light_rect, "Hell / Light", light_sel), (dark_rect, "Dunkel / Dark", dark_sel)]:
-            hov = rect.collidepoint(mouse_pos)
+        for _mi, (rect, label, sel) in enumerate([(light_rect, "Hell / Light", light_sel), (dark_rect, "Dunkel / Dark", dark_sel)]):
+            hov = rect.collidepoint(mouse_pos) or nav_is_focused("language_select", 5 + _mi, _ls_total, default_idx=_ls_weiter_idx)
             if sel:
                 bg     = (255, 220, 80) if label.startswith("Hell") else (40, 40, 60)
                 border = (220, 180, 0)  if label.startswith("Hell") else (120, 120, 200)
@@ -3901,7 +4045,7 @@ def draw_language_select():
     # --- Weiter-Button ---
     btn_label = get_text("lang_continue")
     weiter_rect = pygame.Rect(WIDTH // 2 - 120, weiter_y, 240, 46)
-    w_hov = weiter_rect.collidepoint(mouse_pos)
+    w_hov = weiter_rect.collidepoint(mouse_pos) or nav_is_focused("language_select", _ls_weiter_idx, _ls_total, default_idx=_ls_weiter_idx)
     pygame.draw.rect(base_surface, (80, 200, 120) if not w_hov else (100, 230, 140), weiter_rect, border_radius=12)
     ws = menu_font.render(btn_label, True, (255, 255, 255))
     base_surface.blit(ws, (weiter_rect.centerx - ws.get_width() // 2, weiter_rect.centery - ws.get_height() // 2))
@@ -4068,7 +4212,7 @@ def draw_profile_select():
         cy = start_y + row * (card_h + gap)
         rect = pygame.Rect(cx, cy, card_w, card_h)
         card_rects.append((rect, name))
-        hov = rect.collidepoint(mp)
+        hov = rect.collidepoint(mp) or nav_is_focused("profile_select", i, len(items))
 
         if name == "+":
             bg = (60, 140, 80) if not hov else (80, 170, 100)
@@ -4136,8 +4280,8 @@ def draw_more_menu():
     
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
-        is_hovered = rect.collidepoint(mouse_pos)
-        
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("more_menu", i, len(btn_texts))
+
         # Button-Hintergrund
         if is_hovered:
             pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
@@ -4145,12 +4289,12 @@ def draw_more_menu():
         else:
             pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
             pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
-        
+
         # Text (zentriert ohne Icons)
         text_surf = menu_font.render(text, True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width()//2, rect.centery - text_surf.get_height()//2))
-    
-    
+
+
     # Footer
     footer_bg = pygame.Rect(0, HEIGHT - 30, WIDTH, 30)
     pygame.draw.rect(base_surface, (230, 235, 245), footer_bg)
@@ -4186,14 +4330,6 @@ def draw_achievements_screen():
     coin_txt = small_font.render(f"{get_text('coins')}: {stats.get('coins', 0)}", True, get_text_color())
     base_surface.blit(coin_txt, (25, 22))
 
-    # Back button (top-right)
-    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
-    hov = back_rect.collidepoint(mouse_pos)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_button_color(), back_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-    back_lbl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
-
     ACHIEVEMENT_CATS = [
         ("🎯 Score",     ["score_10", "score_50", "score_100", "score_200", "score_500", "score_1000"]),
         ("🔁 Runden",    ["first_round", "five_rounds", "ten_rounds", "twenty_rounds", "fifty_rounds"]),
@@ -4203,6 +4339,16 @@ def draw_achievements_screen():
         ("💰 Coins",     ["coins_100", "coins_500", "coins_1000"]),
         ("🏆 Bonus",     ["no_damage_run", "speed_demon"]),
     ]
+    _ach_total_rows = sum(1 for _, codes in ACHIEVEMENT_CATS for c in codes if c in achievement_definitions)
+    _ach_nav_total = _ach_total_rows + 1  # + Back-Button
+
+    # Back button (top-right)
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    hov = back_rect.collidepoint(mouse_pos) or nav_is_focused("achievements", _ach_total_rows, _ach_nav_total)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_button_color(), back_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
+    back_lbl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
 
     content_top = 75
     fade_top = content_top + 18
@@ -4234,6 +4380,12 @@ def draw_achievements_screen():
             title_txt = get_achievement_name(code)
             _, _, coins = achievement_definitions[code]
 
+            # Rect+Registrierung unconditional (auch außerhalb des sichtbaren Bereichs),
+            # damit Tastatur-Fokus auch nicht gerenderte Zeilen erreichen kann.
+            ach_rect = pygame.Rect(55, y, WIDTH - 110, 32)
+            _ach_row_idx = len(_ach_row_rects)
+            _ach_row_rects.append((pygame.Rect(ach_rect), code))
+
             if y + 32 > fade_top and y < fade_bottom:
                 if unlocked:
                     bg_col = (28, 78, 48) if dark else (210, 240, 220)
@@ -4246,8 +4398,7 @@ def draw_achievements_screen():
                     text_col = (95, 95, 125) if dark else (140, 140, 160)
                     prefix = "🔒 "
 
-                ach_rect = pygame.Rect(55, y, WIDTH - 110, 32)
-                hov_row = ach_rect.collidepoint(mouse_pos) and _ach_detail_code is None
+                hov_row = (ach_rect.collidepoint(mouse_pos) or nav_is_focused("achievements", _ach_row_idx, _ach_nav_total)) and _ach_detail_code is None
                 if hov_row:
                     hover_bg = (45, 95, 65) if dark else (195, 230, 210)
                     pygame.draw.rect(base_surface, hover_bg, ach_rect, border_radius=7)
@@ -4265,8 +4416,6 @@ def draw_achievements_screen():
                 if coins > 0:
                     coin_lbl = small_font.render(f"+{coins}", True, (255, 210, 50) if unlocked else (120, 100, 40))
                     base_surface.blit(coin_lbl, (ach_rect.right - coin_lbl.get_width() - 10, y + 7))
-
-                _ach_row_rects.append((pygame.Rect(ach_rect), code))
 
             y += 36
         y += 10
@@ -4414,7 +4563,7 @@ def draw_controls_menu():
         # [+] button (rightmost)
         plus_w = 36
         plus_rect = pygame.Rect(right_edge - plus_w, row_cy - btn_h // 2, plus_w, btn_h)
-        phov = plus_rect.collidepoint(mouse_pos)
+        phov = plus_rect.collidepoint(mouse_pos) or nav_is_focused("controls_menu", i, len(actions) + 2)
         plus_bg  = (0, 160, 70) if phov else (0, 110, 50)
         pygame.draw.rect(base_surface, plus_bg, plus_rect, border_radius=6)
         ps = menu_font.render("+", True, (255, 255, 255))
@@ -4478,11 +4627,11 @@ def draw_controls_menu():
     btn_y = HEIGHT - 58
     reset_rect = pygame.Rect(WIDTH // 2 - 222, btn_y, 214, 44)
     back_rect  = pygame.Rect(WIDTH // 2 + 8,   btn_y, 214, 44)
-    for rect, label, accent, use_small in [
+    for bi, (rect, label, accent, use_small) in enumerate([
         (reset_rect, "Standard wiederherstellen", (180, 120, 0), True),
         (back_rect,  get_text("back"),             (70, 120, 200), False),
-    ]:
-        hov = rect.collidepoint(mouse_pos)
+    ]):
+        hov = rect.collidepoint(mouse_pos) or nav_is_focused("controls_menu", len(actions) + bi, len(actions) + 2)
         bg = (80, 60, 10) if (hov and rect is reset_rect) else \
              (40, 70, 140) if (hov and rect is back_rect) else \
              (50, 52, 68) if dark else (195, 198, 215)
@@ -4548,6 +4697,7 @@ def draw_settings_menu():
     _toggle_total_w = 5 * 80 + 4 * 8
     _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
     _toggle_y = 158
+    _stgs_nav_total = len(_bg_toggle_defs) + 7  # 5 Toggles + 7 Buttons (Slider bleibt Maus-only)
     bg_lbl = menu_font.render("Hintergrund:", True, get_text_color())
     base_surface.blit(bg_lbl, (_toggle_x0 - bg_lbl.get_width() - 10, _toggle_y - bg_lbl.get_height() // 2 + 13))
     for ti, (skey, slabel) in enumerate(_bg_toggle_defs):
@@ -4557,6 +4707,8 @@ def draw_settings_menu():
         tr = pygame.Rect(tx, _toggle_y, 80, 26)
         bg_col = (70, 160, 90) if active else get_button_color()
         border_col = (100, 200, 120) if active else (160, 160, 160)
+        if nav_is_focused("settings_menu", ti, _stgs_nav_total):
+            border_col = (255, 255, 255)
         pygame.draw.rect(base_surface, bg_col, tr, border_radius=8)
         pygame.draw.rect(base_surface, border_col, tr, width=2, border_radius=8)
         ts = small_font.render(slabel, True, (255, 255, 255) if active else get_text_color())
@@ -4573,7 +4725,7 @@ def draw_settings_menu():
 
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
-        is_hovered = rect.collidepoint(mouse_pos)
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("settings_menu", len(_bg_toggle_defs) + i, _stgs_nav_total)
 
         # Button-Hintergrund
         if is_hovered:
@@ -4586,8 +4738,8 @@ def draw_settings_menu():
         # Text (zentriert ohne Icons)
         text_surf = menu_font.render(text, True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width()//2, rect.centery - text_surf.get_height()//2))
-    
-    
+
+
     # Export status textbox
     if last_export_message:
         export_bg = pygame.Rect(50, HEIGHT - 80, WIDTH - 100, 30)
@@ -4633,7 +4785,7 @@ def draw_settings_more_menu():
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i * gap, 360, 48)
         rects.append(rect)
-        is_hov = rect.collidepoint(mouse_pos)
+        is_hov = rect.collidepoint(mouse_pos) or nav_is_focused("settings_more_menu", i, len(btn_texts))
         pygame.draw.rect(base_surface, get_button_hover_color() if is_hov else get_button_color(), rect, border_radius=12)
         pygame.draw.rect(base_surface, color if not is_hov else (200, 220, 255), rect, width=3, border_radius=12)
         ts = menu_font.render(text, True, get_text_color())
@@ -4661,7 +4813,7 @@ def draw_experimental_menu():
 
     for i, text in enumerate(btn_texts):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
-        is_hovered = rect.collidepoint(mouse_pos)
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("experimental_menu", i, len(btn_texts))
 
         # Button-Hintergrund
         if is_hovered:
@@ -4705,9 +4857,10 @@ def draw_settings_sound_menu():
 
     toggle_rect = pygame.Rect(start_x, start_y, 360, 48)
     back_rect = pygame.Rect(start_x, start_y + gap, 360, 48)
+    _ssm_nav_total = 2 + 7 + 7 + len(INGAME_MUSIC_TRACKS)  # Toggle+Back + 7 Minus + 7 Plus + Tracks
 
     # Draw toggle
-    is_hovered = toggle_rect.collidepoint(mouse_pos)
+    is_hovered = toggle_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 0, _ssm_nav_total)
     color = get_button_hover_color() if is_hovered else get_button_color()
     pygame.draw.rect(base_surface, color, toggle_rect, border_radius=12)
     pygame.draw.rect(base_surface, (180, 180, 180), toggle_rect, width=2, border_radius=12)
@@ -4716,7 +4869,7 @@ def draw_settings_sound_menu():
                             toggle_rect.centery - text_surf.get_height() // 2))
 
     # Draw back
-    is_hovered = back_rect.collidepoint(mouse_pos)
+    is_hovered = back_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 1, _ssm_nav_total)
     color = get_button_hover_color() if is_hovered else get_button_color()
     pygame.draw.rect(base_surface, color, back_rect, border_radius=12)
     pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=12)
@@ -4738,13 +4891,13 @@ def draw_settings_sound_menu():
     plus_rects = []
     track_rects = []
     y = start_y + 2 * gap
-    for label, key in volumes:
+    for vi, (label, key) in enumerate(volumes):
         # Label
         label_surf = small_font.render(label + ":", True, get_text_color())
         base_surface.blit(label_surf, (start_x, y))
         # - button
         minus_rect = pygame.Rect(start_x + 150, y, 40, 30)
-        is_hovered = minus_rect.collidepoint(mouse_pos)
+        is_hovered = minus_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 2 + vi, _ssm_nav_total)
         color = get_button_hover_color() if is_hovered else get_button_color()
         pygame.draw.rect(base_surface, color, minus_rect, border_radius=8)
         minus_text = menu_font.render("-", True, get_text_color())
@@ -4756,7 +4909,7 @@ def draw_settings_sound_menu():
         base_surface.blit(val_text, (start_x + 200, y + 5))
         # + button
         plus_rect = pygame.Rect(start_x + 250, y, 40, 30)
-        is_hovered = plus_rect.collidepoint(mouse_pos)
+        is_hovered = plus_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 9 + vi, _ssm_nav_total)
         color = get_button_hover_color() if is_hovered else get_button_color()
         pygame.draw.rect(base_surface, color, plus_rect, border_radius=8)
         plus_text = menu_font.render("+", True, get_text_color())
@@ -4770,11 +4923,11 @@ def draw_settings_sound_menu():
             chosen_track = settings.get("ingame_music_track", "standard")
             track_btn_w, track_btn_h, track_gap = 72, 30, 6
             tx = start_x + 300
-            for track_key, track_label, _filename in INGAME_MUSIC_TRACKS:
+            for ti, (track_key, track_label, _filename) in enumerate(INGAME_MUSIC_TRACKS):
                 tr = pygame.Rect(tx, y, track_btn_w, track_btn_h)
                 is_selected = (track_key == chosen_track)
                 previewing = is_previewing_track(track_key)
-                is_hovered = tr.collidepoint(mouse_pos)
+                is_hovered = tr.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 16 + ti, _ssm_nav_total)
                 if previewing:
                     bg, border = (220, 160, 60), (255, 200, 100)
                 elif is_selected:
@@ -4963,8 +5116,8 @@ def draw_daily_rewards_menu():
         
         # Claim Button
         claim_rect = pygame.Rect(WIDTH//2 - 100, y_offset, 200, 50)
-        is_hovered = claim_rect.collidepoint(mouse_pos)
-        
+        is_hovered = claim_rect.collidepoint(mouse_pos) or nav_is_focused("daily_rewards", 0, 2)
+
         if is_hovered:
             pygame.draw.rect(base_surface, (0, 200, 0), claim_rect, border_radius=12)
             pygame.draw.rect(base_surface, (0, 150, 0), claim_rect, width=3, border_radius=12)
@@ -5027,19 +5180,20 @@ def draw_daily_rewards_menu():
     
     # Zurück Button
     back_rect = pygame.Rect(WIDTH - 180, HEIGHT - 60, 150, 40)
-    is_hovered = back_rect.collidepoint(mouse_pos)
-    
+    _dr_back_idx = 1 if can_claim else 0
+    is_hovered = back_rect.collidepoint(mouse_pos) or nav_is_focused("daily_rewards", _dr_back_idx, _dr_back_idx + 1)
+
     if is_hovered:
         pygame.draw.rect(base_surface, get_button_hover_color(), back_rect, border_radius=10)
         pygame.draw.rect(base_surface, (150, 180, 220), back_rect, width=3, border_radius=10)
     else:
         pygame.draw.rect(base_surface, get_button_color(), back_rect, border_radius=10)
         pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-    
+
     back_label = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_label, (back_rect.centerx - back_label.get_width() // 2, 
+    base_surface.blit(back_label, (back_rect.centerx - back_label.get_width() // 2,
                             back_rect.centery - back_label.get_height() // 2))
-    
+
     pygame.display.flip()
 
 # Help menu open
@@ -5175,6 +5329,9 @@ def draw_statistics():
         if current_stat_tab >= len(_visible_cats):
             current_stat_tab = 0
 
+        _stat_is_modded_active = (current_stat_tab == _visible_cats.index("stat_modded")) if "stat_modded" in _visible_cats else False
+        _stat_nav_total = len(_visible_cats) + (3 if _stat_is_modded_active else 0)  # + 3 Sub-Tabs falls Modded aktiv
+
         # Erstelle und zeichne Tab-Buttons, zentriert im Fenster
         stat_tab_rects = []
         _tab_w   = 170
@@ -5187,6 +5344,8 @@ def draw_statistics():
             pygame.draw.rect(base_surface, color, rect, border_radius=10)
             # Modded-Tab: goldener Rahmen
             brd = (220, 160, 0) if key == "stat_modded" and i == current_stat_tab else (180, 180, 180)
+            if nav_is_focused("statistics", i, _stat_nav_total):
+                brd = (255, 255, 255)
             pygame.draw.rect(base_surface, brd, rect, width=2, border_radius=10)
             label_surface = small_font.render(get_text(key), True, get_text_color())
             base_surface.blit(label_surface, (rect.centerx - label_surface.get_width() // 2,
@@ -5427,7 +5586,8 @@ def draw_statistics():
                 sr = pygame.Rect(_sx0 + si * (_sw + _sg), y, _sw, 32)
                 sc = get_button_color() if si == modded_sub_tab else get_panel_color()
                 pygame.draw.rect(base_surface, sc, sr, border_radius=8)
-                pygame.draw.rect(base_surface, (220, 160, 0), sr, width=2, border_radius=8)
+                _sub_brd = (255, 255, 255) if nav_is_focused("statistics", len(_visible_cats) + si, _stat_nav_total) else (220, 160, 0)
+                pygame.draw.rect(base_surface, _sub_brd, sr, width=2, border_radius=8)
                 ss = small_font.render(sl, True, get_text_color())
                 base_surface.blit(ss, (sr.centerx - ss.get_width() // 2,
                                        sr.centery - ss.get_height() // 2))
@@ -5616,7 +5776,7 @@ def roll_power():
 
 # --- Shop state (ribbon)
 ribbon_tiles = []        # list[str] power names (base pattern)
-tile_w, tile_h = 110, 90
+tile_w, tile_h = 150, 130
 ribbon_y = 300
 scroll_offset = 0.0
 spin_animating = False
@@ -5826,7 +5986,7 @@ def draw_ribbon_shop():
 
     # Klickbarer Back-Button oben rechts (gab's bisher nicht, nur ESC/M)
     back_rect = pygame.Rect(WIDTH - 130, 15, 110, 32)
-    back_hov = back_rect.collidepoint(mouse_pos)
+    back_hov = back_rect.collidepoint(mouse_pos) or nav_is_focused("shop", len(shop_btns), len(shop_btns) + 1)
     pygame.draw.rect(base_surface, get_button_hover_color() if back_hov else get_button_color(), back_rect, border_radius=16)
     pygame.draw.rect(base_surface, (160, 160, 160), back_rect, width=2 if not back_hov else 3, border_radius=16)
     back_lbl = small_font.render(get_text("back"), True, get_text_color())
@@ -5878,15 +6038,15 @@ def draw_ribbon_shop():
             pygame.draw.rect(base_surface, tuple(max(0, c - 60) for c in rc["border"]), rect, width=1, border_radius=10)
 
         # Icon-Medaillon oben, Name darunter
-        icx, icy = rect.centerx, rect.y + 20
-        pygame.draw.circle(base_surface, tuple(min(255, c + 40) for c in card_bg), (icx, icy), 14)
-        pygame.draw.circle(base_surface, rc["border"], (icx, icy), 14, width=2)
-        _draw_rarity_icon(base_surface, _RARITY_ICON_SHAPE.get(rar, "circle"), rc["border"], icx, icy, r=7)
+        icx, icy = rect.centerx, rect.y + 28
+        pygame.draw.circle(base_surface, tuple(min(255, c + 40) for c in card_bg), (icx, icy), 18)
+        pygame.draw.circle(base_surface, rc["border"], (icx, icy), 18, width=2)
+        _draw_rarity_icon(base_surface, _RARITY_ICON_SHAPE.get(rar, "circle"), rc["border"], icx, icy, r=9)
 
-        label = _fit_surf(small_font.render(get_power_name(name), True, (245, 245, 250)), rect.width - 8)
-        base_surface.blit(label, (rect.centerx - label.get_width()//2, rect.y + 40))
+        label = _fit_surf(menu_font.render(get_power_name(name), True, (245, 245, 250)), rect.width - 8)
+        base_surface.blit(label, (rect.centerx - label.get_width()//2, rect.y + 58))
         rar_s = small_font.render(rar, True, tuple(min(255, c+60) for c in rc["border"]))
-        base_surface.blit(rar_s, (rect.centerx - rar_s.get_width()//2, rect.bottom - 20))
+        base_surface.blit(rar_s, (rect.centerx - rar_s.get_width()//2, rect.bottom - 26))
 
     # Center-Pointer mit leichtem Glow
     pygame.draw.polygon(base_surface, glow_col, [(cx, window_rect.bottom + 18), (cx-10, window_rect.bottom-2), (cx+10, window_rect.bottom-2)])
@@ -5894,9 +6054,9 @@ def draw_ribbon_shop():
 
     # Buttons (2-zeilig: Label + Kosten, echter Hover-Farbwechsel, gedimmt bei zu wenig Coins)
     coins_now = stats.get("coins", 0)
-    for rect, label, cost, _ in shop_btns:
+    for _sbi, (rect, label, cost, _) in enumerate(shop_btns):
         affordable = coins_now >= cost
-        hov = rect.collidepoint(mouse_pos) and affordable
+        hov = (rect.collidepoint(mouse_pos) or nav_is_focused("shop", _sbi, len(shop_btns) + 1)) and affordable
         if not affordable:
             btn_bg = (50, 50, 55) if dark else (210, 210, 210)
         elif hov:
@@ -6114,20 +6274,32 @@ def shop_loop():
         cleanup_overlays()
 
         draw_ribbon_shop()
+        _shop_rects = [r for r, _l, _c, _cb in shop_btns] + [pygame.Rect(WIDTH - 130, 15, 110, 32)]
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if results_overlay is not None and event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
-                    results_overlay = None
-                elif event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if results_overlay is not None:
+                    if is_nav_confirm(event.key) or is_back_key(event.key):
+                        results_overlay = None
+                elif event.key == pygame.K_m or is_back_key(event.key):
                     in_shop = False
                     in_menu = True
-                elif event.key == pygame.K_SPACE:
-                    start_single_spin()
                 elif event.key == pygame.K_x:
                     do_roll_x10()
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("shop", len(_shop_rects))
+                        nav_set_focus("shop", nav_move(_shop_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("shop", len(_shop_rects))
+                        if _fi is not None and _fi < len(shop_btns):
+                            shop_btns[_fi][3]()
+                        elif _fi == len(shop_btns):
+                            in_shop = False
+                            in_menu = True
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 if results_overlay is not None:
@@ -6193,46 +6365,63 @@ def draw_loadout_menu():
     cosmetic_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
     back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
     
-    for rect, text_key in [(power_loadout_rect, "loadout"), (cosmetic_rect, "cosmetic_inventory"), (back_rect, "back")]:
-        is_hovered = rect.collidepoint(mouse_pos)
+    _lm_labels = [(power_loadout_rect, "loadout"), (cosmetic_rect, "cosmetic_inventory"), (back_rect, "back")]
+    for i, (rect, text_key) in enumerate(_lm_labels):
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("loadout_menu", i, len(_lm_labels))
         color = get_button_hover_color() if is_hovered else get_button_color()
         pygame.draw.rect(base_surface, color, rect, border_radius=12)
         pygame.draw.rect(base_surface, (180, 180, 180), rect, width=3 if is_hovered else 2, border_radius=12)
-        
+
         text_surf = menu_font.render(get_text(text_key), True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
                                 rect.centery - text_surf.get_height() // 2))
-    
+
     pygame.display.flip()
 
 
 def loadout_menu_loop():
     global in_loadout_menu, in_menu
     while in_loadout_menu:
+        start_x = WIDTH//2 - 180
+        start_y = 180
+        gap = 70
+        power_loadout_rect = pygame.Rect(start_x, start_y + 0*gap, 360, 48)
+        cosmetic_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
+        back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
+        _lm_rects = [power_loadout_rect, cosmetic_rect, back_rect]
+        _lm_actions = ["power_loadout", "cosmetic_inventory", "back"]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            _lm_action = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    in_loadout_menu = False
-                    in_menu = True
-            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    _lm_action = "back"
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("loadout_menu", len(_lm_rects))
+                        nav_set_focus("loadout_menu", nav_move(_lm_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _lm_action = _lm_actions[nav_get_focus("loadout_menu", len(_lm_rects))]
+            elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
                 mx, my = mouse_pos
-                start_x = WIDTH//2 - 180
-                start_y = 180
-                gap = 70
-                power_loadout_rect = pygame.Rect(start_x, start_y + 0*gap, 360, 48)
-                cosmetic_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
-                back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
                 if power_loadout_rect.collidepoint((mx, my)):
-                    to_power_loadout()
+                    _lm_action = "power_loadout"
                 elif cosmetic_rect.collidepoint((mx, my)):
-                    to_cosmetic_inventory()
+                    _lm_action = "cosmetic_inventory"
                 elif back_rect.collidepoint((mx, my)):
-                    in_loadout_menu = False
-                    in_menu = True
+                    _lm_action = "back"
+            if _lm_action == "power_loadout":
+                to_power_loadout()
+            elif _lm_action == "cosmetic_inventory":
+                to_cosmetic_inventory()
+            elif _lm_action == "back":
+                in_loadout_menu = False
+                in_menu = True
         draw_loadout_menu()
         clock.tick(60)
 
@@ -6335,17 +6524,22 @@ def draw_cosmetic_inventory():
             base_surface.blit(name_surf, (item_rect.x + 50, item_rect.y + 15))
 
             # Equip/Unequip button
+            _ci_focused = nav_is_focused("cosmetic_inventory", i, len(filtered_owned) + 1)
             if active_equipped == cosmetic:
                 status_surf = small_font.render(get_text("equipped"), True, GREEN)
                 base_surface.blit(status_surf, (item_rect.right - 120, item_rect.y + 15))
                 unequip_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
                 # draw unequip button look
-                pygame.draw.rect(base_surface, get_button_color(), unequip_rect, border_radius=6)
+                pygame.draw.rect(base_surface, get_button_hover_color() if _ci_focused else get_button_color(), unequip_rect, border_radius=6)
+                if _ci_focused:
+                    pygame.draw.rect(base_surface, (255, 255, 255), unequip_rect, width=2, border_radius=6)
                 unequip_text = small_font.render(get_text("unequip"), True, get_text_color())
                 base_surface.blit(unequip_text, (unequip_rect.centerx - unequip_text.get_width()//2, unequip_rect.centery - unequip_text.get_height()//2))
             else:
                 equip_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
-                pygame.draw.rect(base_surface, get_button_color(), equip_rect, border_radius=6)
+                pygame.draw.rect(base_surface, get_button_hover_color() if _ci_focused else get_button_color(), equip_rect, border_radius=6)
+                if _ci_focused:
+                    pygame.draw.rect(base_surface, (255, 255, 255), equip_rect, width=2, border_radius=6)
                 equip_text = small_font.render(get_text("equip"), True, get_text_color())
                 base_surface.blit(equip_text, (equip_rect.centerx - equip_text.get_width()//2, equip_rect.centery - equip_text.get_height()//2))
 
@@ -6358,7 +6552,7 @@ def draw_cosmetic_inventory():
     start_y = HEIGHT - 120
     back_rect = pygame.Rect(start_x, start_y, 360, 48)
 
-    is_hovered = back_rect.collidepoint(mouse_pos)
+    is_hovered = back_rect.collidepoint(mouse_pos) or nav_is_focused("cosmetic_inventory", len(filtered_owned), len(filtered_owned) + 1)
     color = get_button_hover_color() if is_hovered else get_button_color()
     pygame.draw.rect(base_surface, color, back_rect, border_radius=12)
     pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=3 if is_hovered else 2, border_radius=12)
@@ -6376,14 +6570,66 @@ def cosmetic_inventory_loop():
     global in_cosmetic_inventory, in_loadout_menu, cosmetics_state, cosmetic_tab
     while in_cosmetic_inventory:
         back_rect = draw_cosmetic_inventory()
+
+        # Registry der Item-Buttons (gleiche Iterationslogik wie draw_cosmetic_inventory)
+        _ci_panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
+        _ci_y = 160
+        _ci_owned = cosmetics_state.get('owned', [])
+        if cosmetic_tab == 0:
+            _ci_filtered = [c for c in _ci_owned if COSMETICS_DB.get(c, {}).get("type") == "trail"]
+            _ci_equipped_list = cosmetics_state.get('equipped', [])
+            _ci_active = _ci_equipped_list[0] if _ci_equipped_list else None
+        else:
+            _ci_filtered = [c for c in _ci_owned if COSMETICS_DB.get(c, {}).get("type") == "player"]
+            _ci_active = cosmetics_state.get("equipped_player")
+        _ci_items = []
+        for cosmetic in _ci_filtered:
+            _ci_item_rect = pygame.Rect(_ci_panel.x + 20, _ci_y, _ci_panel.width - 40, 50)
+            _ci_btn_rect = pygame.Rect(_ci_item_rect.right - 120, _ci_item_rect.y + 10, 100, 30)
+            _ci_items.append((_ci_btn_rect, cosmetic))
+            _ci_y += 60
+            if _ci_y > _ci_panel.bottom - 80:
+                break
+        _ci_nav_rects = [r for r, _c in _ci_items] + [back_rect]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     in_cosmetic_inventory = False
                     in_loadout_menu = True
+                else:
+                    d = nav_direction(event.key)
+                    if d in ("left", "right"):
+                        cosmetic_tab = 1 - cosmetic_tab
+                        nav_set_focus("cosmetic_inventory", 0)
+                    elif d in ("up", "down"):
+                        cur = nav_get_focus("cosmetic_inventory", len(_ci_nav_rects))
+                        nav_set_focus("cosmetic_inventory", nav_move(_ci_nav_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("cosmetic_inventory", len(_ci_nav_rects))
+                        if _fi is not None and _fi < len(_ci_items):
+                            cosmetic = _ci_items[_fi][1]
+                            meta = COSMETICS_DB.get(cosmetic, {})
+                            name = meta.get("name", {}).get(languages[language_index], cosmetic)
+                            if _ci_active == cosmetic:
+                                if cosmetic_tab == 0:
+                                    cosmetics_state['equipped'] = []
+                                else:
+                                    cosmetics_state['equipped_player'] = None
+                                push_overlay(f"{name} unequipped", (180,180,180))
+                            else:
+                                if cosmetic_tab == 0:
+                                    cosmetics_state['equipped'] = [cosmetic]
+                                else:
+                                    cosmetics_state['equipped_player'] = cosmetic
+                                push_overlay(f"{name} equipped", (0,200,0))
+                            save_section("cosmetics", cosmetics_state)
+                        elif _fi == len(_ci_items):
+                            in_cosmetic_inventory = False
+                            in_loadout_menu = True
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 # Check tab clicks
@@ -6516,6 +6762,9 @@ def draw_cosmetic_shop():
     grid_start_y = 90
 
     item_rects = {}
+    _owned_keys = set(cosmetics_state.get("owned", []))
+    _total_buyable = sum(1 for key, _meta in items if key not in _owned_keys)
+    _buy_idx = 0
 
     for i, (key, meta) in enumerate(items):
         col = i % cols
@@ -6544,7 +6793,8 @@ def draw_cosmetic_shop():
         pygame.draw.rect(base_surface, card_bg, item_rect, border_radius=14)
 
         # Hover glow border
-        if item_rect.collidepoint(mouse_pos):
+        _cs_focused = (not owned) and nav_is_focused("cosmetic_shop", _buy_idx, _total_buyable + 1)
+        if item_rect.collidepoint(mouse_pos) or _cs_focused:
             pygame.draw.rect(base_surface, rc["border"], item_rect, width=3, border_radius=14)
         else:
             pygame.draw.rect(base_surface, tuple(max(0, c - 50) for c in rc["border"]), item_rect, width=2, border_radius=14)
@@ -6629,13 +6879,14 @@ def draw_cosmetic_shop():
                                            owned_bg.centery - owned_surf.get_height() // 2))
         else:
             buy_rect = pygame.Rect(x + tile_w - 90, y + tile_h - 34, 80, 24)
-            is_hovered_buy = buy_rect.collidepoint(mouse_pos)
+            is_hovered_buy = buy_rect.collidepoint(mouse_pos) or _cs_focused
             buy_bg = (255, 200, 20) if is_hovered_buy else (200, 160, 10)
             pygame.draw.rect(base_surface, buy_bg, buy_rect, border_radius=12)
             buy_text = small_font.render(get_text("buy"), True, (30, 20, 0))
             base_surface.blit(buy_text, (buy_rect.centerx - buy_text.get_width() // 2,
                                          buy_rect.centery - buy_text.get_height() // 2))
             item_rects[key] = buy_rect
+            _buy_idx += 1
 
     # ---- Item Preview Panel ----
     _TRAIL_SWATCHES = {
@@ -6658,6 +6909,11 @@ def draw_cosmetic_shop():
         if pygame.Rect(rx, ry, tile_w, tile_h).collidepoint(mouse_pos):
             hovered_key = key
             break
+
+    if hovered_key is None:
+        _cs_fi = nav_get_focus("cosmetic_shop", _total_buyable + 1)
+        if _cs_fi is not None and _cs_fi < _total_buyable:
+            hovered_key = list(item_rects.keys())[_cs_fi]
 
     if hovered_key:
         pmeta = COSMETICS_DB[hovered_key]
@@ -6753,7 +7009,7 @@ def draw_cosmetic_shop():
 
     # Back button
     back_rect = pygame.Rect(WIDTH // 2 - 150, HEIGHT - 52, 300, 42)
-    is_hovered_back = back_rect.collidepoint(mouse_pos)
+    is_hovered_back = back_rect.collidepoint(mouse_pos) or nav_is_focused("cosmetic_shop", _total_buyable, _total_buyable + 1)
     back_bg = get_button_hover_color() if is_hovered_back else get_button_color()
     pygame.draw.rect(base_surface, back_bg, back_rect, border_radius=12)
     pygame.draw.rect(base_surface, (180, 180, 200), back_rect, width=2 if not is_hovered_back else 3, border_radius=12)
@@ -6789,14 +7045,28 @@ def cosmetic_shop_loop():
     global in_cosmetic_shop, in_shop_menu, cosmetic_shop_scroll
     while in_cosmetic_shop:
         back_rect, buy_rects = draw_cosmetic_shop()
+        _cs_keys  = list(buy_rects.keys())
+        _cs_rects = list(buy_rects.values()) + [back_rect]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     in_cosmetic_shop = False
                     in_shop_menu = True
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("cosmetic_shop", len(_cs_rects))
+                        nav_set_focus("cosmetic_shop", nav_move(_cs_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("cosmetic_shop", len(_cs_rects))
+                        if _fi is not None and _fi < len(_cs_keys):
+                            buy_cosmetic(_cs_keys[_fi])
+                        elif _fi == len(_cs_keys):
+                            in_cosmetic_shop = False
+                            in_shop_menu = True
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
                 if back_rect and back_rect.collidepoint(mouse_pos):
@@ -6851,49 +7121,66 @@ def draw_shop_menu():
     cosmetic_shop_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
     back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
     
-    for rect, text_key in [(power_roll_rect, "power_roll"), (cosmetic_shop_rect, "cosmetic_shop"), (back_rect, "back")]:
-        is_hovered = rect.collidepoint(mouse_pos)
+    _sm_labels = [(power_roll_rect, "power_roll"), (cosmetic_shop_rect, "cosmetic_shop"), (back_rect, "back")]
+    for i, (rect, text_key) in enumerate(_sm_labels):
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("shop_menu", i, len(_sm_labels))
         color = get_button_hover_color() if is_hovered else get_button_color()
         pygame.draw.rect(base_surface, color, rect, border_radius=12)
         pygame.draw.rect(base_surface, (180, 180, 180), rect, width=3 if is_hovered else 2, border_radius=12)
-        
+
         text_surf = menu_font.render(get_text(text_key), True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
                                 rect.centery - text_surf.get_height() // 2))
-    
+
     pygame.display.flip()
 
 
 def shop_menu_loop():
     global in_shop_menu, in_menu
     while in_shop_menu:
+        start_x = WIDTH//2 - 180
+        start_y = 180
+        gap = 70
+        power_roll_rect = pygame.Rect(start_x, start_y + 0*gap, 360, 48)
+        cosmetic_shop_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
+        back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
+        _sm_rects = [power_roll_rect, cosmetic_shop_rect, back_rect]
+        _sm_actions = ["power_roll", "cosmetic_shop", "back"]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            _sm_action = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    in_shop_menu = False
-                    in_menu = True
-            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    _sm_action = "back"
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("shop_menu", len(_sm_rects))
+                        nav_set_focus("shop_menu", nav_move(_sm_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _sm_action = _sm_actions[nav_get_focus("shop_menu", len(_sm_rects))]
+            elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
                 mx, my = mouse_pos
-                start_x = WIDTH//2 - 180
-                start_y = 180
-                gap = 70
-                power_roll_rect = pygame.Rect(start_x, start_y + 0*gap, 360, 48)
-                cosmetic_shop_rect = pygame.Rect(start_x, start_y + 1*gap, 360, 48)
-                back_rect = pygame.Rect(start_x, start_y + 2*gap, 360, 48)
                 if power_roll_rect.collidepoint((mx, my)):
-                    play_sound(menu_click_sound)
-                    to_power_roll()
+                    _sm_action = "power_roll"
                 elif cosmetic_shop_rect.collidepoint((mx, my)):
-                    play_sound(menu_click_sound)
-                    to_cosmetic_shop()
+                    _sm_action = "cosmetic_shop"
                 elif back_rect.collidepoint((mx, my)):
-                    play_sound(click_back_sound)
-                    in_shop_menu = False
-                    in_menu = True
+                    _sm_action = "back"
+            if _sm_action == "power_roll":
+                play_sound(menu_click_sound)
+                to_power_roll()
+            elif _sm_action == "cosmetic_shop":
+                play_sound(menu_click_sound)
+                to_cosmetic_shop()
+            elif _sm_action == "back":
+                play_sound(click_back_sound)
+                in_shop_menu = False
+                in_menu = True
         draw_shop_menu()
         clock.tick(60)
 
@@ -6910,7 +7197,7 @@ loadout_scroll = 0
 cosmetic_tab = 0  # 0 = trails, 1 = player
 cosmetic_shop_scroll = 0.0
 
-def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
+def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None, anchor_rect=None):
     """Zeichnet eine kleine Erklärungs-Box in der Nähe des Cursors (an den Bildschirmrand
     geklemmt, damit sie nie abgeschnitten wird) - die einheitliche Hover-Erklärung für's
     ganze Spiel (Powers, Schwierigkeiten, Custom-Modifier, Cosmetics, ...).
@@ -6918,7 +7205,10 @@ def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
     `content` ist entweder ein einzelner String (wird automatisch wortweise umgebrochen)
     oder eine Liste/ein Tupel bereits fertiger Zeilen (wird 1:1 dargestellt, zu lange
     Zeilen werden verkleinert statt neu umgebrochen - z.B. für die zweizeiligen
-    Schwierigkeits-Erklärungen). `accent_color` färbt optional den Rahmen ein."""
+    Schwierigkeits-Erklärungen). `accent_color` färbt optional den Rahmen ein.
+
+    `anchor_rect`: wenn gesetzt (Tastatur-Fokus statt Maus-Hover), wird die Box neben
+    diesem Rect statt neben `mouse_pos` platziert."""
     if not content:
         return
     text_color = (240, 240, 245)
@@ -6950,12 +7240,18 @@ def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None):
     line_h = tooltip_font.get_height() + 2
     box_w = min(max_width, max(ls.get_width() for ls in line_surfs) + 16)
     box_h = len(line_surfs) * line_h + 12
-    x = mouse_pos[0] + 16
-    y = mouse_pos[1] + 16
-    if x + box_w > WIDTH:
-        x = mouse_pos[0] - box_w - 16
-    if y + box_h > HEIGHT:
-        y = mouse_pos[1] - box_h - 16
+    if anchor_rect is not None:
+        x = anchor_rect.right + 12
+        y = anchor_rect.centery - box_h // 2
+        if x + box_w > WIDTH:
+            x = anchor_rect.left - box_w - 12
+    else:
+        x = mouse_pos[0] + 16
+        y = mouse_pos[1] + 16
+        if x + box_w > WIDTH:
+            x = mouse_pos[0] - box_w - 16
+        if y + box_h > HEIGHT:
+            y = mouse_pos[1] - box_h - 16
     x = max(4, min(x, WIDTH - box_w - 4))
     y = max(4, min(y, HEIGHT - box_h - 4))
 
@@ -7030,13 +7326,16 @@ def draw_loadout():
         base_surface.blit(msg, (100, y))
 
     hovered_name = None
+    hovered_name_rect = None
     for idx, name in enumerate(items):
         rar = POWERS_DB.get(name, {}).get("rarity", "?")
         color = rarity_colors.get(rar, GRAY)
         rect = pygame.Rect(100, y, 600, 40)
-        row_hovered = rect.collidepoint(mouse_pos)
+        _row_mouse_hover = rect.collidepoint(mouse_pos)
+        row_hovered = _row_mouse_hover or nav_is_focused("loadout", idx, len(items))
         if row_hovered:
             hovered_name = name
+            hovered_name_rect = None if _row_mouse_hover else rect
 
         # Verbessertes Design für Power-Einträge
         owned = name in powers_state.get("owned", [])
@@ -7094,7 +7393,7 @@ def draw_loadout():
     # Beschreibung nicht direkt in der Zeile steht); im All-Tab steht sie schon in der
     # Zeile, dort würde der Tooltip sie nur redundant verdoppeln.
     if hovered_name and not (loadout_tab == 1 and get_power_desc(hovered_name)):
-        draw_hover_tooltip(get_power_desc(hovered_name), mouse_pos)
+        draw_hover_tooltip(get_power_desc(hovered_name), mouse_pos, anchor_rect=hovered_name_rect)
 
     # If an overlay (power detail) is active, draw it
     if 'loadout_overlay' in globals() and loadout_overlay:
@@ -7196,11 +7495,13 @@ def loadout_loop():
     loadout_overlay = None
     while in_loadout:
         draw_loadout()
+        _lo_rects = [r for r, _n in loadout_item_rects]
+        _lo_fade_top, _lo_fade_bottom = 140, HEIGHT - 50
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     # Close overlay first if open
                     if loadout_overlay:
                         loadout_overlay = None
@@ -7209,10 +7510,44 @@ def loadout_loop():
                         in_menu = True
                 elif event.key == pygame.K_TAB:
                     loadout_tab = (loadout_tab + 1) % 2
-                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                    # Close overlay on ENTER/SPACE
-                    if loadout_overlay:
+                elif loadout_overlay:
+                    if is_nav_confirm(event.key):
+                        # Close overlay on ENTER/SPACE
                         loadout_overlay = None
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("loadout", len(_lo_rects))
+                        new_i = nav_move(_lo_rects, cur, d)
+                        if new_i != cur:
+                            nav_set_focus("loadout", new_i)
+                            adjust_loadout_scroll(nav_reveal_delta(_lo_rects[new_i], _lo_fade_top, _lo_fade_bottom))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("loadout", len(_lo_rects))
+                        if _fi is not None and _fi < len(loadout_item_rects):
+                            name = loadout_item_rects[_fi][1]
+                            play_sound(click_sound)
+                            if loadout_tab == 1:
+                                desc = get_power_desc(name, detailed=True)
+                                rar = POWERS_DB.get(name, {}).get('rarity', '?')
+                                loadout_overlay = {'name': name, 'desc': desc, 'rarity': rar}
+                            elif name == "Extra Slot":
+                                push_overlay("Extra Slot ist passiv und kann nicht ausgerüstet werden", (180, 80, 80))
+                            elif name in powers_state["equipped"]:
+                                push_overlay(f"{name} bereits ausgerüstet", (120,120,120))
+                            else:
+                                if len(powers_state["equipped"]) < get_max_slots():
+                                    powers_state["equipped"].append(name)
+                                    push_overlay(f"Equipped: {get_power_name(name)}", (80,160,80))
+                                else:
+                                    if powers_state["equipped"]:
+                                        dropped = powers_state["equipped"].pop(0)
+                                        powers_state["equipped"].append(name)
+                                        push_overlay(f"Auto-Swap: {get_power_name(dropped)} → {get_power_name(name)}", (180,140,20))
+                                    else:
+                                        powers_state["equipped"].append(name)
+                                        push_overlay(f"Equipped: {get_power_name(name)}", (80,160,80))
+                                save_section("powers", powers_state)
             elif event.type == pygame.MOUSEWHEEL:
                 adjust_loadout_scroll(-event.y * 30)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Only left click
@@ -8076,7 +8411,7 @@ def _run_pause_menu(frozen=None):
         for i, (label, action, base_col, tcol) in enumerate(_btns):
             r = pygame.Rect(bx, by + i * (btn_h + btn_gap), btn_w, btn_h)
             click_rects.append((r, action))
-            hov = r.collidepoint(mp)
+            hov = r.collidepoint(mp) or nav_is_focused("pause_menu", i, len(_btns))
             if action == "resume":
                 bg = (0, 140, 60) if hov else base_col
             else:
@@ -8097,9 +8432,23 @@ def _run_pause_menu(frozen=None):
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if action_matches_key(event.key, "pause") or event.key == pygame.K_RETURN:
+                if action_matches_key(event.key, "pause") or is_back_key(event.key):
                     _pause_resume_countdown(frozen, _normal_vol)
                     return "resume"
+                d = nav_direction(event.key)
+                if d:
+                    cur = nav_get_focus("pause_menu", len(click_rects))
+                    nav_set_focus("pause_menu", nav_move([r for r, _a in click_rects], cur, d))
+                elif is_nav_confirm(event.key):
+                    _fi = nav_get_focus("pause_menu", len(click_rects))
+                    if _fi is not None and _fi < len(click_rects):
+                        _r, _action = click_rects[_fi]
+                        play_sound(click_back_sound if _action == "menu" else menu_click_sound)
+                        if _action == "resume":
+                            _pause_resume_countdown(frozen, _normal_vol)
+                        else:
+                            pygame.mixer.music.set_volume(_normal_vol)
+                        return _action
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mp2 = get_mouse_pos_logical()
                 for r, action in click_rects:
@@ -8632,13 +8981,13 @@ def run_game():
                 obs.y += obs.dir_y * current_speed
                 if rp.freeze_remaining == 0:
                     if wind_h_enabled:
-                        obs.x += wind_h_strength * 3.5
+                        obs.x += wind_h_strength * 5.0
                     if wind_v_enabled:
-                        obs.y += wind_v_strength * 3.0
+                        obs.y += wind_v_strength * 4.5
             else:
                 obs.x -= current_speed
                 if wind_h_enabled and rp.freeze_remaining == 0:
-                    obs.x += wind_h_strength * 3.5  # horizontaler Wind wirkt auf Boden-Hindernisse (horizontale Bewegung)
+                    obs.x += wind_h_strength * 5.0  # horizontaler Wind wirkt auf Boden-Hindernisse (horizontale Bewegung)
             # Normale Boden-Hindernisse bewegen sich nur nach links, daher reicht "links raus".
             # "obs.left > WIDTH" NICHT für sie prüfen: eine Power, die sie weiter rechts als
             # WIDTH spawnen lässt (z.B. für mehr Vorwarnzeit), würde sie sonst im allerersten
@@ -8663,9 +9012,9 @@ def run_game():
             for obs in top_obstacles[:]:
                 obs.y += fall_speed
                 if wind_v_enabled:
-                    obs.y += wind_v_strength * 3.0   # vertikaler Wind wirkt auf ihre Fallgeschwindigkeit
+                    obs.y += wind_v_strength * 4.5   # vertikaler Wind wirkt auf ihre Fallgeschwindigkeit
                 if wind_h_enabled:
-                    obs.x += wind_h_strength * 3.5    # horizontaler Wind lässt sie seitwärts driften
+                    obs.x += wind_h_strength * 5.0    # horizontaler Wind lässt sie seitwärts driften
                 if obs.top > HEIGHT:
                     top_obstacles.remove(obs)
 
@@ -9731,13 +10080,15 @@ def show_game_over_2p(score, winner, survived_seconds):
         btn_y        = HEIGHT // 2 + 20
         menu_rect    = pygame.Rect(cx - 215, btn_y, 195, 46)
         rematch_rect = pygame.Rect(cx + 20,  btn_y, 195, 46)
+        _go2_rects   = [menu_rect, rematch_rect]
 
         mp = get_mouse_pos_logical()
-        for rect, label, base_col, txt_col in [
+        for i, (rect, label, base_col, txt_col) in enumerate([
             (menu_rect,    get_text("back"), get_button_color(),  get_text_color()),
             (rematch_rect, "Rematch ↺",     (0, 110, 50),        (255, 255, 255)),
-        ]:
-            bg = get_button_hover_color() if rect.collidepoint(mp) else base_col
+        ]):
+            hl = rect.collidepoint(mp) or nav_is_focused("game_over_2p", i, len(_go2_rects), default_idx=1)
+            bg = get_button_hover_color() if hl else base_col
             pygame.draw.rect(base_surface, bg, rect, border_radius=10)
             pygame.draw.rect(base_surface, (160, 160, 160), rect, width=2, border_radius=10)
             ls = menu_font.render(label, True, txt_col)
@@ -9754,13 +10105,23 @@ def show_game_over_2p(score, winner, survived_seconds):
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if is_back_key(event.key):
                     game_running = False
                     in_menu = True
                     return
-                if event.key == pygame.K_RETURN:
-                    game_running = True
-                    return
+                d = nav_direction(event.key)
+                if d:
+                    cur = nav_get_focus("game_over_2p", len(_go2_rects), default_idx=1)
+                    nav_set_focus("game_over_2p", nav_move(_go2_rects, cur, d))
+                elif is_nav_confirm(event.key):
+                    i = nav_get_focus("game_over_2p", len(_go2_rects), default_idx=1)
+                    if i == 0:
+                        game_running = False
+                        in_menu = True
+                        return
+                    elif i == 1:
+                        game_running = True
+                        return
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mp2 = get_mouse_pos_logical()
                 if menu_rect.collidepoint(mp2):
@@ -9815,9 +10176,26 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         gained_s = small_font.render(f"+{coins_gained} Coins", True, GOLD)
         base_surface.blit(gained_s, (cx - gained_s.get_width() // 2, HEIGHT // 2 + 20))
 
+        # Buttons: Neustart | Menü
+        btn_y      = HEIGHT // 2 + 60
+        retry_rect = pygame.Rect(cx - 215, btn_y, 195, 46)
+        menu_rect  = pygame.Rect(cx + 20,  btn_y, 195, 46)
+        _go_rects  = [retry_rect, menu_rect]
+        mp = get_mouse_pos_logical()
+        for i, (rect, label, base_col, txt_col) in enumerate([
+            (retry_rect, get_text("retry"), (0, 110, 50),       (255, 255, 255)),
+            (menu_rect,  get_text("back"),  get_button_color(), get_text_color()),
+        ]):
+            hl = rect.collidepoint(mp) or nav_is_focused("game_over_1p", i, len(_go_rects))
+            bg = get_button_hover_color() if hl else base_col
+            pygame.draw.rect(base_surface, bg, rect, border_radius=10)
+            pygame.draw.rect(base_surface, (160, 160, 160), rect, width=2, border_radius=10)
+            ls = menu_font.render(label, True, txt_col)
+            base_surface.blit(ls, (rect.centerx - ls.get_width() // 2, rect.centery - ls.get_height() // 2))
+
         # Controls hint
-        retry_s = small_font.render(get_text("retry") + " | M: Menü", True, (130, 130, 150))
-        base_surface.blit(retry_s, (cx - retry_s.get_width() // 2, HEIGHT // 2 + 58))
+        retry_s = small_font.render(f"R: {get_text('retry')}   ·   M: {get_text('back')}", True, (130, 130, 150))
+        base_surface.blit(retry_s, (cx - retry_s.get_width() // 2, btn_y + 58))
 
         pygame.display.flip()
 
@@ -9829,12 +10207,35 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
                     game_running = True
                     in_menu = False
                     return
-                if event.key == pygame.K_m:
+                if event.key == pygame.K_m or is_back_key(event.key):
                     in_menu = True
                     game_running = False
                     return
-                if event.key == pygame.K_ESCAPE:
-                    pygame.quit(); sys.exit()
+                d = nav_direction(event.key)
+                if d:
+                    nav_set_focus("game_over_1p", nav_move(_go_rects, nav_get_focus("game_over_1p", len(_go_rects)), d))
+                elif is_nav_confirm(event.key):
+                    i = nav_get_focus("game_over_1p", len(_go_rects))
+                    if i == 0:
+                        game_running = True
+                        in_menu = False
+                        return
+                    elif i == 1:
+                        in_menu = True
+                        game_running = False
+                        return
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mp2 = get_mouse_pos_logical()
+                if retry_rect.collidepoint(mp2):
+                    play_sound(menu_click_sound)
+                    game_running = True
+                    in_menu = False
+                    return
+                if menu_rect.collidepoint(mp2):
+                    play_sound(click_back_sound)
+                    in_menu = True
+                    game_running = False
+                    return
 
 
 # =============================
@@ -9857,7 +10258,7 @@ while True:
                     _confirm_profile_name()
                 elif event.key == pygame.K_BACKSPACE:
                     _profile_name_text = _profile_name_text[:-1]
-                elif event.key == pygame.K_ESCAPE:
+                elif is_back_key(event.key, allow_backspace=False):
                     if get_all_profiles():
                         in_profile_name_input = False
                         in_profile_select = True
@@ -9872,9 +10273,25 @@ while True:
 
     elif in_profile_select:
         card_rects_ps = draw_profile_select()
+        _ps_rects = [r for r, _n in card_rects_ps]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                d = nav_direction(event.key)
+                if d:
+                    cur = nav_get_focus("profile_select", len(_ps_rects))
+                    nav_set_focus("profile_select", nav_move(_ps_rects, cur, d))
+                elif is_nav_confirm(event.key):
+                    _fi = nav_get_focus("profile_select", len(_ps_rects))
+                    if _fi is not None and _fi < len(card_rects_ps):
+                        name = card_rects_ps[_fi][1]
+                        if name == "+":
+                            play_sound(menu_click_sound)
+                            _open_new_profile_input(from_settings=True)
+                        else:
+                            play_sound(menu_click_sound)
+                            _enter_profile(name)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 for rect, name in card_rects_ps:
@@ -9899,11 +10316,34 @@ while True:
 
     elif in_language_select:
         weiter_rect, light_rect, dark_rect, card_rects = draw_language_select()
+        _ls_rects = list(card_rects)
+        if not _lang_from_settings:
+            _ls_rects += [light_rect, dark_rect]
+        _ls_rects += [weiter_rect]
+        _ls_weiter_idx = len(_ls_rects) - 1
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
-                _finish_language_select()
+            if event.type == pygame.KEYDOWN:
+                d = nav_direction(event.key)
+                if d:
+                    cur = nav_get_focus("language_select", len(_ls_rects), default_idx=_ls_weiter_idx)
+                    nav_set_focus("language_select", nav_move(_ls_rects, cur, d))
+                elif is_nav_confirm(event.key):
+                    _fi = nav_get_focus("language_select", len(_ls_rects), default_idx=_ls_weiter_idx)
+                    if _fi == _ls_weiter_idx:
+                        _finish_language_select()
+                    elif _fi is not None and _fi < len(card_rects):
+                        _select_language(_LANG_DATA[_fi]["key"])
+                        play_sound(click_sound)
+                    elif not _lang_from_settings and _fi == len(card_rects):
+                        settings["dark_mode"] = False
+                        save_section("settings", settings)
+                        play_sound(click_sound)
+                    elif not _lang_from_settings and _fi == len(card_rects) + 1:
+                        settings["dark_mode"] = True
+                        save_section("settings", settings)
+                        play_sound(click_sound)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 pt = (mx, my)
@@ -9935,7 +10375,7 @@ while True:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if is_back_key(event.key):
                     _finish_tutorial()
                 elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_SPACE):
                     if tutorial_step >= total_steps - 1:
@@ -9965,75 +10405,200 @@ while True:
         clock.tick(60)
 
     elif in_menu:
+        _menu_has_mods = len(mod_system.mods) > 0
+        daily_reward_rect = pygame.Rect(WIDTH - 200, 15, 180, 40)
+        _mods_btn_check = pygame.Rect(20, HEIGHT - 56, 130, 36)
+        _menu_rects = [b.rect for b in buttons]
+        _menu_acts  = [b.callback for b in buttons]
+        if _menu_has_mods:
+            _menu_rects.append(_mods_btn_check)
+            _menu_acts.append(open_mods_menu)
+        _menu_rects.append(daily_reward_rect)
+        _menu_acts.append(open_daily_rewards_menu)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    start_game()
+                d = nav_direction(event.key)
+                if d:
+                    cur = nav_get_focus("menu", len(_menu_rects))
+                    nav_set_focus("menu", nav_move(_menu_rects, cur, d))
+                elif is_nav_confirm(event.key):
+                    i = nav_get_focus("menu", len(_menu_rects))
+                    if i is not None and 0 <= i < len(_menu_acts):
+                        _menu_acts[i]()
             mouse_pos = get_mouse_pos_logical()
             for button in buttons:
                 button.handle_event(event, mouse_pos)
-            
+
             # Daily Rewards Button
             if event.type == pygame.MOUSEBUTTONDOWN:
-                daily_reward_rect = pygame.Rect(WIDTH - 200, 15, 180, 40)
                 if daily_reward_rect.collidepoint(mouse_pos):
                     play_sound(menu_click_sound)
                     open_daily_rewards_menu()
                 # Mods Button
-                if len(mod_system.mods) > 0:
-                    _mods_btn_check = pygame.Rect(20, HEIGHT - 56, 130, 36)
+                if _menu_has_mods:
                     if _mods_btn_check.collidepoint(mouse_pos):
                         open_mods_menu()
         draw_menu()
         clock.tick(60)
 
     elif in_difficulty_select:
+        # ---- Registry für Tastatur-Fokus (gleiche Geometrie wie draw_difficulty_select) ----
+        SIDEBAR_X, SIDEBAR_W = 24, 180
+        MAIN_X = SIDEBAR_X + SIDEBAR_W + 24
+        MAIN_W = max(300, WIDTH - MAIN_X - 24)
+        MAIN_Y0 = 118
+        custom_btn_rect   = pygame.Rect(SIDEBAR_X, MAIN_Y0, SIDEBAR_W, 56)
+        _presets_lbl_y    = custom_btn_rect.bottom + 20
+        preset_btn_y      = _presets_lbl_y + 22
+        standard_btn_rect = pygame.Rect(SIDEBAR_X, preset_btn_y, SIDEBAR_W, 42)
+        klassik_btn_rect  = pygame.Rect(SIDEBAR_X, standard_btn_rect.bottom + 8, SIDEBAR_W, 42)
+        tp_btn_rect       = pygame.Rect(SIDEBAR_X, klassik_btn_rect.bottom + 8, SIDEBAR_W, 42)
+        _ds_sidebar_rects = [custom_btn_rect, standard_btn_rect, klassik_btn_rect, tp_btn_rect]
+        if current_game_mode == "2player":
+            _sub_w = (SIDEBAR_W - 8) // 2
+            _sub_y = tp_btn_rect.bottom + 10
+            tab_coop_rect = pygame.Rect(SIDEBAR_X, _sub_y, _sub_w, 32)
+            tab_vs_rect   = pygame.Rect(SIDEBAR_X + _sub_w + 8, _sub_y, _sub_w, 32)
+            _ds_sidebar_rects += [tab_coop_rect, tab_vs_rect]
+        _ds_toggle_defs = [
+            ("custom_oneups", True), ("custom_vertical_obstacles", False),
+            ("custom_wind_sides", False), ("custom_wind_all", False),
+            ("custom_free_roam", False),
+        ]
+        if current_game_mode == "custom":
+            _ds_slider_rects = [pygame.Rect(MAIN_X, MAIN_Y0 + sy - 20, MAIN_W, 40) for sy in (30, 100, 170)]
+            _mod_y, _tw, _th, _tgap, _row_gap, _cols = MAIN_Y0 + 210, 220, 34, 12, 10, 2
+            _toggle_y = _mod_y + 34
+            _ds_toggle_rects = [pygame.Rect(MAIN_X + (ti % _cols) * (_tw + _tgap), _toggle_y + (ti // _cols) * (_th + _row_gap), _tw, _th)
+                               for ti in range(len(_ds_toggle_defs))]
+            _ds_main_rects = _ds_slider_rects + _ds_toggle_rects
+        else:
+            _card_h, _gap = 50, 56
+            _ds_main_rects = [pygame.Rect(MAIN_X, MAIN_Y0 + i * _gap, MAIN_W, _card_h) for i in range(len(difficulties))]
+        _ds_btn_y = HEIGHT - 54
+        _ds_start_rect = pygame.Rect(WIDTH // 2 + 8,  _ds_btn_y, 200, 44)
+        _ds_back_rect  = pygame.Rect(WIDTH // 2 - 208, _ds_btn_y, 200, 44)
+        _ds_rects = _ds_sidebar_rects + _ds_main_rects + [_ds_start_rect, _ds_back_rect]
+        _ds_sidebar_count = len(_ds_sidebar_rects)
+        _ds_start_idx = _ds_sidebar_count + len(_ds_main_rects)
+        _ds_back_idx  = _ds_start_idx + 1
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if _ds_slider_edit is not None:
+                    _sdir = nav_direction(event.key)
+                    if _sdir in ("left", "right"):
+                        _sdelta = -1 if _sdir == "left" else 1
+                        if _ds_slider_edit == 0:
+                            _scur = settings.get("custom_speed", 10)
+                            settings["custom_speed"] = max(4, min(35, _scur + _sdelta * 1))
+                        elif _ds_slider_edit == 1:
+                            _scur = settings.get("custom_min_delay", 900)
+                            _smax_allowed = settings.get("custom_max_delay", 1600) - 100
+                            settings["custom_min_delay"] = max(100, min(_scur + _sdelta * 50, _smax_allowed))
+                        elif _ds_slider_edit == 2:
+                            _scur = settings.get("custom_max_delay", 1600)
+                            _smin_allowed = settings.get("custom_min_delay", 900) + 100
+                            settings["custom_max_delay"] = min(2500, max(_scur + _sdelta * 50, _smin_allowed))
+                        save_section("settings", settings)
+                    elif is_nav_confirm(event.key) or is_back_key(event.key):
+                        _ds_slider_edit = None
+                elif event.key == pygame.K_m or is_back_key(event.key):
                     in_difficulty_select = False
                     in_menu = True
-                elif event.key == pygame.K_RETURN:
-                    actually_start_game()
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("difficulty_select", len(_ds_rects))
+                        nav_set_focus("difficulty_select", nav_move(_ds_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("difficulty_select", len(_ds_rects))
+                        if _fi is not None and _fi < 4:
+                            current_game_mode = ["custom", "standard", "klassik", "2player"][_fi]
+                            klassik_mode = (current_game_mode == "klassik")
+                            settings["game_mode"] = current_game_mode
+                            if current_game_mode != "custom":
+                                _dpm = settings.setdefault("difficulty_per_mode", {"standard": "Mittel", "klassik": "Mittel", "2player": "Mittel"})
+                                diff_for_mode = _dpm.get(current_game_mode, "Mittel")
+                                if diff_for_mode in difficulties:
+                                    difficulty_index = difficulties.index(diff_for_mode)
+                                settings["difficulty"] = difficulties[difficulty_index]
+                            save_section("settings", settings)
+                            update_button_texts()
+                            play_sound(click_sound)
+                            nav_set_focus("difficulty_select", _fi)
+                            _ds_slider_edit = None
+                        elif current_game_mode == "2player" and _fi == 4:
+                            two_player_submode = "coop"
+                            settings["2player_submode"] = "coop"
+                            save_section("settings", settings)
+                            play_sound(click_sound)
+                        elif current_game_mode == "2player" and _fi == 5:
+                            two_player_submode = "vs"
+                            settings["2player_submode"] = "vs"
+                            save_section("settings", settings)
+                            play_sound(click_sound)
+                        elif _fi == _ds_start_idx:
+                            actually_start_game()
+                        elif _fi == _ds_back_idx:
+                            play_sound(click_back_sound)
+                            in_difficulty_select = False
+                            in_menu = True
+                        elif _fi is not None and _ds_sidebar_count <= _fi < _ds_start_idx:
+                            _mi = _fi - _ds_sidebar_count
+                            if current_game_mode == "custom" and _mi < 3:
+                                _ds_slider_edit = _mi
+                                play_sound(click_sound)
+                            elif current_game_mode == "custom":
+                                skey, default = _ds_toggle_defs[_mi - 3]
+                                new_val = not settings.get(skey, default)
+                                settings[skey] = new_val
+                                if new_val and skey == "custom_wind_sides":
+                                    settings["custom_wind_all"] = False
+                                elif new_val and skey == "custom_wind_all":
+                                    settings["custom_wind_sides"] = False
+                                save_section("settings", settings)
+                                play_sound(click_sound)
+                            else:
+                                difficulty_index = _mi
+                                settings["difficulty"] = difficulties[_mi]
+                                _dpm = settings.setdefault("difficulty_per_mode", {"standard": "Mittel", "klassik": "Mittel", "2player": "Mittel"})
+                                _dpm[current_game_mode] = difficulties[_mi]
+                                save_section("settings", settings)
+                                update_button_texts()
+                                play_sound(click_sound)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
-                # ---- Sidebar: Custom-Button + Presets (Standard / Klassik / 2 Player) ----
-                SIDEBAR_X, SIDEBAR_W = 24, 180
-                MAIN_X = SIDEBAR_X + SIDEBAR_W + 24
-                MAIN_W = max(300, WIDTH - MAIN_X - 24)
-                MAIN_Y0 = 118
-
-                custom_btn_rect   = pygame.Rect(SIDEBAR_X, MAIN_Y0, SIDEBAR_W, 56)
-                _presets_lbl_y    = custom_btn_rect.bottom + 20
-                preset_btn_y      = _presets_lbl_y + 22
-                standard_btn_rect = pygame.Rect(SIDEBAR_X, preset_btn_y, SIDEBAR_W, 42)
-                klassik_btn_rect  = pygame.Rect(SIDEBAR_X, standard_btn_rect.bottom + 8, SIDEBAR_W, 42)
-                tp_btn_rect       = pygame.Rect(SIDEBAR_X, klassik_btn_rect.bottom + 8, SIDEBAR_W, 42)
-
                 tab_clicked = False
+                _clicked_tab_idx = None
                 if custom_btn_rect.collidepoint((mx, my)):
                     current_game_mode = "custom"
                     klassik_mode = False
                     tab_clicked = True
+                    _clicked_tab_idx = 0
                     play_sound(click_sound)
                 elif standard_btn_rect.collidepoint((mx, my)):
                     current_game_mode = "standard"
                     klassik_mode = False
                     tab_clicked = True
+                    _clicked_tab_idx = 1
                     play_sound(click_sound)
                 elif klassik_btn_rect.collidepoint((mx, my)):
                     current_game_mode = "klassik"
                     klassik_mode = True
                     tab_clicked = True
+                    _clicked_tab_idx = 2
                     play_sound(click_sound)
                 elif tp_btn_rect.collidepoint((mx, my)):
                     current_game_mode = "2player"
                     klassik_mode = False
                     tab_clicked = True
+                    _clicked_tab_idx = 3
                     play_sound(click_sound)
                 if tab_clicked:
                     settings["game_mode"] = current_game_mode
@@ -10046,6 +10611,8 @@ while True:
                         settings["difficulty"] = difficulties[difficulty_index]
                     save_section("settings", settings)
                     update_button_texts()
+                    nav_set_focus("difficulty_select", _clicked_tab_idx)
+                    _ds_slider_edit = None
                 # ---- Co-op / VS Sub-Buttons (nur wenn 2 Player aktiv) ----
                 if current_game_mode == "2player":
                     sub_w = (SIDEBAR_W - 8) // 2
@@ -10177,54 +10744,61 @@ while True:
         clock.tick(60)
 
     elif in_more_menu:
+        start_x = WIDTH//2 - 180
+        start_y = 140
+        gap = 58
+        if _check_admin_keyfile():
+            _more_actions = ["stats", "admin", "help", "back"]
+        else:
+            _more_actions = ["stats", "help", "back"]
+        _more_rects = [pygame.Rect(start_x, start_y + idx*gap, 360, 48) for idx in range(len(_more_actions))]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            _more_action = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    back_to_main_from_more()
-            mouse_pos = get_mouse_pos_logical()
-            # Button click handling for more menu
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mx, my = get_mouse_pos_logical()
-                start_x = WIDTH//2 - 180
-                start_y = 140
-                gap = 58
-
-
-                # Check each button area
-                if _check_admin_keyfile():
-                    _more_actions = ["stats", "admin", "help", "back"]
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    _more_action = "back"
                 else:
-                    _more_actions = ["stats", "help", "back"]
-                for idx, action in enumerate(_more_actions):
-                    rect = pygame.Rect(start_x, start_y + idx*gap, 360, 48)
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("more_menu", len(_more_rects))
+                        nav_set_focus("more_menu", nav_move(_more_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _more_action = _more_actions[nav_get_focus("more_menu", len(_more_rects))]
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = get_mouse_pos_logical()
+                for idx, rect in enumerate(_more_rects):
                     if rect.collidepoint((mx, my)):
-                        if action == "back":
-                            play_sound(click_back_sound)
-                        else:
-                            play_sound(menu_click_sound)
-                        if action == "stats":
-                            set_more_to_stats()
-                        elif action == "admin":
-                            set_more_to_admin()
-                        elif action == "help":
-                            in_more_menu = False
-                            in_tutorial = True
-                            tutorial_step = 0
-                        elif action == "back":
-                            back_to_main_from_more()
+                        _more_action = _more_actions[idx]
                         break
-            draw_more_menu()
-            clock.tick(60)
+            if _more_action is not None:
+                if _more_action == "back":
+                    play_sound(click_back_sound)
+                else:
+                    play_sound(menu_click_sound)
+                if _more_action == "stats":
+                    set_more_to_stats()
+                elif _more_action == "admin":
+                    set_more_to_admin()
+                elif _more_action == "help":
+                    in_more_menu = False
+                    in_tutorial = True
+                    tutorial_step = 0
+                elif _more_action == "back":
+                    back_to_main_from_more()
+        draw_more_menu()
+        clock.tick(60)
 
     elif in_mods_menu:
         _back_r, _hit_rects = draw_mods_menu()
+        _mods_nav_rects = [r for _a, _d, r in _hit_rects] + [_back_r]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if is_back_key(event.key, allow_backspace=(_mods_edit is None)):
                     close_mods_menu()
                 elif _mods_edit is not None:
                     # Text input for string settings
@@ -10240,6 +10814,18 @@ while True:
                         ch = event.unicode
                         if ch and 32 <= ord(ch) <= 126:
                             _mods_edit_text += ch
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("mods_menu", len(_mods_nav_rects))
+                        nav_set_focus("mods_menu", nav_move(_mods_nav_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("mods_menu", len(_mods_nav_rects))
+                        if _fi is not None and _fi < len(_hit_rects):
+                            _act, _dat, _r = _hit_rects[_fi]
+                            _mods_handle_click(_act, _dat)
+                        elif _fi == len(_hit_rects):
+                            close_mods_menu()
             if event.type == pygame.MOUSEWHEEL:
                 _mods_scroll = max(0, _mods_scroll - event.y * 30)
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -10258,12 +10844,36 @@ while True:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     if _ach_detail_code is not None:
                         _ach_detail_code = None
                     else:
                         in_achievements_screen = False
                         in_more_menu = True
+                elif _ach_detail_code is not None:
+                    if is_nav_confirm(event.key):
+                        _ach_detail_code = None
+                else:
+                    _ach_fade_top = 75 + 18
+                    _ach_fade_bottom = HEIGHT - 45
+                    _ach_nav_rects = [r for r, _c in _ach_row_rects] + [pygame.Rect(WIDTH - 120, 15, 100, 35)]
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("achievements", len(_ach_nav_rects))
+                        new_i = nav_move(_ach_nav_rects, cur, d)
+                        if new_i != cur:
+                            nav_set_focus("achievements", new_i)
+                            if new_i < len(_ach_row_rects):
+                                _ach_scroll = max(0, _ach_scroll + nav_reveal_delta(_ach_nav_rects[new_i], _ach_fade_top, _ach_fade_bottom))
+                    elif is_nav_confirm(event.key):
+                        _idx = nav_get_focus("achievements", len(_ach_nav_rects))
+                        if _idx is not None and _idx < len(_ach_row_rects):
+                            play_sound(menu_click_sound)
+                            _ach_detail_code = _ach_row_rects[_idx][1]
+                        elif _idx == len(_ach_row_rects):
+                            play_sound(click_back_sound)
+                            in_achievements_screen = False
+                            in_more_menu = True
             if event.type == pygame.MOUSEWHEEL:
                 if _ach_detail_code is None:
                     _ach_scroll = max(0, _ach_scroll - event.y * 30)
@@ -10287,12 +10897,36 @@ while True:
         clock.tick(60)
 
     elif in_settings_menu:
+        _bg_toggle_defs2 = [
+            ("bg_stars", True), ("bg_rings_enabled", True),
+            ("bg_animated", True), ("mono_bg", False),
+            ("show_floor_line", True),
+        ]
+        _toggle_total_w = 5 * 80 + 4 * 8
+        _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
+        _toggle_y = 155
+        _sm2_toggle_rects = [pygame.Rect(_toggle_x0 + ti * 88, _toggle_y, 80, 26) for ti in range(len(_bg_toggle_defs2))]
+        _sm2_start_x = WIDTH//2 - 180
+        _sm2_start_y = 193
+        _sm2_gap = 60
+        _sm2_btn_rects = [pygame.Rect(_sm2_start_x, _sm2_start_y + idx*_sm2_gap, 360, 48) for idx in range(7)]
+        _sm2_rects = _sm2_toggle_rects + _sm2_btn_rects
+        _n_toggles = len(_sm2_toggle_rects)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            _sm2_idx = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     back_to_main_from_settings()
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("settings_menu", len(_sm2_rects))
+                        nav_set_focus("settings_menu", nav_move(_sm2_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _sm2_idx = nav_get_focus("settings_menu", len(_sm2_rects))
             mouse_pos = get_mouse_pos_logical()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
@@ -10306,56 +10940,41 @@ while True:
                 if abs(mx - hx) <= 14 and abs(my - 125) <= 14:
                     _gui_scale_dragging = True
                 else:
-                    # Check bg toggle row
-                    _bg_toggle_defs = [
-                        ("bg_stars", True), ("bg_rings_enabled", True),
-                        ("bg_animated", True), ("mono_bg", False),
-                        ("show_floor_line", True),
-                    ]
-                    _toggle_total_w = 5 * 80 + 4 * 8
-                    _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
-                    _toggle_y = 155
-                    _hit_toggle = False
-                    for ti, (skey, default) in enumerate(_bg_toggle_defs):
-                        tr = pygame.Rect(_toggle_x0 + ti * 88, _toggle_y, 80, 26)
-                        if tr.collidepoint((mx, my)):
-                            settings[skey] = not settings.get(skey, default)
-                            save_section("settings", settings)
-                            play_sound(click_sound)
-                            _hit_toggle = True
+                    for idx, rect in enumerate(_sm2_rects):
+                        if rect.collidepoint((mx, my)):
+                            _sm2_idx = idx
                             break
-                    if not _hit_toggle:
-                        # Check each button area
-                        start_x = WIDTH//2 - 180
-                        start_y = 193
-                        gap = 60
-                        for idx in range(7):
-                            rect = pygame.Rect(start_x, start_y + idx*gap, 360, 48)
-                            if rect.collidepoint((mx, my)):
-                                if idx == 6:
-                                    play_sound(click_back_sound)
-                                elif idx in [4, 5]:
-                                    play_sound(menu_click_sound)
-                                else:
-                                    play_sound(click_sound)
-                                if idx == 0:
-                                    open_language_select_from_settings()
-                                elif idx == 1:
-                                    toggle_dark_mode()
-                                elif idx == 2:
-                                    open_settings_sound_menu()
-                                elif idx == 3:
-                                    in_settings_menu = False
-                                    in_profile_select = True
-                                elif idx == 4:
-                                    in_settings_menu = False
-                                    in_controls_menu = True
-                                elif idx == 5:
-                                    in_settings_menu = False
-                                    in_settings_more_menu = True
-                                elif idx == 6:
-                                    back_to_main_from_settings()
-                                break
+            if _sm2_idx is not None:
+                if _sm2_idx < _n_toggles:
+                    skey, default = _bg_toggle_defs2[_sm2_idx]
+                    settings[skey] = not settings.get(skey, default)
+                    save_section("settings", settings)
+                    play_sound(click_sound)
+                else:
+                    _bidx = _sm2_idx - _n_toggles
+                    if _bidx == 6:
+                        play_sound(click_back_sound)
+                    elif _bidx in [4, 5]:
+                        play_sound(menu_click_sound)
+                    else:
+                        play_sound(click_sound)
+                    if _bidx == 0:
+                        open_language_select_from_settings()
+                    elif _bidx == 1:
+                        toggle_dark_mode()
+                    elif _bidx == 2:
+                        open_settings_sound_menu()
+                    elif _bidx == 3:
+                        in_settings_menu = False
+                        in_profile_select = True
+                    elif _bidx == 4:
+                        in_settings_menu = False
+                        in_controls_menu = True
+                    elif _bidx == 5:
+                        in_settings_menu = False
+                        in_settings_more_menu = True
+                    elif _bidx == 6:
+                        back_to_main_from_settings()
             if event.type == pygame.MOUSEBUTTONUP:
                 _gui_scale_dragging = False
             if event.type == pygame.MOUSEMOTION and _gui_scale_dragging:
@@ -10372,12 +10991,14 @@ while True:
 
     elif in_controls_menu:
         _ctrl_key_rects, _ctrl_add_rects, _ctrl_reset_rect, _ctrl_back_rect = draw_controls_menu()
+        _ctrl_nav_rects = [r for _a, r in _ctrl_add_rects] + [_ctrl_reset_rect, _ctrl_back_rect]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
                 if _ctrl_listening is not None:
-                    if event.key == pygame.K_ESCAPE:
+                    # Modal: JEDE andere Taste (auch Pfeile/Space/Enter/Backspace) wird gebunden.
+                    if event.key in (pygame.K_ESCAPE, pygame.K_CAPSLOCK):
                         _ctrl_listening = None
                     else:
                         kb = get_keybindings()
@@ -10389,9 +11010,26 @@ while True:
                             kb[_ctrl_listening].append(event.key)
                         save_keybindings(kb)
                         _ctrl_listening = None
-                elif event.key in (pygame.K_ESCAPE, pygame.K_m):
+                elif event.key == pygame.K_m or is_back_key(event.key):
                     in_controls_menu = False
                     in_settings_menu = True
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("controls_menu", len(_ctrl_nav_rects))
+                        nav_set_focus("controls_menu", nav_move(_ctrl_nav_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _idx = nav_get_focus("controls_menu", len(_ctrl_nav_rects))
+                        if _idx is not None and _idx < len(_ctrl_add_rects):
+                            _ctrl_listening = _ctrl_add_rects[_idx][0]
+                            play_sound(menu_click_sound)
+                        elif _idx == len(_ctrl_add_rects):
+                            save_keybindings(dict(_DEFAULT_KB))
+                            play_sound(click_sound)
+                        elif _idx == len(_ctrl_add_rects) + 1:
+                            in_controls_menu = False
+                            in_settings_menu = True
+                            play_sound(click_back_sound)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 clicked = False
@@ -10423,26 +11061,42 @@ while True:
 
     elif in_settings_more_menu:
         _more_rects = draw_settings_more_menu()
+        _sme_actions = ["experimental", "export_lang", "back"]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            _sme_action = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    in_settings_more_menu = False
-                    in_settings_menu = True
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    _sme_action = "back"
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("settings_more_menu", len(_more_rects))
+                        nav_set_focus("settings_more_menu", nav_move(_more_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _idx = nav_get_focus("settings_more_menu", len(_more_rects))
+                        if _idx is not None and _idx < len(_sme_actions):
+                            _sme_action = _sme_actions[_idx]
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mx, my = get_mouse_pos_logical()
                 if len(_more_rects) > 0 and _more_rects[0].collidepoint((mx, my)):
-                    play_sound(menu_click_sound)
-                    in_settings_more_menu = False
-                    in_experimental_menu = True
+                    _sme_action = "experimental"
                 elif len(_more_rects) > 1 and _more_rects[1].collidepoint((mx, my)):
-                    play_sound(click_sound)
-                    export_current_language()
+                    _sme_action = "export_lang"
                 elif len(_more_rects) > 2 and _more_rects[2].collidepoint((mx, my)):
-                    play_sound(click_back_sound)
-                    in_settings_more_menu = False
-                    in_settings_menu = True
+                    _sme_action = "back"
+            if _sme_action == "experimental":
+                play_sound(menu_click_sound)
+                in_settings_more_menu = False
+                in_experimental_menu = True
+            elif _sme_action == "export_lang":
+                play_sound(click_sound)
+                export_current_language()
+            elif _sme_action == "back":
+                play_sound(click_back_sound)
+                in_settings_more_menu = False
+                in_settings_menu = True
         clock.tick(60)
 
     elif in_experimental_menu:
@@ -10450,7 +11104,7 @@ while True:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key) or is_nav_confirm(event.key):
                     back_to_settings_from_experimental()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
@@ -10467,48 +11121,62 @@ while True:
 
     elif in_settings_sound_menu:
         toggle_rect, back_rect, minus_rects, plus_rects, track_rects = draw_settings_sound_menu()
+        _ssm_items  = [(toggle_rect, "toggle", None), (back_rect, "back", None)]
+        _ssm_items += [(r, "minus", (key, delta)) for r, key, delta in minus_rects]
+        _ssm_items += [(r, "plus", (key, delta)) for r, key, delta in plus_rects]
+        _ssm_items += [(r, "track", track_key) for r, track_key in track_rects]
+        _ssm_rects = [it[0] for it in _ssm_items]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            _ssm_idx = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    back_to_settings_from_sound()
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mouse_pos = get_mouse_pos_logical()
-                if toggle_rect.collidepoint(mouse_pos):
-                    play_sound(click_sound, "click_volume")
-                    toggle_sound_enabled()
-                elif back_rect.collidepoint(mouse_pos):
-                    play_sound(click_back_sound, "click_volume")
+                if event.key == pygame.K_m or is_back_key(event.key):
                     back_to_settings_from_sound()
                 else:
-                    clicked = False
-                    for rect, key, delta in minus_rects + plus_rects:
-                        if rect.collidepoint(mouse_pos):
-                            play_sound(click_sound, "click_volume")
-                            if key == "menu_click_volume":
-                                adjust_menu_click_volume(delta)
-                            elif key == "click_volume":
-                                adjust_click_volume(delta)
-                            elif key == "click_back_volume":
-                                adjust_click_back_volume(delta)
-                            elif key == "hit_volume":
-                                adjust_hit_volume(delta)
-                            elif key == "gameover_volume":
-                                adjust_gameover_volume(delta)
-                            elif key == "menu_music_volume":
-                                adjust_menu_music_volume(delta)
-                            elif key == "ingame_music_volume":
-                                adjust_ingame_music_volume(delta)
-                            clicked = True
-                            break
-                    if not clicked:
-                        for rect, track_key in track_rects:
-                            if rect.collidepoint(mouse_pos):
-                                settings["ingame_music_track"] = track_key
-                                save_section("settings", settings)
-                                preview_ingame_music_track(track_key)
-                                break
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("settings_sound_menu", len(_ssm_rects))
+                        nav_set_focus("settings_sound_menu", nav_move(_ssm_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _ssm_idx = nav_get_focus("settings_sound_menu", len(_ssm_rects))
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = get_mouse_pos_logical()
+                for idx, (rect, _kind, _payload) in enumerate(_ssm_items):
+                    if rect.collidepoint(mouse_pos):
+                        _ssm_idx = idx
+                        break
+            if _ssm_idx is not None:
+                kind, payload = _ssm_items[_ssm_idx][1], _ssm_items[_ssm_idx][2]
+                if kind == "toggle":
+                    play_sound(click_sound, "click_volume")
+                    toggle_sound_enabled()
+                elif kind == "back":
+                    play_sound(click_back_sound, "click_volume")
+                    back_to_settings_from_sound()
+                elif kind in ("minus", "plus"):
+                    key, delta = payload
+                    play_sound(click_sound, "click_volume")
+                    if key == "menu_click_volume":
+                        adjust_menu_click_volume(delta)
+                    elif key == "click_volume":
+                        adjust_click_volume(delta)
+                    elif key == "click_back_volume":
+                        adjust_click_back_volume(delta)
+                    elif key == "hit_volume":
+                        adjust_hit_volume(delta)
+                    elif key == "gameover_volume":
+                        adjust_gameover_volume(delta)
+                    elif key == "menu_music_volume":
+                        adjust_menu_music_volume(delta)
+                    elif key == "ingame_music_volume":
+                        adjust_ingame_music_volume(delta)
+                elif kind == "track":
+                    track_key = payload
+                    settings["ingame_music_track"] = track_key
+                    save_section("settings", settings)
+                    preview_ingame_music_track(track_key)
         clock.tick(60)
 
     elif in_help:
@@ -10516,7 +11184,7 @@ while True:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                if event.key == pygame.K_m or is_back_key(event.key):
                     in_help = False
                     in_menu = True
                 elif event.key == pygame.K_UP:
@@ -10562,9 +11230,32 @@ while True:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_TAB:
                     switch_stat_tab()
-                elif event.key in (pygame.K_m, pygame.K_ESCAPE):
+                elif event.key == pygame.K_m or is_back_key(event.key):
                     in_menu = True
                     showing_stats = False
+                else:
+                    d = nav_direction(event.key)
+                    _stat_nav_rects = [r for r, idx in stat_tab_rects if idx != -1]
+                    _stat_nav_idxs  = [idx for r, idx in stat_tab_rects if idx != -1]
+                    if d in ("left", "right"):
+                        cur = nav_get_focus("statistics", len(_stat_nav_rects))
+                        nav_set_focus("statistics", nav_move(_stat_nav_rects, cur, d))
+                    elif d == "up":
+                        adjust_stat_scroll(-30)
+                    elif d == "down":
+                        adjust_stat_scroll(30)
+                    elif is_nav_confirm(event.key):
+                        _fi = nav_get_focus("statistics", len(_stat_nav_rects))
+                        if _fi is not None and _fi < len(_stat_nav_idxs):
+                            _sidx = _stat_nav_idxs[_fi]
+                            if isinstance(_sidx, tuple):
+                                play_sound(click_sound)
+                                modded_sub_tab = _sidx[1]
+                                stat_scroll = 0
+                            else:
+                                play_sound(click_sound)
+                                current_stat_tab = _sidx
+                                stat_scroll = 0
         clock.tick(60)
 
     elif in_shop:
@@ -10595,32 +11286,41 @@ while True:
         clock.tick(60)
 
     elif in_daily_rewards:
+        can_claim, _ = can_claim_daily_reward()
+        claim_rect = pygame.Rect(WIDTH//2 - 100, 150 + 50, 200, 50)
+        back_rect = pygame.Rect(WIDTH - 180, HEIGHT - 60, 150, 40)
+        _dr_rects = ([claim_rect] if can_claim else []) + [back_rect]
+        _dr_actions = (["claim"] if can_claim else []) + ["back"]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            _dr_action = None
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_m):
-                    back_to_main_from_daily_rewards()
-            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    _dr_action = "back"
+                else:
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("daily_rewards", len(_dr_rects))
+                        nav_set_focus("daily_rewards", nav_move(_dr_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _idx = nav_get_focus("daily_rewards", len(_dr_rects))
+                        if _idx is not None and _idx < len(_dr_actions):
+                            _dr_action = _dr_actions[_idx]
+            elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
                 mx, my = mouse_pos
-                
-                # Claim Button
-                can_claim, _ = can_claim_daily_reward()
-                if can_claim:
-                    # Berechne die Position basierend auf dem aktuellen Status
-                    y_offset = 150
-                    y_offset += 50  # Nach dem Status-Text
-                    claim_rect = pygame.Rect(WIDTH//2 - 100, y_offset, 200, 50)
-                    if claim_rect.collidepoint((mx, my)):
-                        play_sound(click_sound)
-                        claim_daily_reward_from_menu()
-
-                # Zurück Button
-                back_rect = pygame.Rect(WIDTH - 180, HEIGHT - 60, 150, 40)
-                if back_rect.collidepoint((mx, my)):
-                    play_sound(click_back_sound)
-                    back_to_main_from_daily_rewards()
+                if can_claim and claim_rect.collidepoint((mx, my)):
+                    _dr_action = "claim"
+                elif back_rect.collidepoint((mx, my)):
+                    _dr_action = "back"
+            if _dr_action == "claim":
+                play_sound(click_sound)
+                claim_daily_reward_from_menu()
+            elif _dr_action == "back":
+                play_sound(click_back_sound)
+                back_to_main_from_daily_rewards()
         draw_daily_rewards_menu()
         clock.tick(60)
 
