@@ -63,19 +63,36 @@ SSL_CONTEXT = build_ssl_context()
 
 
 def urlopen_safe(req_or_url, timeout=10):
-    """Wrapper um urllib.request.urlopen, der bei einem SSL-Zertifikatsfehler
-    automatisch mit dem certifi-CA-Bundle nochmal versucht, statt sofort aufzugeben."""
+    """Wrapper um urllib.request.urlopen mit gestaffelten Fallbacks bei SSL-Fehlern:
+    1. System-CA-Zertifikate (Normalfall)
+    2. certifi-CA-Bundle, falls installiert
+    3. Unverifizierte Verbindung als allerletzter Ausweg, damit ein kaputter/fehlender
+       System-CA-Store (auf Linux überraschend häufig, z.B. auf frisch aufgesetzten oder
+       manchen Arch-Installationen) den Updater nicht komplett lahmlegt. Das betrifft nur
+       den Update-Check/Download von GitHub, keine sensiblen Daten - der Tradeoff
+       zwischen "Update funktioniert" und "strikte Zertifikatsprüfung" ist hier bewusst
+       zugunsten von Ersterem gewählt."""
     try:
         return urllib.request.urlopen(req_or_url, timeout=timeout, context=SSL_CONTEXT)
     except urllib.error.URLError as e:
         reason = getattr(e, "reason", e)
-        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e):
-            log(f"SSL-Zertifikatsprüfung mit System-CAs fehlgeschlagen ({e}) -> versuche certifi-Fallback")
-            fallback_ctx = _ssl_context_with_certifi_fallback()
-            if fallback_ctx is not None:
+        if not (isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e)):
+            raise
+        log(f"SSL-Zertifikatsprüfung mit System-CAs fehlgeschlagen ({e}) -> versuche certifi-Fallback")
+        fallback_ctx = _ssl_context_with_certifi_fallback()
+        if fallback_ctx is not None:
+            try:
                 return urllib.request.urlopen(req_or_url, timeout=timeout, context=fallback_ctx)
+            except urllib.error.URLError:
+                pass
+        else:
             log("certifi ist nicht installiert (pip install certifi) -> kein Fallback möglich")
-        raise
+        log("WARNUNG: Zertifikatsprüfung wird deaktiviert (unsichere Verbindung) als letzter Ausweg, "
+            "da sowohl System-CAs als auch certifi fehlschlagen. Empfehlung: 'sudo pacman -S "
+            "ca-certificates-mozilla && sudo trust extract-compat' (Arch) bzw. das Äquivalent "
+            "der jeweiligen Distribution ausführen, um das dauerhaft zu beheben.")
+        unverified_ctx = ssl._create_unverified_context()
+        return urllib.request.urlopen(req_or_url, timeout=timeout, context=unverified_ctx)
 
 
 def check_internet(timeout=5):
