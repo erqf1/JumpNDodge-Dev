@@ -43,11 +43,27 @@ jobs:
           cd release && zip -r JumpNDodge-linux.zip JumpNDodge-linux
 
       - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: JumpNDodge-linux
           path: release/JumpNDodge-linux.zip
+          retention-days: 1
+
+      - name: Zip mit Versionsnummer benennen (nur bei Tag-Push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mv release/JumpNDodge-linux.zip "release/JumpNDodge-${GITHUB_REF_NAME}-linux.zip"
+
+      - name: Create GitHub Release (im öffentlichen Archive-Repo)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: erqf1/JumpNDodge-Archive
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          files: release/JumpNDodge-${{ github.ref_name }}-linux.zip
 
   build-windows:
+    needs: build-linux
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,35 +94,28 @@ jobs:
           Compress-Archive -Path release/JumpNDodge-windows/* -DestinationPath release/JumpNDodge-windows.zip
 
       - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: JumpNDodge-windows
           path: release/JumpNDodge-windows.zip
+          retention-days: 1
 
-  # Läuft nur bei einem Versions-Tag (z.B. "v1.0.0") und veröffentlicht beide
-  # Builds automatisch als GitHub Release im öffentlichen JumpNDodge-Archive-Repo
-  # (portable Downloads pro Version). Der Installer lebt separat im JumpNDodge-Repo
-  # und wird nicht von dieser Pipeline gebaut. Der Quellcode bleibt hier, privat.
-  release:
-    needs: [ build-linux, build-windows ]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Zips mit Versionsnummer aus dem Tag benennen
-        run: |
-          VERSION="${{ github.ref_name }}"
-          mv artifacts/JumpNDodge-linux/JumpNDodge-linux.zip "artifacts/JumpNDodge-${VERSION}-linux.zip"
-          mv artifacts/JumpNDodge-windows/JumpNDodge-windows.zip "artifacts/JumpNDodge-${VERSION}-windows.zip"
+      - name: Zip mit Versionsnummer benennen (nur bei Tag-Push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        run: Move-Item "release/JumpNDodge-windows.zip" "release/JumpNDodge-$env:GITHUB_REF_NAME-windows.zip"
 
       - name: Create GitHub Release (im öffentlichen Archive-Repo)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           repository: erqf1/JumpNDodge-Archive
           token: ${{ secrets.RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}
-          files: |
-            artifacts/JumpNDodge-${{ github.ref_name }}-linux.zip
-            artifacts/JumpNDodge-${{ github.ref_name }}-windows.zip
+          files: release/JumpNDodge-${{ github.ref_name }}-windows.zip
+
+  # Beide Build-Jobs veroeffentlichen ihr Zip jetzt direkt selbst (siehe Steps oben),
+  # damit gar keine Actions-Artifacts mehr fuer den Transport zwischen Jobs noetig sind -
+  # GitHub-Release-Assets zaehlen (anders als Actions-Artifacts) nicht gegen das
+  # Storage-Kontingent und laufen nie ab. Der Installer lebt separat im JumpNDodge-Repo
+  # und wird nicht von dieser Pipeline gebaut. Der Quellcode bleibt hier, privat.
