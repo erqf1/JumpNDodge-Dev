@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.0.55 - 2026-08-20
+
+github fix 
+
+
 ## v1.0.6 - 2026-08-20
 
 troubleshooting
