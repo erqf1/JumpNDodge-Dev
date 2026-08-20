@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.0.57 - 2026-08-20
+
+github fix final 2.0
+ 
+
+
 ## v1.0.56 - 2026-08-20
 
 github fix final
