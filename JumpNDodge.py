@@ -313,17 +313,34 @@ ADMIN_PASSWORD = os.getenv("JND_ADMIN_PW", "letin123")
 
 _ADMIN_KEY = "K9mX2pR7qN4wL1jH8tY5bV3cF6dG0sA2eU9iZ4xK7mP1rQ8nW5lJ3hT6yB0vC4fD2gS9aE7uI1oZ5xM8kP3rN6qW2jL0hT9yB4vC7fD1gS5aE3u"
 
+_admin_keyfile_cache = {"result": False, "ts": 0.0}
+
 def _check_admin_keyfile():
+    """Prüft, ob eine Admin-Keyfile im Spielordner liegt.
+
+    Das Scannen aller .txt-Dateien im Ordner (inkl. Disk-Reads) ist relativ teuer.
+    Da diese Funktion pro Frame im "Mehr"-Screen aufgerufen wird (Event-Loop + Draw),
+    wird das Ergebnis hier für 2 Sekunden gecacht, um das Laggen zu verhindern.
+    """
+    now = time.time()
+    if now - _admin_keyfile_cache["ts"] < 2.0:
+        return _admin_keyfile_cache["result"]
+
     import glob as _glob
     folder = os.path.dirname(os.path.abspath(__file__))
+    result = False
     for f in _glob.glob(os.path.join(folder, "*.txt")):
         try:
             content = open(f, encoding="utf-8", errors="ignore").read().strip()
             if content == _ADMIN_KEY:
-                return True
+                result = True
+                break
         except Exception:
             pass
-    return False
+
+    _admin_keyfile_cache["result"] = result
+    _admin_keyfile_cache["ts"] = now
+    return result
 
 # =============================
 # Daily Rewards System
@@ -2778,10 +2795,6 @@ def draw_menu():
     coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, (40,40,40))
     base_surface.blit(coin_text, (25, 22))
 
-    # Version-Info
-    version_text = small_font.render("v0.4.0", True, (120, 120, 120))
-    base_surface.blit(version_text, (WIDTH - 60, HEIGHT - 25))
-    
     # Buttons mit verbessertem Design
     for i, button in enumerate(buttons):
         # Hover-Effekt
