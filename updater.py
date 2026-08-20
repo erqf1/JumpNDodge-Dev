@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import ssl
 import shutil
 import zipfile
 import tempfile
@@ -28,11 +29,60 @@ def log(msg):
     print(f"[UPDATER] {msg}", flush=True)
 
 
+def build_ssl_context():
+    """Baut einen SSLContext für HTTPS-Requests. Auf manchen Linux-Systemen (v.a. bei
+    PyInstaller-Builds oder minimalen/frischen Installationen) fehlen die System-CA-
+    Zertifikate, wodurch jede HTTPS-Verbindung mit CERTIFICATE_VERIFY_FAILED fehlschlägt.
+    Der Updater interpretiert das fälschlich als "kein Internet" und bricht komplett ab,
+    ohne dass ein Update-Check je stattfindet. Deshalb: zuerst der normale System-
+    Kontext, und falls der fehlschlägt, das certifi-CA-Bundle als Fallback (falls
+    installiert)."""
+    try:
+        ctx = ssl.create_default_context()
+        # Testweise prüfen, ob der Kontext funktioniert, indem wir ihn einfach zurückgeben -
+        # der eigentliche Test passiert beim ersten echten Request in check_internet().
+        return ctx
+    except Exception as e:
+        log(f"Konnte Standard-SSL-Kontext nicht erstellen: {e}")
+        return None
+
+
+def _ssl_context_with_certifi_fallback():
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return None
+    except Exception as e:
+        log(f"certifi-Fallback fehlgeschlagen: {e}")
+        return None
+
+
+SSL_CONTEXT = build_ssl_context()
+
+
+def urlopen_safe(req_or_url, timeout=10):
+    """Wrapper um urllib.request.urlopen, der bei einem SSL-Zertifikatsfehler
+    automatisch mit dem certifi-CA-Bundle nochmal versucht, statt sofort aufzugeben."""
+    try:
+        return urllib.request.urlopen(req_or_url, timeout=timeout, context=SSL_CONTEXT)
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", e)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e):
+            log(f"SSL-Zertifikatsprüfung mit System-CAs fehlgeschlagen ({e}) -> versuche certifi-Fallback")
+            fallback_ctx = _ssl_context_with_certifi_fallback()
+            if fallback_ctx is not None:
+                return urllib.request.urlopen(req_or_url, timeout=timeout, context=fallback_ctx)
+            log("certifi ist nicht installiert (pip install certifi) -> kein Fallback möglich")
+        raise
+
+
 def check_internet(timeout=5):
     try:
-        urllib.request.urlopen("https://api.github.com", timeout=timeout)
+        urlopen_safe("https://api.github.com", timeout=timeout)
         return True
-    except Exception:
+    except Exception as e:
+        log(f"Internet-/HTTPS-Check fehlgeschlagen: {e}")
         return False
 
 
@@ -69,7 +119,7 @@ def fetch_latest_release():
         API_RELEASES,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "JumpNDodge-Updater"},
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urlopen_safe(req, timeout=10) as resp:
         releases = json.loads(resp.read().decode("utf-8"))
     for release in releases:
         if parse_version(release.get("tag_name", "")) is not None:
@@ -87,7 +137,7 @@ def find_asset_url(release_json):
 
 def download(url, dest):
     req = urllib.request.Request(url, headers={"User-Agent": "JumpNDodge-Updater"})
-    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
+    with urlopen_safe(req, timeout=120) as resp, open(dest, "wb") as f:
         shutil.copyfileobj(resp, f)
 
 
@@ -155,7 +205,7 @@ def main():
 
     local_version = read_local_version(os.path.join(app_dir, VERSION_FILE))
     log(f"Lokale Version: {local_version}")
-    local_parsed = parse_version(local_version) or (0, 0, 0)
+    local_parsed = parse_version(local_version) or ((0, 0, 0), 1)
 
     try:
         release = fetch_latest_release()

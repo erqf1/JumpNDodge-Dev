@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.1.0 - 2026-08-21
+
+fixed Linux updater  
+
+
 ## v1.0.61 - 2026-08-20
 
 encryption 
