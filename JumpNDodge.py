@@ -12,7 +12,8 @@ from datetime import timedelta, datetime  # Datum und Zeit für Daily Rewards
 import urllib.request  # HTTP-Anfragen für Internetverbindung und Zeitabfrage
 import urllib.error  # Fehlerbehandlung für HTTP-Anfragen
 import base64        # Base64-Kodierung für verschlüsselte Dateien
-import hashlib       # SHA256-Prüfsummen für Dateiintegrität
+import hashlib       # SHA256-Prüfsummen für Dateiintegrität / Schlüsselableitung
+import hmac          # HMAC für Verschlüsselung (Keystream) und Integritätsprüfung
 
 
 # Basisverzeichnis korrekt setzen, auch in einer PyInstaller-Exe
@@ -508,44 +509,124 @@ _DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(_DATA_DIR, exist_ok=True)
 
 # =============================
-# Unified Game Data (data/gameplay.json)
+# Sichere Verschlüsselung des Spielstands (reine Python-Stdlib, kein Zusatzpaket nötig)
 # =============================
+# Verfahren: HMAC-SHA256-Zählermodus als Stromchiffre (analog AES-CTR) zur
+# Verschlüsselung, kombiniert mit einem separaten HMAC-SHA256 als
+# Integritäts-/Authentizitäts-Tag ("Encrypt-then-MAC"). Der Schlüssel wird per
+# PBKDF2-HMAC-SHA256 (200.000 Runden) aus einem fest im Sourcecode
+# hinterlegten Geheimnis abgeleitet. Ohne dieses Geheimnis (also ohne den
+# JumpNDodge-Sourcecode) lässt sich die Datei nicht in lesbaren Klartext
+# zurückverwandeln - jeder Entschlüsselungsversuch mit falschem Schlüssel
+# schlägt an der Tag-Prüfung fehl. Jede Datei bekommt einen zufälligen Nonce,
+# damit identische Inhalte nie zum gleichen Geheimtext führen.
+_ENCRYPTION_SECRET = b"JumpNDodge#SaveState#Key#7f3a1c9e-52d6-4b8a-9e11-0c6f2a7d4b3e#v1"
+_ENCRYPTION_SALT   = b"JumpNDodge-SaveData-KDF-Salt-v1"
+_ENC_KDF_ROUNDS    = 200_000
+
+def _derive_save_key():
+    return hashlib.pbkdf2_hmac("sha256", _ENCRYPTION_SECRET, _ENCRYPTION_SALT, _ENC_KDF_ROUNDS, dklen=32)
+
+_SAVE_KEY = _derive_save_key()
+
+def _hmac_keystream(key, nonce, length):
+    """Erzeugt einen Schlüsselstrom im HMAC-Zählermodus (wie CTR-Mode bei Blockchiffren)."""
+    out = bytearray()
+    counter = 0
+    while len(out) < length:
+        block = hmac.new(key, nonce + counter.to_bytes(8, "big"), hashlib.sha256).digest()
+        out.extend(block)
+        counter += 1
+    return bytes(out[:length])
+
+def _xor_bytes(a, b):
+    return bytes(x ^ y for x, y in zip(a, b))
+
+def encrypt_bytes(plaintext):
+    """Verschlüsselt Rohdaten (bytes) sicher. Rückgabe: nonce(16) + tag(32) + ciphertext."""
+    nonce = os.urandom(16)
+    keystream = _hmac_keystream(_SAVE_KEY, nonce, len(plaintext))
+    ciphertext = _xor_bytes(plaintext, keystream)
+    tag = hmac.new(_SAVE_KEY, nonce + ciphertext, hashlib.sha256).digest()
+    return nonce + tag + ciphertext
+
+def decrypt_bytes(blob):
+    """Entschlüsselt und verifiziert einen mit encrypt_bytes() erzeugten Blob.
+    Gibt None zurück, wenn die Datei manipuliert wurde oder nicht im richtigen Format ist."""
+    if not blob or len(blob) < 16 + 32:
+        return None
+    nonce, tag, ciphertext = blob[:16], blob[16:48], blob[48:]
+    expected_tag = hmac.new(_SAVE_KEY, nonce + ciphertext, hashlib.sha256).digest()
+    if not hmac.compare_digest(tag, expected_tag):
+        return None  # Falscher Schlüssel oder Datei wurde manipuliert
+    keystream = _hmac_keystream(_SAVE_KEY, nonce, len(ciphertext))
+    return _xor_bytes(ciphertext, keystream)
+
+def save_encrypted_json(path, data):
+    """Speichert ein JSON-fähiges Objekt verschlüsselt (Base64-verpackt) auf der Festplatte."""
+    json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    blob = encrypt_bytes(json_bytes)
+    dirpath = os.path.dirname(path)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(base64.b64encode(blob))
+
+def load_encrypted_json(path, fallback=None):
+    """Lädt und entschlüsselt eine mit save_encrypted_json() erzeugte Datei."""
+    try:
+        with open(path, "rb") as f:
+            raw = base64.b64decode(f.read())
+        plain = decrypt_bytes(raw)
+        if plain is None:
+            return fallback
+        return json.loads(plain.decode("utf-8"))
+    except Exception:
+        return fallback
+
+
+# =============================
+# Unified & verschlüsselter Spielstand (data/gameplay.json)
+# =============================
+# gameplay.json und tutorial.json wurden zu EINER Datei zusammengeführt: die
+# Tutorial-Daten liegen jetzt unter dem Schlüssel "_tutorial" im selben
+# verschlüsselten Objekt wie Stats/Achievements/Settings/etc. Die Datei ist
+# vollständig verschlüsselt (siehe oben) - ohne den Sourcecode ist sie nur
+# Zufalls-Bytes in Base64.
 _GAMEDATA_FILE  = os.path.join(_DATA_DIR, "gameplay.json")
 _MODDED_DATA_FILE = os.path.join(_DATA_DIR, "mods", "modded_data.json")
 _gamedata_cache = {}
 _modded_cache   = {}
 
-_SECTION_LEGACY_FILES = {
-    "stats":        os.path.join(BASE_DIR, "stats.json"),
-    "achievements": os.path.join(BASE_DIR, "achievements.json"),
-    "highscores":   os.path.join(BASE_DIR, "highscores.json"),
-    "settings":     os.path.join(BASE_DIR, "settings.json"),
-    "powers":       os.path.join(BASE_DIR, "powers.json"),
-    "cosmetics":    os.path.join(BASE_DIR, "cosmetics.json"),
-}
+def _delete_old_plaintext_savedata():
+    """Löscht alte, unverschlüsselte Spielstand-Dateien (Klartext-JSON), da mit dem
+    Umstieg auf das neue verschlüsselte Format der vorherige Spielstand nicht
+    mehr benötigt/übernommen wird."""
+    old_paths = [
+        os.path.join(BASE_DIR, "gamedata.json"),
+        os.path.join(BASE_DIR, "profiles.json"),
+        os.path.join(BASE_DIR, "stats.json"),
+        os.path.join(BASE_DIR, "achievements.json"),
+        os.path.join(BASE_DIR, "highscores.json"),
+        os.path.join(BASE_DIR, "settings.json"),
+        os.path.join(BASE_DIR, "powers.json"),
+        os.path.join(BASE_DIR, "cosmetics.json"),
+        os.path.join(_DATA_DIR, "tutorial.json"),
+    ]
+    for p in old_paths:
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except Exception:
+            pass
 
 def _ensure_gamedata_loaded():
     global _gamedata_cache
     if not _gamedata_cache:
-        # Migration: falls alte gamedata.json im BASE_DIR existiert, einmalig übernehmen
-        old_gamedata = os.path.join(BASE_DIR, "gamedata.json")
-        if os.path.exists(old_gamedata) and not os.path.exists(_GAMEDATA_FILE):
-            try:
-                with open(old_gamedata, encoding="utf-8") as f:
-                    _gamedata_cache = json.load(f)
-                save_json_file(_GAMEDATA_FILE, _gamedata_cache)
-            except Exception:
-                _gamedata_cache = {}
-        # Migration: falls altes profiles.json existiert, einmalig einlesen
-        old_profiles = os.path.join(BASE_DIR, "profiles.json")
-        if os.path.exists(old_profiles) and "_profiles" not in _gamedata_cache:
-            try:
-                with open(old_profiles, encoding="utf-8") as f:
-                    _gamedata_cache["_profiles"] = json.load(f)
-            except Exception:
-                pass
-        if not _gamedata_cache:
-            _gamedata_cache = load_json_file(_GAMEDATA_FILE, {})
+        _delete_old_plaintext_savedata()
+        _gamedata_cache = load_encrypted_json(_GAMEDATA_FILE, {})
+        if not isinstance(_gamedata_cache, dict):
+            _gamedata_cache = {}
 
 def _ensure_modded_loaded():
     global _modded_cache
@@ -563,16 +644,13 @@ def _ensure_modded_loaded():
 def load_section(section, default):
     _ensure_gamedata_loaded()
     if section not in _gamedata_cache:
-        old_file = _SECTION_LEGACY_FILES.get(section)
-        if old_file and os.path.exists(old_file):
-            _gamedata_cache[section] = load_json_file(old_file, default)
-        else:
-            _gamedata_cache[section] = dict(default) if isinstance(default, dict) else default
+        _gamedata_cache[section] = dict(default) if isinstance(default, dict) else default
     return _gamedata_cache.get(section, default)
 
 def save_section(section, data):
+    _ensure_gamedata_loaded()
     _gamedata_cache[section] = data
-    save_json_file(_GAMEDATA_FILE, _gamedata_cache)
+    save_encrypted_json(_GAMEDATA_FILE, _gamedata_cache)
     save_current_profile()
 
 def load_modded_section(section, default):
@@ -599,7 +677,7 @@ def _load_profiles_file():
 
 def _save_profiles_file(pdata):
     _gamedata_cache["_profiles"] = pdata
-    save_json_file(_GAMEDATA_FILE, _gamedata_cache)
+    save_encrypted_json(_GAMEDATA_FILE, _gamedata_cache)
 
 def get_all_profiles():
     return _load_profiles_file().get("profiles", {})
@@ -690,40 +768,16 @@ def delete_profile(name):
 
 
 # =============================
-# Encoded File Helpers (Base64 + SHA256)
+# Tutorial-Daten: gehören jetzt als Sektion "_tutorial" zur verschlüsselten
+# gameplay.json (siehe save_section()/load_section() weiter oben).
 # =============================
 
-def _file_checksum(encoded_str):
-    return hashlib.sha256(encoded_str.encode("utf-8")).hexdigest()
+def save_tutorial_data(data):
+    save_section("_tutorial", data)
 
-def save_encoded_file(filename, data):
-    """Speichert Daten base64-kodiert mit SHA256-Prüfsumme."""
-    json_str = json.dumps(data, indent=4, ensure_ascii=False)
-    encoded = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
-    checksum = _file_checksum(encoded)
-    path = os.path.join(_DATA_DIR, filename)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(checksum + "\n" + encoded)
-
-def load_encoded_file(filename, fallback=None):
-    """Lädt und verifiziert eine base64-kodierte Datei. Bei Manipulation: fallback."""
-    # Suche zuerst in data/, dann als Fallback im BASE_DIR (Migration alter Dateien)
-    path = os.path.join(_DATA_DIR, filename)
-    if not os.path.exists(path):
-        path = os.path.join(BASE_DIR, filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read().splitlines()
-        if len(content) < 2:
-            return fallback
-        stored_hash, encoded = content[0], content[1]
-        if _file_checksum(encoded) != stored_hash:
-            return fallback
-        json_str = base64.b64decode(encoded.encode("utf-8")).decode("utf-8")
-        return json.loads(json_str)
-    except Exception:
-        return fallback
+def load_tutorial_data(fallback=None):
+    result = load_section("_tutorial", fallback if fallback is not None else {})
+    return result if result else fallback
 
 
 # =============================
@@ -3687,14 +3741,15 @@ _TUTORIAL_FALLBACK = {
 }
 
 def _ensure_tutorial_json():
-    """Erstellt data/tutorial.json falls sie fehlt oder manipuliert wurde."""
-    data = load_encoded_file("tutorial.json")
+    """Stellt sicher, dass die Tutorial-Daten (Sektion '_tutorial' in der
+    verschlüsselten gameplay.json) vorhanden sind; legt sie sonst neu an."""
+    data = load_tutorial_data()
     if data is None or "steps" not in data:
-        save_encoded_file("tutorial.json", _TUTORIAL_FALLBACK)
+        save_tutorial_data(_TUTORIAL_FALLBACK)
 
 def _get_tutorial_steps():
     _ensure_tutorial_json()
-    data = load_encoded_file("tutorial.json", fallback=_TUTORIAL_FALLBACK)
+    data = load_tutorial_data(fallback=_TUTORIAL_FALLBACK)
     if not data or "steps" not in data:
         return _TUTORIAL_FALLBACK["steps"]
     return data["steps"]

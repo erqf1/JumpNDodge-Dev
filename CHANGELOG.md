@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.0.61 - 2026-08-20
+
+encryption 
+
+
 ## v1.0.572 - 2026-08-20
 
 broo githuzb pls fix 
