@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.0.572 - 2026-08-20
+
+broo githuzb pls fix 
+
+
 ## v1.0.57 - 2026-08-20
 
 github fix final 2.0
