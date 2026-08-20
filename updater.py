@@ -22,6 +22,7 @@ UPDATER_SELF_NAMES = {"updater.py", "updater.exe", "updater"}
 # Sound-Anpassungen des Spielers) - nur Dateien, die dort noch nicht existieren, werden
 # ergänzt. Pfade relativ zum App-Ordner, mit "/" geschrieben (plattformunabhängig).
 PROTECTED_DIRS = {"data/sound"}
+PROTECTED_DIRS_LOWER = {p.lower() for p in PROTECTED_DIRS}
 # ============================================
 
 
@@ -147,9 +148,11 @@ def merge_copy(src_dir, dst_dir, rel_path=""):
     In PROTECTED_DIRS gelisteten Ordnern werden bestehende Dateien nie überschrieben,
     auch wenn das Update eine neue Version davon mitbringt - nur wirklich neue Dateien
     (die dort noch nicht existieren) werden ergänzt, damit z.B. eigene Sound-Anpassungen
-    nicht durch Standard-Dateien aus dem Update ersetzt werden."""
+    nicht durch Standard-Dateien aus dem Update ersetzt werden.
+    WICHTIG: Diese Funktion löscht NIEMALS etwas im Zielordner - Dateien, die dort
+    liegen aber nicht im Update enthalten sind, bleiben unverändert bestehen."""
     os.makedirs(dst_dir, exist_ok=True)
-    protected = rel_path in PROTECTED_DIRS
+    protected = rel_path.lower() in PROTECTED_DIRS_LOWER
     for name in os.listdir(src_dir):
         s = os.path.join(src_dir, name)
         d = os.path.join(dst_dir, name)
@@ -164,6 +167,9 @@ def merge_copy(src_dir, dst_dir, rel_path=""):
 
 
 def apply_update(extracted_root, app_dir):
+    """Überträgt die Update-Dateien in den App-Ordner. Überschreibt bestehende Dateien
+    mit gleichem Namen (außer in PROTECTED_DIRS, siehe merge_copy), löscht aber
+    NIEMALS Dateien im App-Ordner - auch nicht solche, die im Update fehlen."""
     log("Wende Update an...")
     for item in os.listdir(extracted_root):
         if item.lower() in UPDATER_SELF_NAMES:

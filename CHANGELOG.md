@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.1.05 - 2026-08-21
+
+fixed 1 bug
+ 
+
+
 ## v1.1.0 - 2026-08-21
 
 fixed Linux updater  
