@@ -16,27 +16,60 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies (SDL2 runtime für pygame)
+      - name: Install system dependencies (SDL2 runtime für pygame + patchelf für Nuitka)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libsdl2-image-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev
+          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libsdl2-image-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev patchelf ccache
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pygame pyinstaller
+          pip install pygame nuitka pyarmor
 
-      - name: Build game with PyInstaller
-        run: pyinstaller --onefile --windowed --name JumpNDodge JumpNDodge.py
+      # --- PyArmor: Quellcode vor dem Kompilieren obfuscaten/verschlüsseln ---
+      # Erzeugt armored/JumpNDodge.py + armored/updater.py (obfuscated) sowie einen
+      # armored/pyarmor_runtime_XXXXXX/-Ordner mit der (plattformspezifischen) Laufzeit-
+      # Erweiterung, die zur Entschlüsselung zur Laufzeit gebraucht wird.
+      - name: Obfuscate source with PyArmor
+        run: pyarmor gen -O armored JumpNDodge.py updater.py
 
-      - name: Build updater with PyInstaller
-        run: pyinstaller --onefile --name updater updater.py
+      - name: Determine PyArmor runtime folder name
+        id: pyarmor_rt
+        run: |
+          RT_DIR=$(ls armored | grep '^pyarmor_runtime' | head -n1)
+          if [ -z "$RT_DIR" ]; then
+            echo "FEHLER: PyArmor-Runtime-Ordner nicht gefunden." >&2
+            exit 1
+          fi
+          echo "Gefunden: $RT_DIR"
+          echo "rt_dir=$RT_DIR" >> "$GITHUB_OUTPUT"
+
+      # --- Nuitka: obfuscated Source zu echtem Maschinencode kompilieren ---
+      # (statt PyInstaller, das nur .pyc-Bytecode in die exe packt und sich in Minuten
+      # zurück-decompilen lässt). --include-data-dir sorgt dafür, dass die PyArmor-
+      # Laufzeit-Erweiterung 1:1 mitkopiert wird, --include-package dafür, dass Nuitka
+      # sie als importierbares Package erkennt.
+      - name: Build game with Nuitka
+        run: |
+          python -m nuitka --onefile --assume-yes-for-downloads \
+            --output-dir=build_out --output-filename=JumpNDodge \
+            --include-package=${{ steps.pyarmor_rt.outputs.rt_dir }} \
+            --include-data-dir=armored/${{ steps.pyarmor_rt.outputs.rt_dir }}=${{ steps.pyarmor_rt.outputs.rt_dir }} \
+            armored/JumpNDodge.py
+
+      - name: Build updater with Nuitka
+        run: |
+          python -m nuitka --onefile --assume-yes-for-downloads \
+            --output-dir=build_out --output-filename=updater \
+            --include-package=${{ steps.pyarmor_rt.outputs.rt_dir }} \
+            --include-data-dir=armored/${{ steps.pyarmor_rt.outputs.rt_dir }}=${{ steps.pyarmor_rt.outputs.rt_dir }} \
+            armored/updater.py
 
       - name: Assemble release folder (nur Icon + Updater + Hauptspiel, sonst nichts)
         run: |
           mkdir -p release/JumpNDodge-linux
-          cp dist/JumpNDodge release/JumpNDodge-linux/
-          cp dist/updater release/JumpNDodge-linux/
+          cp build_out/JumpNDodge release/JumpNDodge-linux/
+          cp build_out/updater release/JumpNDodge-linux/
           cp icon.ico release/JumpNDodge-linux/
           echo "${GITHUB_REF_NAME#v}" > release/JumpNDodge-linux/version.txt
           chmod +x release/JumpNDodge-linux/JumpNDodge release/JumpNDodge-linux/updater
@@ -76,20 +109,49 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pygame pyinstaller
+          pip install pygame nuitka pyarmor
 
-      - name: Build game with PyInstaller
-        run: pyinstaller --onefile --windowed --name JumpNDodge --icon=icon.ico JumpNDodge.py
+      # --- PyArmor: Quellcode vor dem Kompilieren obfuscaten/verschlüsseln ---
+      # Läuft separat auf Windows, damit die Laufzeit-Erweiterung als .pyd (statt .so)
+      # erzeugt wird - passend zur Windows-exe, die wir daraus bauen.
+      - name: Obfuscate source with PyArmor
+        run: pyarmor gen -O armored JumpNDodge.py updater.py
 
-      - name: Build updater with PyInstaller
-        run: pyinstaller --onefile --name updater --icon=icon.ico updater.py
+      - name: Determine PyArmor runtime folder name
+        id: pyarmor_rt
+        shell: powershell
+        run: |
+          $rt = Get-ChildItem -Path armored -Directory -Filter "pyarmor_runtime*" | Select-Object -First 1
+          if (-not $rt) {
+            Write-Error "PyArmor-Runtime-Ordner nicht gefunden."
+            exit 1
+          }
+          Write-Host "Gefunden: $($rt.Name)"
+          "rt_dir=$($rt.Name)" >> $env:GITHUB_OUTPUT
+
+      # --- Nuitka: obfuscated Source zu echtem Maschinencode kompilieren ---
+      - name: Build game with Nuitka
+        run: |
+          python -m nuitka --onefile --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=icon.ico `
+            --output-dir=build_out --output-filename=JumpNDodge `
+            --include-package=${{ steps.pyarmor_rt.outputs.rt_dir }} `
+            --include-data-dir=armored/${{ steps.pyarmor_rt.outputs.rt_dir }}=${{ steps.pyarmor_rt.outputs.rt_dir }} `
+            armored/JumpNDodge.py
+
+      - name: Build updater with Nuitka
+        run: |
+          python -m nuitka --onefile --assume-yes-for-downloads --windows-icon-from-ico=icon.ico `
+            --output-dir=build_out --output-filename=updater `
+            --include-package=${{ steps.pyarmor_rt.outputs.rt_dir }} `
+            --include-data-dir=armored/${{ steps.pyarmor_rt.outputs.rt_dir }}=${{ steps.pyarmor_rt.outputs.rt_dir }} `
+            armored/updater.py
 
       - name: Assemble release folder (nur Icon + Updater + Hauptspiel, sonst nichts)
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release/JumpNDodge-windows | Out-Null
-          Copy-Item dist/JumpNDodge.exe release/JumpNDodge-windows/
-          Copy-Item dist/updater.exe release/JumpNDodge-windows/
+          Copy-Item build_out/JumpNDodge.exe release/JumpNDodge-windows/
+          Copy-Item build_out/updater.exe release/JumpNDodge-windows/
           Copy-Item icon.ico release/JumpNDodge-windows/
           ($env:GITHUB_REF_NAME -replace '^v', '') | Set-Content -Path release/JumpNDodge-windows/version.txt -NoNewline
           Compress-Archive -Path release/JumpNDodge-windows/* -DestinationPath release/JumpNDodge-windows.zip
@@ -121,3 +183,7 @@ jobs:
   # GitHub-Release-Assets zaehlen (anders als Actions-Artifacts) nicht gegen das
   # Storage-Kontingent und laufen nie ab. Der Installer lebt separat im JumpNDodge-Repo
   # und wird nicht von dieser Pipeline gebaut. Der Quellcode bleibt hier, privat.
+  #
+  # Build-Kette jetzt: Source -> PyArmor (obfuscation/encryption) -> Nuitka (Kompilierung
+  # zu echtem Maschinencode statt .pyc-Bytecode). Das macht das Decompilen deutlich
+  # schwerer als die vorherige reine PyInstaller-Loesung.
