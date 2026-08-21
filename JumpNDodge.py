@@ -16,10 +16,19 @@ import hashlib       # SHA256-Prüfsummen für Dateiintegrität / Schlüsselable
 import hmac          # HMAC für Verschlüsselung (Keystream) und Integritätsprüfung
 
 
-# Basisverzeichnis korrekt setzen, auch in einer PyInstaller-Exe
-# Wenn das Programm als .exe kompiliert wurde, verwende das Verzeichnis der exe-Datei
+# Basisverzeichnis korrekt setzen, egal ob PyInstaller-, Nuitka-Onefile-Build
+# oder normales Python-Skript.
+# - PyInstaller setzt sys.frozen -> Verzeichnis der exe-Datei verwenden
+# - Nuitka setzt sys.frozen NICHT, stellt aber __compiled__.containing_dir
+#   bereit; bei Onefile-Builds zeigt __file__ sonst auf einen internen
+#   Temp-Entpackordner statt auf den echten Ordner neben der exe
+# - sys.executable ist ein zusätzlicher Fallback für sonstige Freeze-Tools
 if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)  # Verzeichnis der exe-Datei für Sounds und Ressourcen
+    BASE_DIR = os.path.dirname(sys.executable)  # Verzeichnis der exe-Datei (PyInstaller)
+elif '__compiled__' in globals():
+    BASE_DIR = __compiled__.containing_dir  # Verzeichnis der exe-Datei (Nuitka)
+elif getattr(sys, 'executable', None) and os.path.basename(sys.executable).lower().startswith('jumpndodge'):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
     # Andernfalls verwende das Verzeichnis der Python-Datei
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -328,7 +337,7 @@ def _check_admin_keyfile():
         return _admin_keyfile_cache["result"]
 
     import glob as _glob
-    folder = os.path.dirname(os.path.abspath(__file__))
+    folder = BASE_DIR
     result = False
     for f in _glob.glob(os.path.join(folder, "*.txt")):
         try:

@@ -215,8 +215,23 @@ def launch_app(app_dir):
         log(f"FEHLER: Konnte {APP_EXE} nicht starten: {e}")
 
 
+def _get_app_dir():
+    """Ermittelt das echte App-Verzeichnis, auch als Nuitka-Onefile-Build.
+
+    sys.argv[0] zeigt bei manchen Onefile-Aufrufen (z.B. über PATH oder
+    bestimmte Startmethoden) nicht zuverlässig auf den echten exe-Ordner.
+    __compiled__.containing_dir (von Nuitka bereitgestellt) und sys.executable
+    sind bei kompilierten Builds robuster.
+    """
+    if '__compiled__' in globals():
+        return __compiled__.containing_dir
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+
 def main():
-    app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    app_dir = _get_app_dir()
     os.chdir(app_dir)
     log(f"Arbeitsverzeichnis: {app_dir}")
 

@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.1.69 - 2026-08-21
+
+fixed huge bug 
+
+
 ## v1.1.65 - 2026-08-21
 
 Harder to decompile 
