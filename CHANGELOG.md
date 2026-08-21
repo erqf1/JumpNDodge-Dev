@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.1.65 - 2026-08-21
+
+Harder to decompile 
+
+
 ## v1.1.1 - 2026-08-21
 
 added JumpNDodge Classic 
