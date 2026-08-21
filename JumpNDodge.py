@@ -259,6 +259,7 @@ menu_font = pygame.font.SysFont(None, 40)   # Mittlere Schrift für Menüs
 small_font = pygame.font.SysFont(None, 26)  # Kleine Schrift für Details
 mono_font = pygame.font.SysFont("consolas", 22)  # Monospace-Schrift für Code/Hints
 tooltip_font = pygame.font.SysFont(None, 32)  # Schrift für Hover-Tooltips (besser lesbar als small_font)
+tab_font = pygame.font.SysFont(None, 20)  # Kompakte Schrift für die Kosmetik-Tab-Leiste (6 Tabs müssen nebeneinander passen)
 
 # Liste der unterstützten Sprachen im Spiel
 languages = ["Deutsch", "English", "Русский", "Türkçe", "Schwiizerdütsch"]
@@ -728,6 +729,7 @@ def load_profile(name):
     settings        = {**default_settings,     **p.get("settings", {})}
     powers_state    = {**default_powers,       **p.get("powers", {})}
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
+    _migrate_cosmetics_equipped_player(cosmetics_state)
     powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
         "stats": stats, "achievements": achievements, "highscores": saved_scores,
@@ -1206,10 +1208,47 @@ default_powers = {
 
 # Standardwerte für Kosmetik-Items
 default_cosmetics = {
-    "owned": [],           # Liste der besessenen Kosmetik-Items
-    "equipped": [],        # Ausgerüstete Trails (Spuren)
-    "equipped_player": None  # Ausgerüstete Spieler-Kosmetik (z.B. Krone)
+    "owned": [],               # Liste der besessenen Kosmetik-Items
+    "equipped": [],            # Ausgerüstete Trails (Spuren)
+    "equipped_headwear": None, # Ausgerüstete Kopfbedeckung (z.B. Krone)
+    "equipped_eyes": None,     # Ausgerüstetes Augen-Item (z.B. Pixel-Augen)
+    "equipped_nose": None,     # Ausgerüstetes Nasen-Item (z.B. Clown-Nase)
+    "equipped_mouth": None     # Ausgerüstetes Mund-Item (z.B. Breites Grinsen)
 }
+
+def _migrate_cosmetics_equipped_player(state):
+    """Alte Speicherstände hatten nur EINEN gemeinsamen Slot ('equipped_player') für
+    Kopfbedeckungen UND Gesichtsmerkmale. Diese Funktion übernimmt einen dort noch
+    vorhandenen Wert einmalig in den passenden neuen Kategorie-Slot, damit niemand
+    sein bereits ausgerüstetes Item durch das Update verliert."""
+    if not isinstance(state, dict):
+        return state
+    old = state.pop("equipped_player", None)
+    if old:
+        meta = COSMETICS_DB.get(old, {})
+        category = meta.get("category")
+        if category == "headwear" and not state.get("equipped_headwear"):
+            state["equipped_headwear"] = old
+        elif category in ("eyes", "nose", "mouth") and not state.get(f"equipped_{category}"):
+            state[f"equipped_{category}"] = old
+    return state
+
+def _migrate_cosmetics_equipped_face(state):
+    """Ein vorheriges Update hatte Kopfbedeckung UND Gesichtsmerkmale (Augen, Nase,
+    Mund) noch in einem gemeinsamen 'equipped_face'-Slot zusammengefasst. Diese
+    Funktion übernimmt einen dort noch vorhandenen Wert (z.B. Pixel-Augen) einmalig
+    in den passenden neuen, getrennten Kategorie-Slot (equipped_eyes / equipped_nose /
+    equipped_mouth), damit niemand sein bereits ausgerüstetes Item durch das Update
+    verliert."""
+    if not isinstance(state, dict):
+        return state
+    old = state.pop("equipped_face", None)
+    if old:
+        meta = COSMETICS_DB.get(old, {})
+        category = meta.get("category")
+        if category in ("eyes", "nose", "mouth") and not state.get(f"equipped_{category}"):
+            state[f"equipped_{category}"] = old
+    return state
 
 # Lade persistente Daten aus data/gameplay.json (migriert automatisch alte Einzeldateien)
 stats           = load_section("stats",          default_stats)
@@ -1381,6 +1420,13 @@ texts = {
         "cosmetic_shop": "Kosmetik-Shop",
         "trails_tab": "Spuren",
         "player_cosmetics_tab": "Spieler Kosmetik",
+        "headwear_tab": "Kopfbedeckungen",
+        "face_tab": "Gesichtsmerkmale",
+        "eyes_tab": "Augen",
+        "nose_tab": "Nase",
+        "mouth_tab": "Mund",
+        "tools_tab": "Tools",
+        "tools_coming_soon": "Bald verfügbar!",
         "daily_rewards": "Tägliche Belohnungen", "all_statistics": "Alle Statistiken", "difficulties": "Schwierigkeiten",
         "loading": "Lädt...", "claim_reward": "Belohnung abholen", "next_reset_in": "Nächster Reset in:", "achievement_unlocked": "Erfolg: ", "settings": "Einstellungen", "export_language": "Sprache exportieren", "sound": "Sound", "sound_enabled": "Sound aktiviert", "sound_theme": "Sound-Thema", "menu_click_label": "Menü-Klick", "click_label": "Klick", "click_back_label": "Zurück-Klick", "hit_label": "Treffer", "gameover_label": "Game Over", "menu_music_label": "Menü-Musik", "ingame_music_label": "Spiel-Musik", "on": "AN", "off": "AUS",
         "choose_language": "Wähle deine Sprache", "color_scheme": "Farbschema", "lang_continue": "Weiter",
@@ -1431,6 +1477,13 @@ texts = {
         "cosmetic_shop": "Cosmetic Shop",
         "trails_tab": "Trails",
         "player_cosmetics_tab": "Player Cosmetics",
+        "headwear_tab": "Headwear",
+        "face_tab": "Face",
+        "eyes_tab": "Eyes",
+        "nose_tab": "Nose",
+        "mouth_tab": "Mouth",
+        "tools_tab": "Tools",
+        "tools_coming_soon": "Coming soon!",
         "fire_trail": "Fire Trail",
         "yellow_crown": "Yellow Crown",
         "buy": "Buy",
@@ -1483,6 +1536,13 @@ texts = {
         "cosmetic_shop": "Косметический магазин",
         "trails_tab": "Следы",
         "player_cosmetics_tab": "Косметика игрока",
+        "headwear_tab": "Головные уборы",
+        "face_tab": "Черты лица",
+        "eyes_tab": "Глаза",
+        "nose_tab": "Нос",
+        "mouth_tab": "Рот",
+        "tools_tab": "Инструменты",
+        "tools_coming_soon": "Скоро!",
         "fire_trail": "огненный след",
         "yellow_crown": "желтая корона",
         "buy": "Купить",
@@ -1535,6 +1595,13 @@ texts = {
         "cosmetic_shop": "Kozmetik Mağaza",
         "trails_tab": "İzler",
         "player_cosmetics_tab": "Oyuncu Kozmetikleri",
+        "headwear_tab": "Baş Giyimi",
+        "face_tab": "Yüz Özellikleri",
+        "eyes_tab": "Gözler",
+        "nose_tab": "Burun",
+        "mouth_tab": "Ağız",
+        "tools_tab": "Araçlar",
+        "tools_coming_soon": "Yakında!",
         "fire_trail": "ateşli iz",
         "yellow_crown": "Sarı Taç",
         "buy": "Satın Al",
@@ -1587,6 +1654,13 @@ texts = {
         "cosmetic_shop": "Kosmetik Shop",
         "trails_tab": "Spure",
         "player_cosmetics_tab": "Spieler Kosmetik",
+        "headwear_tab": "Kopfbedeckige",
+        "face_tab": "Gsichtsmerkmal",
+        "eyes_tab": "Ouge",
+        "nose_tab": "Nase",
+        "mouth_tab": "Mund",
+        "tools_tab": "Tools",
+        "tools_coming_soon": "Bald verfüegbar!",
         "fire_trail": "Feierig Spur",
         "yellow_crown": "Gäl Krone",
         "buy": "Kaufe",
@@ -2311,17 +2385,29 @@ if _powers_changed:
 # Preise werden beim ersten Laden zufällig festgelegt und in cosmetics.json gespeichert
 # =============================
 COSMETICS_DB = {
-    "fire_trail": {"rarity": "Common", "price_range": [150, 250], "type": "trail", "name": {"Deutsch": "Feuerspur", "English": "Fire Trail", "Русский": "огненный след", "Türkçe": "ateşli iz", "Schwiizerdütsch": "Feierig Spur"}},
-    "ice_trail": {"rarity": "Rare", "price_range": [200, 300], "type": "trail", "name": {"Deutsch": "Eisspur", "English": "Ice Trail", "Русский": "ледяной след", "Türkçe": "Buz İz", "Schwiizerdütsch": "Iis Spur"}},
-    "shadow_trail": {"rarity": "Epic", "price_range": [250, 400], "type": "trail", "name": {"Deutsch": "Schattenspur", "English": "Shadow Trail", "Русский": "тень след", "Türkçe": "Gölge İz", "Schwiizerdütsch": "Schatte Spur"}},
-    "sparkle_trail": {"rarity": "Epic", "price_range": [350, 500], "type": "trail", "name": {"Deutsch": "Funkelspur", "English": "Sparkle Trail", "Русский": "искрящийся след", "Türkçe": "Parıltı İz", "Schwiizerdütsch": "Funkle Spur"}},
-    "toxic_trail": {"rarity": "Epic", "price_range": [400, 600], "type": "trail", "name": {"Deutsch": "Giftspur", "English": "Toxic Trail", "Русский": "токсичный след", "Türkçe": "Toksik İz", "Schwiizerdütsch": "Gift Spur"}},
-    "electric_trail": {"rarity": "Epic", "price_range": [450, 650], "type": "trail", "name": {"Deutsch": "Blitzspur", "English": "Electric Trail", "Русский": "электрический след", "Türkçe": "Elektrik İzi", "Schwiizerdütsch": "Blitz Spur"}},
-    "yellow_crown": {"rarity": "Legendary", "price_range": [2500, 2500], "type": "player", "name": {"Deutsch": "Gelbe Krone", "English": "Yellow Crown", "Русский": "желтая корона", "Türkçe": "Sarı Taç", "Schwiizerdütsch": "Gäl Krone"}},
-    "pixel_eyes": {"rarity": "Common", "price_range": [120, 200], "type": "player", "name": {"Deutsch": "Pixel-Augen", "English": "Pixel Eyes", "Русский": "Пиксельные глаза", "Türkçe": "Piksel Gözler", "Schwiizerdütsch": "Pixel-Ouge"}},
-    "top_hat": {"rarity": "Rare", "price_range": [280, 380], "type": "player", "name": {"Deutsch": "Zylinder", "English": "Top Hat", "Русский": "Цилиндр", "Türkçe": "Silindir Şapka", "Schwiizerdütsch": "Zylinder"}},
-    "devil_horns": {"rarity": "Epic", "price_range": [420, 580], "type": "player", "name": {"Deutsch": "Teufelshörner", "English": "Devil Horns", "Русский": "Дьявольские рога", "Türkçe": "Şeytan Boynuzları", "Schwiizerdütsch": "Tüfels-Hörner"}}
+    "fire_trail": {"rarity": "Common", "price_range": [150, 250], "type": "trail", "category": "trail", "name": {"Deutsch": "Feuerspur", "English": "Fire Trail", "Русский": "огненный след", "Türkçe": "ateşli iz", "Schwiizerdütsch": "Feierig Spur"}},
+    "ice_trail": {"rarity": "Rare", "price_range": [200, 300], "type": "trail", "category": "trail", "name": {"Deutsch": "Eisspur", "English": "Ice Trail", "Русский": "ледяной след", "Türkçe": "Buz İz", "Schwiizerdütsch": "Iis Spur"}},
+    "shadow_trail": {"rarity": "Epic", "price_range": [250, 400], "type": "trail", "category": "trail", "name": {"Deutsch": "Schattenspur", "English": "Shadow Trail", "Русский": "тень след", "Türkçe": "Gölge İz", "Schwiizerdütsch": "Schatte Spur"}},
+    "sparkle_trail": {"rarity": "Epic", "price_range": [350, 500], "type": "trail", "category": "trail", "name": {"Deutsch": "Funkelspur", "English": "Sparkle Trail", "Русский": "искрящийся след", "Türkçe": "Parıltı İz", "Schwiizerdütsch": "Funkle Spur"}},
+    "toxic_trail": {"rarity": "Epic", "price_range": [400, 600], "type": "trail", "category": "trail", "name": {"Deutsch": "Giftspur", "English": "Toxic Trail", "Русский": "токсичный след", "Türkçe": "Toksik İz", "Schwiizerdütsch": "Gift Spur"}},
+    "electric_trail": {"rarity": "Epic", "price_range": [450, 650], "type": "trail", "category": "trail", "name": {"Deutsch": "Blitzspur", "English": "Electric Trail", "Русский": "электрический след", "Türkçe": "Elektrik İzi", "Schwiizerdütsch": "Blitz Spur"}},
+    "yellow_crown": {"rarity": "Legendary", "price_range": [2500, 2500], "type": "player", "category": "headwear", "name": {"Deutsch": "Gelbe Krone", "English": "Yellow Crown", "Русский": "желтая корона", "Türkçe": "Sarı Taç", "Schwiizerdütsch": "Gäl Krone"}},
+    "pixel_eyes": {"rarity": "Common", "price_range": [120, 200], "type": "player", "category": "eyes", "name": {"Deutsch": "Pixel-Augen", "English": "Pixel Eyes", "Русский": "Пиксельные глаза", "Türkçe": "Piksel Gözler", "Schwiizerdütsch": "Pixel-Ouge"}},
+    "top_hat": {"rarity": "Rare", "price_range": [280, 380], "type": "player", "category": "headwear", "name": {"Deutsch": "Zylinder", "English": "Top Hat", "Русский": "Цилиндр", "Türkçe": "Silindir Şapka", "Schwiizerdütsch": "Zylinder"}},
+    "devil_horns": {"rarity": "Epic", "price_range": [420, 580], "type": "player", "category": "headwear", "name": {"Deutsch": "Teufelshörner", "English": "Devil Horns", "Русский": "Дьявольские рога", "Türkçe": "Şeytan Boynuzları", "Schwiizerdütsch": "Tüfels-Hörner"}},
+    "clown_nose": {"rarity": "Common", "price_range": [100, 150], "type": "player", "category": "nose", "name": {"Deutsch": "Clown-Nase", "English": "Clown Nose", "Русский": "Клоунский нос", "Türkçe": "Palyaço Burnu", "Schwiizerdütsch": "Clown-Nase"}},
+    "big_grin": {"rarity": "Rare", "price_range": [220, 320], "type": "player", "category": "mouth", "name": {"Deutsch": "Breites Grinsen", "English": "Big Grin", "Русский": "Широкая ухмылка", "Türkçe": "Geniş Sırıtış", "Schwiizerdütsch": "Breits Grinse"}}
 }
+
+# Alten, gemeinsamen 'equipped_player'-Slot (Kopfbedeckung + Gesicht teilten sich einen
+# Slot) einmalig in die neuen, getrennten Kategorie-Slots migrieren - jetzt, wo
+# COSMETICS_DB zur Kategorie-Bestimmung existiert.
+if "equipped_player" in cosmetics_state:
+    _migrate_cosmetics_equipped_player(cosmetics_state)
+    save_section("cosmetics", cosmetics_state)
+if "equipped_face" in cosmetics_state:
+    _migrate_cosmetics_equipped_face(cosmetics_state)
+    save_section("cosmetics", cosmetics_state)
 
 def initialize_cosmetic_prices():
     """Zufällige Preise innerhalb des Bereichs beim ersten Laden festlegen und in cosmetics.json speichern."""
@@ -6683,6 +6769,66 @@ def loadout_menu_loop():
 
 
 
+# Reihenfolge & Zuordnung der 6 Kosmetik-Tabs im Inventar
+# 0 = Spuren (trail), 1 = Kopfbedeckungen (headwear), 2 = Augen (eyes),
+# 3 = Nase (nose), 4 = Mund (mouth), 5 = Tools (coming soon)
+COSMETIC_TAB_CATEGORIES = ["trail", "headwear", "eyes", "nose", "mouth", None]
+COSMETIC_TAB_LABEL_KEYS = ["trails_tab", "headwear_tab", "eyes_tab", "nose_tab", "mouth_tab", "tools_tab"]
+
+def get_cosmetic_tab_layout():
+    """Berechnet Position/Größe der Kosmetik-Tabs anhand der aktuellen Tab-Anzahl
+    (COSMETIC_TAB_CATEGORIES). Zentrale Stelle für Zeichnen UND Klick-Erkennung,
+    damit beide bei einer wachsenden Tab-Anzahl nie auseinanderlaufen und die
+    Tab-Leiste immer auf den Bildschirm passt."""
+    tab_count = len(COSMETIC_TAB_CATEGORIES)
+    tab_gap = 6
+    tab_h = 40
+    margin = 40  # Rand links/rechts, damit die Leiste nie über den Bildschirmrand ragt
+    tab_w = min(172, (WIDTH - margin - (tab_count - 1) * tab_gap) // tab_count)
+    x_start = WIDTH // 2 - (tab_count * tab_w + (tab_count - 1) * tab_gap) // 2
+    y_tabs = 100
+    tab_rects = [pygame.Rect(x_start + i * (tab_w + tab_gap), y_tabs, tab_w, tab_h) for i in range(tab_count)]
+    return tab_rects, tab_w, tab_h
+
+def get_cosmetics_for_tab(tab):
+    """Gibt (gefilterte_owned_liste, aktuell_ausgerüstetes_item) für den gegebenen Tab-Index zurück."""
+    category = COSMETIC_TAB_CATEGORIES[tab]
+    owned = cosmetics_state.get("owned", [])
+    if category is None:  # Tools-Tab: noch keine Items
+        return [], None
+    filtered_owned = [c for c in owned if COSMETICS_DB.get(c, {}).get("category") == category]
+    if category == "trail":
+        equipped = cosmetics_state.get("equipped", [])
+        active_equipped = equipped[0] if equipped else None
+    else:
+        # Jede Kategorie (headwear, face, ...) hat ihren eigenen, unabhängigen Slot
+        # ("equipped_<category>"), damit z.B. eine Kopfbedeckung UND ein Gesichtsmerkmal
+        # gleichzeitig ausgerüstet sein können - 1 Kosmetik-Item pro Tab/Kategorie.
+        active_equipped = cosmetics_state.get(f"equipped_{category}")
+    return filtered_owned, active_equipped
+
+def equip_toggle_cosmetic(tab, cosmetic, active_equipped):
+    """Rüstet ein Kosmetik-Item aus/an, je nach Tab-Kategorie. Jede Kategorie hat ihren
+    eigenen Slot, sodass max. 1 Item pro Kategorie/Tab gleichzeitig ausgerüstet ist,
+    aber verschiedene Kategorien sich nicht gegenseitig verdrängen."""
+    category = COSMETIC_TAB_CATEGORIES[tab]
+    meta = COSMETICS_DB.get(cosmetic, {})
+    name = meta.get("name", {}).get(languages[language_index], cosmetic)
+    if active_equipped == cosmetic:
+        if category == "trail":
+            cosmetics_state['equipped'] = []
+        else:
+            cosmetics_state[f'equipped_{category}'] = None
+        push_overlay(f"{name} unequipped", (180, 180, 180))
+    else:
+        if category == "trail":
+            cosmetics_state['equipped'] = [cosmetic]
+        else:
+            cosmetics_state[f'equipped_{category}'] = cosmetic
+        push_overlay(f"{name} equipped", (0, 200, 0))
+    save_section("cosmetics", cosmetics_state)
+
+
 def draw_cosmetic_inventory():
     global cosmetic_tab
     mouse_pos = get_mouse_pos_logical()
@@ -6691,34 +6837,24 @@ def draw_cosmetic_inventory():
     title = font.render(get_text("cosmetic_inventory"), True, get_text_color())
     base_surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 70))
 
-    # Tabs at top
-    tab_w = 150
-    tab_h = 40
-    x_start = WIDTH//2 - (2 * tab_w + 1 * 8) // 2
-    y_tabs = 100
-
-    trails_label = get_text("trails_tab")
-    player_label = get_text("player_cosmetics_tab")
-
-    # Tab-Rectangles
-    trails_rect = pygame.Rect(x_start, y_tabs, tab_w, tab_h)
-    player_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
-
-    # Tab-Farben basierend auf Aktivität
-    tab_colors = [
-        (get_button_color(), get_button_hover_color()) if cosmetic_tab == 0 else (get_panel_color(), (180, 180, 180)),
-        (get_button_color(), get_button_hover_color()) if cosmetic_tab == 1 else (get_panel_color(), (180, 180, 180))
-    ]
+    # Tabs at top (6 Kategorien: Spuren, Kopfbedeckungen, Augen, Nase, Mund, Tools)
+    tab_rects, tab_w, tab_h = get_cosmetic_tab_layout()
+    tab_labels = [get_text(k) for k in COSMETIC_TAB_LABEL_KEYS]
+    # Kompaktere Schrift, da 6 Tabs nebeneinander weniger Platz pro Tab haben als früher 4
+    tab_label_font = tab_font if tab_w < 150 else small_font
 
     # Tabs zeichnen
-    for i, (rect, label, (bg_color, border_color)) in enumerate([(trails_rect, trails_label, tab_colors[0]),
-                                                                (player_rect, player_label, tab_colors[1])]):
+    for i, (rect, label) in enumerate(zip(tab_rects, tab_labels)):
+        if cosmetic_tab == i:
+            bg_color, border_color = get_button_color(), get_button_hover_color()
+        else:
+            bg_color, border_color = get_panel_color(), (180, 180, 180)
         # Hintergrund
         pygame.draw.rect(base_surface, bg_color, rect, border_radius=12)
         # Border
         pygame.draw.rect(base_surface, border_color, rect, width=2, border_radius=12)
         # Text zentriert
-        text_surf = small_font.render(label, True, get_text_color())
+        text_surf = tab_label_font.render(label, True, get_text_color())
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
                                 rect.centery - text_surf.get_height() // 2))
 
@@ -6728,18 +6864,12 @@ def draw_cosmetic_inventory():
     pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=16)
     pygame.draw.rect(base_surface, (60, 80, 140), panel, width=3, border_radius=16)
 
-    owned = cosmetics_state.get("owned", [])
-    # Filter by type
-    if cosmetic_tab == 0:  # Trails
-        filtered_owned = [c for c in owned if COSMETICS_DB.get(c, {}).get("type") == "trail"]
-        equipped = cosmetics_state.get("equipped", [])
-        active_equipped = equipped[0] if equipped else None
-    else:  # Player
-        filtered_owned = [c for c in owned if COSMETICS_DB.get(c, {}).get("type") == "player"]
-        equipped_player = cosmetics_state.get("equipped_player")
-        active_equipped = equipped_player
+    filtered_owned, active_equipped = get_cosmetics_for_tab(cosmetic_tab)
 
-    if not filtered_owned:
+    if COSMETIC_TAB_CATEGORIES[cosmetic_tab] is None:  # Tools - coming soon
+        msg = small_font.render(get_text("tools_coming_soon"), True, get_text_color())
+        base_surface.blit(msg, (panel.centerx - msg.get_width() // 2, panel.centery - msg.get_height() // 2))
+    elif not filtered_owned:
         msg = small_font.render(get_text("no_owned"), True, get_text_color())
         base_surface.blit(msg, (panel.x + 20, y))
     else:
@@ -6771,6 +6901,10 @@ def draw_cosmetic_inventory():
                 pygame.draw.rect(base_surface, (25, 25, 30), icon_rect, border_radius=4)
             elif cosmetic == "devil_horns":
                 pygame.draw.rect(base_surface, (210, 30, 30), icon_rect, border_radius=4)
+            elif cosmetic == "clown_nose":
+                pygame.draw.circle(base_surface, (230, 30, 30), icon_rect.center, 14)
+            elif cosmetic == "big_grin":
+                pygame.draw.rect(base_surface, (255, 90, 120), icon_rect, border_radius=4)
             else:
                 pygame.draw.rect(base_surface, (200,200,200), icon_rect, border_radius=4)
 
@@ -6830,14 +6964,7 @@ def cosmetic_inventory_loop():
         # Registry der Item-Buttons (gleiche Iterationslogik wie draw_cosmetic_inventory)
         _ci_panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
         _ci_y = 160
-        _ci_owned = cosmetics_state.get('owned', [])
-        if cosmetic_tab == 0:
-            _ci_filtered = [c for c in _ci_owned if COSMETICS_DB.get(c, {}).get("type") == "trail"]
-            _ci_equipped_list = cosmetics_state.get('equipped', [])
-            _ci_active = _ci_equipped_list[0] if _ci_equipped_list else None
-        else:
-            _ci_filtered = [c for c in _ci_owned if COSMETICS_DB.get(c, {}).get("type") == "player"]
-            _ci_active = cosmetics_state.get("equipped_player")
+        _ci_filtered, _ci_active = get_cosmetics_for_tab(cosmetic_tab)
         _ci_items = []
         for cosmetic in _ci_filtered:
             _ci_item_rect = pygame.Rect(_ci_panel.x + 20, _ci_y, _ci_panel.width - 40, 50)
@@ -6859,7 +6986,8 @@ def cosmetic_inventory_loop():
                 else:
                     d = nav_direction(event.key)
                     if d in ("left", "right"):
-                        cosmetic_tab = 1 - cosmetic_tab
+                        step = 1 if d == "right" else -1
+                        cosmetic_tab = (cosmetic_tab + step) % len(COSMETIC_TAB_CATEGORIES)
                         nav_set_focus("cosmetic_inventory", 0)
                     elif d in ("up", "down"):
                         cur = nav_get_focus("cosmetic_inventory", len(_ci_nav_rects))
@@ -6868,38 +6996,21 @@ def cosmetic_inventory_loop():
                         _fi = nav_get_focus("cosmetic_inventory", len(_ci_nav_rects))
                         if _fi is not None and _fi < len(_ci_items):
                             cosmetic = _ci_items[_fi][1]
-                            meta = COSMETICS_DB.get(cosmetic, {})
-                            name = meta.get("name", {}).get(languages[language_index], cosmetic)
-                            if _ci_active == cosmetic:
-                                if cosmetic_tab == 0:
-                                    cosmetics_state['equipped'] = []
-                                else:
-                                    cosmetics_state['equipped_player'] = None
-                                push_overlay(f"{name} unequipped", (180,180,180))
-                            else:
-                                if cosmetic_tab == 0:
-                                    cosmetics_state['equipped'] = [cosmetic]
-                                else:
-                                    cosmetics_state['equipped_player'] = cosmetic
-                                push_overlay(f"{name} equipped", (0,200,0))
-                            save_section("cosmetics", cosmetics_state)
+                            equip_toggle_cosmetic(cosmetic_tab, cosmetic, _ci_active)
                         elif _fi == len(_ci_items):
                             in_cosmetic_inventory = False
                             in_loadout_menu = True
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 # Check tab clicks
-                tab_w = 150
-                tab_h = 40
-                x_start = WIDTH//2 - (2 * tab_w + 1 * 8) // 2
-                y_tabs = 100
-                trails_rect = pygame.Rect(x_start, y_tabs, tab_w, tab_h)
-                player_rect = pygame.Rect(x_start + tab_w + 8, y_tabs, tab_w, tab_h)
-                if trails_rect.collidepoint((mx, my)):
-                    cosmetic_tab = 0
-                    continue
-                if player_rect.collidepoint((mx, my)):
-                    cosmetic_tab = 1
+                _tab_rects, _tab_w, _tab_h = get_cosmetic_tab_layout()
+                _clicked_tab = False
+                for i, trect in enumerate(_tab_rects):
+                    if trect.collidepoint((mx, my)):
+                        cosmetic_tab = i
+                        _clicked_tab = True
+                        break
+                if _clicked_tab:
                     continue
                 # Check back button
                 if back_rect.collidepoint((mx, my)):
@@ -6909,36 +7020,13 @@ def cosmetic_inventory_loop():
                 # Check owned items and their equip/unequip buttons by reconstructing positions used in draw_cosmetic_inventory
                 panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
                 y = 160
-                owned = cosmetics_state.get('owned', [])
-                if cosmetic_tab == 0:  # Trails
-                    filtered_owned = [c for c in owned if COSMETICS_DB.get(c, {}).get("type") == "trail"]
-                    equipped = cosmetics_state.get('equipped', [])
-                    active_equipped = equipped[0] if equipped else None
-                else:  # Player
-                    filtered_owned = [c for c in owned if COSMETICS_DB.get(c, {}).get("type") == "player"]
-                    equipped_player = cosmetics_state.get("equipped_player")
-                    active_equipped = equipped_player
+                filtered_owned, active_equipped = get_cosmetics_for_tab(cosmetic_tab)
                 for cosmetic in filtered_owned:
                     item_rect = pygame.Rect(panel.x + 20, y, panel.width - 40, 50)
                     # equip/unequip button area
                     btn_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
                     if btn_rect.collidepoint((mx, my)):
-                        # If currently equipped -> unequip, else equip
-                        meta = COSMETICS_DB.get(cosmetic, {})
-                        name = meta.get("name", {}).get(languages[language_index], cosmetic)
-                        if active_equipped == cosmetic:
-                            if cosmetic_tab == 0:
-                                cosmetics_state['equipped'] = []
-                            else:
-                                cosmetics_state['equipped_player'] = None
-                            push_overlay(f"{name} unequipped", (180,180,180))
-                        else:
-                            if cosmetic_tab == 0:
-                                cosmetics_state['equipped'] = [cosmetic]
-                            else:
-                                cosmetics_state['equipped_player'] = cosmetic
-                            push_overlay(f"{name} equipped", (0,200,0))
-                        save_section("cosmetics", cosmetics_state)
+                        equip_toggle_cosmetic(cosmetic_tab, cosmetic, active_equipped)
                         break
                     y += 60
                     if y > panel.bottom - 80:
@@ -6999,6 +7087,8 @@ def draw_cosmetic_shop():
         "pixel_eyes":    ("eyes",     (60,  60,  70)),
         "top_hat":       ("tophat",   (25,  25,  30)),
         "devil_horns":   ("horns",    (210, 30,  30)),
+        "clown_nose":    ("nose",     (230, 30,  30)),
+        "big_grin":      ("grin",     (255, 90,  120)),
     }
 
     # Grid: 3 Spalten, so viele Zeilen wie nötig. Sortiert nach Typ (Trail vor Player)
@@ -7106,6 +7196,24 @@ def draw_cosmetic_shop():
         elif icon_shape == "horns":
             pygame.draw.polygon(base_surface, icon_color, [(icx - 2, icy + 8), (icx - 11, icy - 6), (icx - 4, icy + 3)])
             pygame.draw.polygon(base_surface, icon_color, [(icx + 2, icy + 8), (icx + 11, icy - 6), (icx + 4, icy + 3)])
+        elif icon_shape == "nose":
+            pygame.draw.circle(base_surface, icon_color, (icx, icy), 8)
+            pygame.draw.circle(base_surface, tuple(max(0, c - 60) for c in icon_color), (icx, icy), 8, width=2)
+        elif icon_shape == "grin":
+            _ipx = 1
+            _ipat = [
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "111111111111",
+            ]
+            for _ir, _irow in enumerate(_ipat):
+                for _ic2, _ich in enumerate(_irow):
+                    if _ich == "1":
+                        pygame.draw.rect(base_surface, (10, 10, 15),
+                                         (icx - 13 * _ipx // 2 + _ic2 * _ipx, icy - 3 * _ipx + _ir * _ipx, _ipx, _ipx))
 
         # Item name
         name_surf = menu_font.render(item_name, True, (255, 255, 255))
@@ -7238,6 +7346,24 @@ def draw_cosmetic_shop():
         elif _s == "horns":
             pygame.draw.polygon(base_surface, _ic, [(icx2 - 4, icy2 + 14), (icx2 - 19, icy2 - 10), (icx2 - 7, icy2 + 5)])
             pygame.draw.polygon(base_surface, _ic, [(icx2 + 4, icy2 + 14), (icx2 + 19, icy2 - 10), (icx2 + 7, icy2 + 5)])
+        elif _s == "nose":
+            pygame.draw.circle(base_surface, _ic, (icx2, icy2), 14)
+            pygame.draw.circle(base_surface, tuple(max(0, c - 60) for c in _ic), (icx2, icy2), 14, width=2)
+        elif _s == "grin":
+            _ppx = 3
+            _ppat = [
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "111111111111",
+            ]
+            for _pr, _prow in enumerate(_ppat):
+                for _pc, _pch in enumerate(_prow):
+                    if _pch == "1":
+                        pygame.draw.rect(base_surface, (10, 10, 15),
+                                         (icx2 - 13 * _ppx // 2 + _pc * _ppx, icy2 - 3 * _ppx + _pr * _ppx, _ppx, _ppx))
 
         # Name + Rarity + Typ
         tx = pv_x + 96
@@ -9502,9 +9628,14 @@ def run_game():
             pygame.draw.rect(base_surface, (100, 100, 150), player_shadow, border_radius=8)
             pygame.draw.rect(base_surface, BLUE, player, border_radius=8)
 
-        # Draw equipped player cosmetic
-        equipped_player = cosmetics_state.get("equipped_player")
-        if equipped_player == "yellow_crown":
+        # Draw equipped player cosmetics - Kopfbedeckung, Augen, Nase und Mund haben
+        # je einen eigenen Slot und werden daher unabhängig voneinander gezeichnet
+        # (gleichzeitig z.B. Zylinder + Pixel-Augen + Clown-Nase + Breites Grinsen möglich).
+        equipped_headwear = cosmetics_state.get("equipped_headwear")
+        equipped_eyes = cosmetics_state.get("equipped_eyes")
+        equipped_nose = cosmetics_state.get("equipped_nose")
+        equipped_mouth = cosmetics_state.get("equipped_mouth")
+        if equipped_headwear == "yellow_crown":
             # Draw a simple crown above the player
             crown_x = player.centerx - 10
             crown_y = player.top - 5
@@ -9515,20 +9646,21 @@ def run_game():
                 (crown_x + 15, crown_y - 8),
                 (crown_x + 20, crown_y)
             ])
-        elif equipped_player == "top_hat":
+        elif equipped_headwear == "top_hat":
             # Zylinder: Krempe + Hutkörper + roter Streifen
             hat_x = player.centerx
             hat_top = player.top
             pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 15, hat_top - 6, 30, 6))
             pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 10, hat_top - 24, 20, 20))
             pygame.draw.rect(base_surface, (150, 20, 20), (hat_x - 10, hat_top - 9, 20, 4))
-        elif equipped_player == "devil_horns":
+        elif equipped_headwear == "devil_horns":
             # Zwei rote Hörner über dem Spieler
             hx = player.centerx
             hy = player.top
             pygame.draw.polygon(base_surface, (210, 30, 30), [(hx - 6, hy + 4), (hx - 16, hy - 14), (hx - 4, hy - 2)])
             pygame.draw.polygon(base_surface, (210, 30, 30), [(hx + 6, hy + 4), (hx + 16, hy - 14), (hx + 4, hy - 2)])
-        elif equipped_player == "pixel_eyes":
+
+        if equipped_eyes == "pixel_eyes":
             # Blockige Pixel-Augen auf dem Spieler (bewusst nicht realistisch)
             ex = player.centerx
             ey = player.centery - 8
@@ -9536,6 +9668,32 @@ def run_game():
             pygame.draw.rect(base_surface, (255, 255, 255), (ex + 5, ey - 5, 9, 9))
             pygame.draw.rect(base_surface, (20, 20, 25), (ex - 11, ey - 2, 4, 4))
             pygame.draw.rect(base_surface, (20, 20, 25), (ex + 8, ey - 2, 4, 4))
+
+        if equipped_nose == "clown_nose":
+            # Runde rote Clown-Nase mittig im Gesicht
+            nx = player.centerx
+            ny = player.centery
+            pygame.draw.circle(base_surface, (230, 30, 30), (nx, ny), 6)
+            pygame.draw.circle(base_surface, (150, 10, 10), (nx, ny), 6, width=1)
+
+        if equipped_mouth == "big_grin":
+            # Wemmbu Smile: pixelig/blockig im Minecraft-Stil (eckige U-Klammer, dicke Wände)
+            mx = player.centerx
+            my = player.centery + 4
+            _wpx = 2
+            _wpat = [
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "1..........1",
+                "111111111111",
+            ]
+            for _wr, _wrow in enumerate(_wpat):
+                for _wc, _wch in enumerate(_wrow):
+                    if _wch == "1":
+                        pygame.draw.rect(base_surface, (10, 10, 15),
+                                         (mx - 13 * _wpx // 2 + _wc * _wpx, my - 3 * _wpx + _wr * _wpx, _wpx, _wpx))
 
         # Obstacles mit Schatten
         for obs in obstacles:
