@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.1.1 - 2026-08-21
+
+added JumpNDodge Classic 
+
+
 ## v1.1.06 - 2026-08-21
 
 fix 2

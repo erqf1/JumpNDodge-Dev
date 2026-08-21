@@ -1354,6 +1354,7 @@ texts = {
         "logout": "Abmelden", "give_power": "Power geben",
         "spin": "Drehen (50)", "spin10": "Roll x10 (500)", "results": "Belohnungen",
         "owned_tab": "Besitzt", "equipped_tab": "Ausgerüstet", "all_tab": "Alle", "no_owned": "Keine Powers besessen.", "more": "Mehr", "help": "Anleitung",
+        "classic_mode": "JumpNDodge Classic", "esc_back": "ESC: Zurück",
         "game_subtitle": "Ein actionreiches Sprungspiel", "controls_hint": "ENTER: Start  |  W/S: Sprache/Schwierigkeit  |  ESC: Beenden",
         "back_to_main": "ESC/M: Zurück zum Hauptmenü", "click_equip": "Klick: Equip (Auto-Swap wenn voll)  |  ESC/M: Menü",
         "locked": "gesperrt", "equipped": "ausgerüstet", "passive": "passiv", "auto_swap": "Auto-Swap", "new_power": "Neu",
@@ -1403,6 +1404,7 @@ texts = {
         "logout": "Logout", "give_power": "Give Power",
         "spin": "Spin (50)", "spin10": "Roll x10 (500)", "results": "Rewards",
         "owned_tab": "Owned", "equipped_tab": "Equipped", "all_tab": "All", "no_owned": "No powers owned.", "more": "More", "help": "Help",
+        "classic_mode": "JumpNDodge Classic", "esc_back": "ESC: Back",
         "game_subtitle": "An action-packed jumping game", "controls_hint": "ENTER: Start  |  W/S: Language/Difficulty  |  ESC: Quit",
         "back_to_main": "ESC/M: Back to main menu", "click_equip": "Click: Equip (Auto-Swap when full)  |  ESC/M: Menu",
         "locked": "locked", "equipped": "equipped", "passive": "passive", "auto_swap": "Auto-Swap", "new_power": "New",
@@ -1454,6 +1456,7 @@ texts = {
         "logout": "Выйти", "give_power": "Выдать Power",
         "spin": "Крутить (50)", "spin10": "Крутить x10 (500)", "results": "Награды",
         "owned_tab": "Есть", "equipped_tab": "Надето", "all_tab": "Все", "no_owned": "Нет Powers.", "more": "Больше", "help": "Помощь",
+        "classic_mode": "JumpNDodge Classic", "esc_back": "ESC: Назад",
         "game_subtitle": "Динамичная прыжковая игра", "controls_hint": "ENTER: Старт  |  W/S: Язык/Сложность  |  ESC: Выход",
         "back_to_main": "ESC/M: Назад в главное меню", "click_equip": "Клик: Надеть (Авто-замена при заполнении)  |  ESC/M: Меню",
         "locked": "заблокировано", "equipped": "надето", "passive": "пассивно", "auto_swap": "Авто-замена", "new_power": "Новое",
@@ -1505,6 +1508,7 @@ texts = {
         "logout": "Çıkış", "give_power": "Power ver",
         "spin": "Çevir (50)", "spin10": "10x Çevir (500)", "results": "Ödüller",
         "owned_tab": "Sahip", "equipped_tab": "Takılı", "all_tab": "Tümü", "no_owned": "Powers yok.", "more": "Daha Fazla", "help": "Yardım",
+        "classic_mode": "JumpNDodge Classic", "esc_back": "ESC: Geri",
         "game_subtitle": "Aksiyon dolu zıplama oyunu", "controls_hint": "ENTER: Başlat  |  W/S: Dil/Zorluk  |  ESC: Çıkış",
         "back_to_main": "ESC/M: Ana menüye dön", "click_equip": "Tıkla: Tak (Dolu iken Otomatik Değiştir)  |  ESC/M: Menü",
         "locked": "kilitli", "equipped": "takılı", "passive": "pasif", "auto_swap": "Otomatik Değiştir", "new_power": "Yeni",
@@ -1556,6 +1560,7 @@ texts = {
         "logout": "Uslogge", "give_power": "Power gäh",
         "spin": "Drehe (50)", "spin10": "Roll x10 (500)", "results": "Belohnige",
         "owned_tab": "Hesch", "equipped_tab": "Aaglegt", "all_tab": "Alli", "no_owned": "Kei Powers.", "more": "Mehr", "help": "Hilf",
+        "classic_mode": "JumpNDodge Classic", "esc_back": "ESC: Zrugg",
         "game_subtitle": "Es actionriichs Springspiil", "controls_hint": "ENTER: Start  |  W/S: Sproch/Schwierigkeit  |  ESC: Usstieg",
         "back_to_main": "ESC/M: Zrugg zum Hauptmenü", "click_equip": "Klick: Aalegge (Auto-Tuusche wenn voll)  |  ESC/M: Menü",
         "locked": "gschperrt", "equipped": "aaglegt", "passive": "passiv", "auto_swap": "Auto-Tuusche", "new_power": "Neu",
@@ -3592,6 +3597,7 @@ def draw_difficulty_select():
 # -----------------------------
 
 in_more_menu = False
+in_classic_game = False   # True während JumpNDodge Classic (eingebettete Spiel.py-Logik) läuft
 in_controls_menu = False
 _ctrl_listening = None   # action being recorded
 in_settings_menu = False
@@ -4156,7 +4162,7 @@ def open_language_select_from_settings():
 
 # Helper to reset menu flags
 def set_all_menu_flags(val=False):
-    global in_menu, game_running, showing_stats, in_shop, in_loadout, in_admin_login, in_admin_panel, in_more_menu, in_settings_menu, in_experimental_menu, in_help, in_daily_rewards, in_loading, in_tutorial, in_language_select, in_achievements_screen, in_profile_select, in_profile_name_input
+    global in_menu, game_running, showing_stats, in_shop, in_loadout, in_admin_login, in_admin_panel, in_more_menu, in_classic_game, in_settings_menu, in_experimental_menu, in_help, in_daily_rewards, in_loading, in_tutorial, in_language_select, in_achievements_screen, in_profile_select, in_profile_name_input
     in_menu = val
     game_running = False
     showing_stats = False
@@ -4165,6 +4171,7 @@ def set_all_menu_flags(val=False):
     in_admin_login = False
     in_admin_panel = False
     in_more_menu = False
+    in_classic_game = False
     in_settings_menu = False
     in_experimental_menu = False
     in_help = False
@@ -4335,16 +4342,16 @@ def draw_more_menu():
     coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, get_text_color())
     base_surface.blit(coin_text, (25, 22))
 
-    # Buttons: Statistics, Admin, Help, Achievements, Back
+    # Buttons: Statistics, Admin, Classic, Help, Achievements, Back
     start_x = WIDTH//2 - 180  # Breiter für längere Texte
     start_y = 140
     gap = 58
     if _check_admin_keyfile():
-        btn_texts  = [get_text('stats'), get_text('admin'), get_text('help'), get_text('back')]
-        btn_colors = [(100, 150, 200), (200, 100, 100), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('stats'), get_text('admin'), get_text('classic_mode'), get_text('help'), get_text('back')]
+        btn_colors = [(100, 150, 200), (200, 100, 100), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
     else:
-        btn_texts  = [get_text('stats'), get_text('help'), get_text('back')]
-        btn_colors = [(100, 150, 200), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('stats'), get_text('classic_mode'), get_text('help'), get_text('back')]
+        btn_colors = [(100, 150, 200), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
     
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
@@ -5042,6 +5049,178 @@ def set_more_to_admin():
     in_more_menu = False
     in_admin_panel = True
     play_sound(menu_click_sound)
+
+def open_classic_game():
+    """Öffnet JumpNDodge Classic (eingebettete Spiel.py-Logik)."""
+    global in_more_menu, in_classic_game
+    play_sound(menu_click_sound)
+    in_more_menu = False
+    in_classic_game = True
+
+
+def run_classic_game():
+    """JumpNDodge Classic — die Original-Spiellogik aus Spiel.py, eingebettet
+    ins JumpNDodge-Fenster (kein separater Prozess, kein eigenes Fenster mehr).
+
+    Die eigentliche Spielmechanik (Physik, Gegner, Kollisionen, Zeichnen)
+    ist 1:1 aus Spiel.py übernommen und unverändert. Angepasst wurden nur
+    die für die Einbettung nötigen Teile:
+      - eigene 800x600-Zeichenfläche statt eigenem Fenster
+      - ESC/M beendet Classic und kehrt ins Mehr-Menü zurück, statt das
+        ganze Programm zu schließen
+      - oben mittig wird "ESC: Zurück" (übersetzt) eingeblendet
+    """
+    global in_classic_game, in_more_menu, base_surface
+
+    # Musik stoppen, solange Classic läuft
+    stop_music()
+
+    # Eigene Oberfläche in der Original-Auflösung von Spiel.py (800x600)
+    screen = pygame.Surface((800, 600))
+
+    # ===================== Original-Code aus Spiel.py (Spiellogik unverändert) =====================
+    WIDTH, HEIGHT = 800, 600
+
+    WHITE = (255, 255, 255)
+    GREEN = (0, 255, 0)
+    BLUE = (0, 0, 255)
+    RED = (255, 0, 0)
+
+    player_size = 50
+    player_color = BLUE
+    player_x = WIDTH // 2
+    player_y = HEIGHT - 70 - player_size  # Spieler startet auf der Plattform
+    player_velocity = 5
+    jump_height = 10
+    is_jumping = False
+    gravity = 0.5
+    jump_speed = 10
+    y_velocity = 0
+    health = 3
+
+    enemy_size = 50
+    enemy_color = RED
+    enemy_velocity = 2
+    enemy_spawn_interval = 2000  # Millisekunden zwischen den Gegner-Spawns
+    last_enemy_spawn_time = pygame.time.get_ticks()
+
+    enemies = []
+
+    platform_width = WIDTH
+    platform_height = 20
+    platform_x = 0
+    platform_y = HEIGHT - platform_height - 50
+    platform_color = GREEN
+
+    score = 0
+
+    classic_clock = pygame.time.Clock()
+    running = True
+
+    def spawn_enemy():
+        side = random.choice(['left', 'right'])
+        if side == 'left':
+            x = -enemy_size
+            direction = 1
+        else:
+            x = WIDTH
+            direction = -1
+        y = platform_y - enemy_size
+        enemies.append({'x': x, 'y': y, 'direction': direction})
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            # Zusätzlich zum Original: ESC/M verlässt Classic (statt Programmende)
+            if event.type == pygame.KEYDOWN and (event.key == pygame.K_ESCAPE or is_back_key(event.key)):
+                running = False
+
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_a]:
+            player_x -= player_velocity
+        if keys[pygame.K_d]:
+            player_x += player_velocity
+        if keys[pygame.K_SPACE] and not is_jumping:
+            is_jumping = True
+            y_velocity = -jump_speed
+
+        # Schwerkraft und Springen
+        if is_jumping:
+            player_y += y_velocity
+            y_velocity += gravity
+            if player_y >= platform_y - player_size:
+                player_y = platform_y - player_size
+                is_jumping = False
+                y_velocity = 0
+
+        # Gegner Spawnen
+        current_time = pygame.time.get_ticks()
+        if current_time - last_enemy_spawn_time > enemy_spawn_interval:
+            spawn_enemy()
+            last_enemy_spawn_time = current_time
+
+        # Gegner Bewegung
+        for enemy in enemies:
+            enemy['x'] += enemy['direction'] * enemy_velocity
+
+        # Kollisionserkennung
+        player_rect = pygame.Rect(player_x, player_y, player_size, player_size)
+        for enemy in enemies[:]:
+            enemy_rect = pygame.Rect(enemy['x'], enemy['y'], enemy_size, enemy_size)
+            if player_rect.colliderect(enemy_rect):
+                if player_y + player_size - y_velocity <= enemy['y']:
+                    enemies.remove(enemy)
+                    score += 1  # Erhöhe den Score, wenn ein Gegner besiegt wird
+                else:
+                    health -= 1
+                    player_x = WIDTH // 2
+                    player_y = platform_y - player_size  # Spieler wird wieder auf der Plattform gespawnt
+                    if health == 0:
+                        print("Game Over")
+                        running = False
+
+        # Entferne Gegner, die den Bildschirm verlassen haben
+        enemies = [enemy for enemy in enemies if 0 <= enemy['x'] <= WIDTH]
+
+        # Bildschirm füllen
+        screen.fill(WHITE)
+
+        # Plattform zeichnen
+        pygame.draw.rect(screen, platform_color, (platform_x, platform_y, platform_width, platform_height))
+
+        # Spieler zeichnen
+        pygame.draw.rect(screen, player_color, (player_x, player_y, player_size, player_size))
+
+        # Gegner zeichnen
+        for enemy in enemies:
+            pygame.draw.rect(screen, enemy_color, (enemy['x'], enemy['y'], enemy_size, enemy_size))
+
+        # Gesundheit und Score anzeigen
+        classic_font = pygame.font.SysFont(None, 36)
+        health_text = classic_font.render(f"Health: {health}", True, (0, 0, 0))
+        score_text = classic_font.render(f"Score: {score}", True, (0, 0, 0))
+        screen.blit(health_text, (10, 10))
+        screen.blit(score_text, (10, 50))
+
+        # Zusätzlich zum Original: "ESC: Zurück" oben mittig, in allen Sprachen übersetzt
+        esc_label = small_font.render(get_text("esc_back"), True, (0, 0, 0))
+        screen.blit(esc_label, (WIDTH // 2 - esc_label.get_width() // 2, 6))
+
+        # ===================== Ende Original-Code aus Spiel.py =====================
+
+        # In das (skalierbare) JumpNDodge-Fenster einblenden
+        sync_window_size()
+        scaled = pygame.transform.smoothscale(screen, (base_surface.get_width(), base_surface.get_height()))
+        base_surface.blit(scaled, (0, 0))
+        pygame.display.flip()
+        classic_clock.tick(30)
+
+    in_classic_game = False
+    in_more_menu = True
+    # Menü-Musik wieder starten, sobald Classic verlassen wird
+    if sound_enabled and menu_music_path:
+        play_menu_music()
 
 def back_to_main_from_more():
     play_sound(click_back_sound)
@@ -10816,9 +10995,9 @@ while True:
         start_y = 140
         gap = 58
         if _check_admin_keyfile():
-            _more_actions = ["stats", "admin", "help", "back"]
+            _more_actions = ["stats", "admin", "classic", "help", "back"]
         else:
-            _more_actions = ["stats", "help", "back"]
+            _more_actions = ["stats", "classic", "help", "back"]
         _more_rects = [pygame.Rect(start_x, start_y + idx*gap, 360, 48) for idx in range(len(_more_actions))]
 
         for event in pygame.event.get():
@@ -10850,6 +11029,8 @@ while True:
                     set_more_to_stats()
                 elif _more_action == "admin":
                     set_more_to_admin()
+                elif _more_action == "classic":
+                    open_classic_game()
                 elif _more_action == "help":
                     in_more_menu = False
                     in_tutorial = True
@@ -10858,6 +11039,9 @@ while True:
                     back_to_main_from_more()
         draw_more_menu()
         clock.tick(60)
+
+    elif in_classic_game:
+        run_classic_game()
 
     elif in_mods_menu:
         _back_r, _hit_rects = draw_mods_menu()
