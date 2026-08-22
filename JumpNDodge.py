@@ -2,6 +2,7 @@ display_surface = None
 
 import pygame
 import math
+import colorsys  # Für die Regenbogenspur (HSV -> RGB Farbrotation)
 import sys  # Systemfunktionen, z.B. für das Beenden des Programms
 import random  # Zufallszahlen für verschiedene Spielmechaniken
 import json  # JSON-Dateien für das Speichern und Laden von Daten
@@ -234,6 +235,7 @@ click_back_sound = None       # Sound für Zurück-Klicks
 hit_sound = None              # Sound bei Kollision
 gameover_sound = None         # Sound bei Game Over
 heartbeat_sound = None        # Generierter Heartbeat-Sound für Almost Dead Effekt
+oneup_sound = None            # Sound beim Einsammeln eines 1-UP-Powerups
 menu_music_path = None        # Pfad zur Menü-Musik
 ingame_music_path = None      # Pfad zur Spiel-Musik (aktuell gewählter Track)
 
@@ -399,6 +401,60 @@ def get_current_date():
     """
     return get_current_datetime()[:10]  # Nur das Datum extrahieren (YYYY-MM-DD)
 
+# =============================
+# Gecachte Zeit (Daily Reward & Sale)
+# =============================
+# Sowohl der Daily-Reward-Status als auch der tägliche Shop-Sale müssen wissen,
+# "welcher Tag ist heute" - dafür wird bisher bei jedem Aufruf eine echte
+# Internet-/Zeitanfrage gestellt. Diese Funktionen werden aber jeden Frame
+# (60x pro Sekunde) aus der UI heraus aufgerufen, solange z.B. der Sale-Reiter
+# oder das Daily-Reward-Menü offen ist -> das würde 60 Netzwerkanfragen pro
+# Sekunde bedeuten. Stattdessen wird die echte Zeit hier nur alle
+# _TIME_CACHE_INTERVAL Sekunden abgeglichen; dazwischen wird die zuletzt bekannte
+# Zeit lokal weitergezählt (time.time()-Differenz), damit Countdown-Anzeigen
+# trotzdem jede Sekunde flüssig weiterlaufen.
+_TIME_CACHE_INTERVAL = 5.0  # Sekunden zwischen echten Zeit-Checks
+_time_cache = {
+    "checked_at": None,       # time.time() beim letzten echten Check
+    "server_datetime": None,  # zuletzt ermittelte (Server- oder lokale) Uhrzeit
+    "has_internet": True,
+}
+
+def _refresh_time_cache_if_needed():
+    """Führt den echten (ggf. netzwerkbasierten) Zeit-Check höchstens alle
+    _TIME_CACHE_INTERVAL Sekunden durch."""
+    global _time_cache
+    now_local = time.time()
+    if _time_cache["checked_at"] is not None and now_local - _time_cache["checked_at"] < _TIME_CACHE_INTERVAL:
+        return  # Letzter Check ist noch aktuell genug - kein neuer Netzwerkzugriff
+    has_internet = check_internet_connection()
+    if has_internet:
+        try:
+            server_dt = datetime.fromisoformat(get_current_datetime())
+        except Exception:
+            server_dt = _time_cache["server_datetime"] or datetime.now()
+            has_internet = False
+    else:
+        server_dt = _time_cache["server_datetime"] or datetime.now()
+    _time_cache["server_datetime"] = server_dt
+    _time_cache["has_internet"] = has_internet
+    _time_cache["checked_at"] = now_local
+
+def get_cached_now():
+    """Gibt (geschätzte_uhrzeit, hat_internet) zurück. Die Uhrzeit wird zwischen
+    den echten Checks lokal weitergezählt, damit Countdowns weiterlaufen, ohne
+    dass jeden Tick eine neue Zeitabfrage nötig ist."""
+    _refresh_time_cache_if_needed()
+    if _time_cache["server_datetime"] is None:
+        return datetime.now(), _time_cache["has_internet"]
+    elapsed = time.time() - _time_cache["checked_at"]
+    return _time_cache["server_datetime"] + timedelta(seconds=elapsed), _time_cache["has_internet"]
+
+def get_cached_current_date():
+    """Wie get_current_date(), aber gecacht (siehe get_cached_now())."""
+    now, has_internet = get_cached_now()
+    return now.strftime("%Y-%m-%d"), has_internet
+
 def calculate_daily_reward():
     """50-100 Basis-Coins + 90%-Kette Extra-Coins (stoppt bei 10%-Miss, max 150 Extra)."""
     base_coins = random.randint(50, 100)
@@ -424,15 +480,19 @@ def calculate_daily_reward():
 def can_claim_daily_reward():
     """Überprüft, ob der Spieler heute bereits eine Belohnung erhalten hat.
 
+    Nutzt den gecachten Zeit-Check (siehe get_cached_current_date), damit hier
+    nicht bei jedem Aufruf (z.B. jeden Frame im Menü) eine echte Internet-/
+    Zeitanfrage gestellt wird.
+
     Returns:
         tuple: (can_claim, message)
             - can_claim: Bool, ob Belohnung verfügbar
             - message: Grund oder aktuelles Datum
     """
-    if not check_internet_connection():
+    current_date, has_internet = get_cached_current_date()
+    if not has_internet:
         return False, "Keine Internetverbindung"  # Internet erforderlich für Zeitabgleich
 
-    current_date = get_current_date()
     last_claim_date = stats.get("last_daily_reward_date", "")
 
     if last_claim_date == current_date:
@@ -775,6 +835,23 @@ def delete_profile(name):
     pdata.get("profiles", {}).pop(name, None)
     if pdata.get("active") == name:
         pdata["active"] = None
+    if pdata.get("auto_start") == name:
+        pdata["auto_start"] = None  # gelöschtes Profil kann kein Auto-Start-Ziel mehr sein
+    _save_profiles_file(pdata)
+
+def get_auto_start_profile():
+    """Gibt den Namen des Profils zurück, mit dem das Spiel automatisch starten
+    soll (ohne Profilauswahl-Bildschirm), oder None wenn keins gesetzt ist.
+    Liegt bewusst NICHT in den Profil-Settings selbst, sondern eine Ebene höher
+    in der Profildatei - muss ja gelesen werden können, BEVOR überhaupt ein
+    Profil geladen wurde."""
+    return _load_profiles_file().get("auto_start")
+
+def set_auto_start_profile(name):
+    """Setzt (oder löscht mit name=None) das Profil, das beim nächsten
+    Programmstart automatisch geladen wird, ohne den Auswahlbildschirm zu zeigen."""
+    pdata = _load_profiles_file()
+    pdata["auto_start"] = name
     _save_profiles_file(pdata)
 
 
@@ -819,7 +896,7 @@ def load_sound_theme():
     Sucht im 'sound'-Verzeichnis nach den erforderlichen Dateien.
     Bei Fehlern werden None-Werte gesetzt und Warnungen ausgegeben.
     """
-    global menu_click_sound, click_sound, click_back_sound, hit_sound, gameover_sound, heartbeat_sound, menu_music_path, ingame_music_path, ingame_music_paths, INGAME_MUSIC_TRACKS
+    global menu_click_sound, click_sound, click_back_sound, hit_sound, gameover_sound, heartbeat_sound, oneup_sound, menu_music_path, ingame_music_path, ingame_music_paths, INGAME_MUSIC_TRACKS
     # Suche sound/ zuerst in data/, dann direkt in BASE_DIR (Fallback für alte Installs)
     base_path = os.path.join(_DATA_DIR, "sound")
     if not os.path.isdir(base_path):
@@ -867,6 +944,7 @@ def load_sound_theme():
     click_back_sound = load_sound("click_back.mp3")
     gameover_sound = load_sound("gameover.mp3")
     hit_sound = load_sound("hit.mp3")
+    oneup_sound = load_sound("1up.mp3")
 
     # Lade Musik-Pfade
     menu_music_path = get_path("menu_music.mp3")
@@ -1165,7 +1243,7 @@ default_settings = {
     "fullscreen": False,                      # Vollbildmodus standardmäßig aus
     "music_volume": 0.8,                      # Musik-Lautstärke (0-2)
     "sfx_volume": 0.8,                        # Soundeffekt-Lautstärke (0-2)
-    "dark_mode": False,                       # Dark Mode standardmäßig aus
+    "dark_mode": True,                        # Dark Mode standardmäßig an
     "sound_enabled": True,                    # Sounds standardmäßig aktiviert
     "keybindings": {                                             # Steuerung (als pygame-Key-Codes)
         "jump":   [pygame.K_SPACE, pygame.K_w, pygame.K_UP],
@@ -1261,6 +1339,7 @@ modded_stats    = load_modded_section("modded_stats",      default_modded_stats)
 settings        = load_section("settings",      default_settings)
 powers_state    = load_section("powers",        default_powers)
 cosmetics_state = load_section("cosmetics",     default_cosmetics)
+sale_state      = load_section("sale",          {"date": "", "items": {}})
 
 set_display_mode()  # Wende den Anzeigemodus an (Vollbild/Fenster)
 
@@ -1427,6 +1506,7 @@ texts = {
         "mouth_tab": "Mund",
         "tools_tab": "Tools",
         "tools_coming_soon": "Bald verfügbar!",
+        "sale_view_title": "Heutiges Angebot", "sale_next_in": "Nächstes Angebot in:", "sale_no_items": "Heute kein Angebot verfügbar.",
         "daily_rewards": "Tägliche Belohnungen", "all_statistics": "Alle Statistiken", "difficulties": "Schwierigkeiten",
         "loading": "Lädt...", "claim_reward": "Belohnung abholen", "next_reset_in": "Nächster Reset in:", "achievement_unlocked": "Erfolg: ", "settings": "Einstellungen", "export_language": "Sprache exportieren", "sound": "Sound", "sound_enabled": "Sound aktiviert", "sound_theme": "Sound-Thema", "menu_click_label": "Menü-Klick", "click_label": "Klick", "click_back_label": "Zurück-Klick", "hit_label": "Treffer", "gameover_label": "Game Over", "menu_music_label": "Menü-Musik", "ingame_music_label": "Spiel-Musik", "on": "AN", "off": "AUS",
         "choose_language": "Wähle deine Sprache", "color_scheme": "Farbschema", "lang_continue": "Weiter",
@@ -1434,7 +1514,9 @@ texts = {
         "achievements": "Erfolge",
         "profiles": "Profile", "add_profile": "Profil hinzufügen", "who_is_playing": "Wer spielt?",
         "enter_name": "Wie heißt du?", "confirm": "Bestätigen", "delete_profile": "Löschen",
-        "name_taken": "Name bereits vergeben!", "name_empty": "Bitte einen Namen eingeben!"},
+        "name_taken": "Name bereits vergeben!", "name_empty": "Bitte einen Namen eingeben!",
+        "auto_start_profile": "Auto-Start",
+        "auto_start_hint": "Häkchen = immer mit diesem Profil starten. Änderbar in Einstellungen → Profile."},
         "fire_trail": "Feuerspur",
         "yellow_crown": "Gelbe Krone",
     "English": {
@@ -1484,6 +1566,7 @@ texts = {
         "mouth_tab": "Mouth",
         "tools_tab": "Tools",
         "tools_coming_soon": "Coming soon!",
+        "sale_view_title": "Today's Sale", "sale_next_in": "Next sale in:", "sale_no_items": "No sale available today.",
         "fire_trail": "Fire Trail",
         "yellow_crown": "Yellow Crown",
         "buy": "Buy",
@@ -1495,7 +1578,9 @@ texts = {
         "achievements": "Achievements",
         "profiles": "Profiles", "add_profile": "Add Profile", "who_is_playing": "Who's playing?",
         "enter_name": "What's your name?", "confirm": "Confirm", "delete_profile": "Delete",
-        "name_taken": "Name already taken!", "name_empty": "Please enter a name!"},
+        "name_taken": "Name already taken!", "name_empty": "Please enter a name!",
+        "auto_start_profile": "Auto-Start",
+        "auto_start_hint": "Checkbox = always start with this profile. Changeable in Settings → Profiles."},
     "Русский": {
         "ice_trail": "ледяной след",
         "shadow_trail": "тень след",
@@ -1543,6 +1628,7 @@ texts = {
         "mouth_tab": "Рот",
         "tools_tab": "Инструменты",
         "tools_coming_soon": "Скоро!",
+        "sale_view_title": "Сегодняшняя акция", "sale_next_in": "Следующая акция через:", "sale_no_items": "Сегодня нет акций.",
         "fire_trail": "огненный след",
         "yellow_crown": "желтая корона",
         "buy": "Купить",
@@ -1554,7 +1640,9 @@ texts = {
         "achievements": "Достижения",
         "profiles": "Профили", "add_profile": "Добавить профиль", "who_is_playing": "Кто играет?",
         "enter_name": "Как тебя зовут?", "confirm": "Подтвердить", "delete_profile": "Удалить",
-        "name_taken": "Имя уже занято!", "name_empty": "Введите имя!"},
+        "name_taken": "Имя уже занято!", "name_empty": "Введите имя!",
+        "auto_start_profile": "Автозапуск",
+        "auto_start_hint": "Флажок = всегда начинать с этим профилем. Изменить: Настройки → Профили."},
     "Türkçe": {
         "ice_trail": "Buz İz",
         "shadow_trail": "Gölge İz",
@@ -1602,6 +1690,7 @@ texts = {
         "mouth_tab": "Ağız",
         "tools_tab": "Araçlar",
         "tools_coming_soon": "Yakında!",
+        "sale_view_title": "Bugünün İndirimi", "sale_next_in": "Sonraki indirim:", "sale_no_items": "Bugün indirim yok.",
         "fire_trail": "ateşli iz",
         "yellow_crown": "Sarı Taç",
         "buy": "Satın Al",
@@ -1613,7 +1702,9 @@ texts = {
         "achievements": "Başarılar",
         "profiles": "Profiller", "add_profile": "Profil Ekle", "who_is_playing": "Kim oynuyor?",
         "enter_name": "Adın ne?", "confirm": "Onayla", "delete_profile": "Sil",
-        "name_taken": "Bu isim alındı!", "name_empty": "Lütfen bir isim girin!"},
+        "name_taken": "Bu isim alındı!", "name_empty": "Lütfen bir isim girin!",
+        "auto_start_profile": "Otomatik Başlat",
+        "auto_start_hint": "Kutu = her zaman bu profille başla. Ayarlar → Profiller'den değiştirilebilir."},
     "Schwiizerdütsch": {
         "ice_trail": "Iis Spur",
         "shadow_trail": "Schatte Spur",
@@ -1661,6 +1752,7 @@ texts = {
         "mouth_tab": "Mund",
         "tools_tab": "Tools",
         "tools_coming_soon": "Bald verfüegbar!",
+        "sale_view_title": "Hütigs Aagebot", "sale_next_in": "Nächschts Aagebot in:", "sale_no_items": "Hüt kes Aagebot verfüegbar.",
         "fire_trail": "Feierig Spur",
         "yellow_crown": "Gäl Krone",
         "buy": "Kaufe",
@@ -1672,7 +1764,9 @@ texts = {
         "achievements": "Ervolg",
         "profiles": "Profile", "add_profile": "Profil hinzuefieje", "who_is_playing": "Wer spielt?",
         "enter_name": "Wie heischsch du?", "confirm": "Bestätige", "delete_profile": "Lösche",
-        "name_taken": "Name scho vergäbe!", "name_empty": "Bitte en Name igäh!"},
+        "name_taken": "Name scho vergäbe!", "name_empty": "Bitte en Name igäh!",
+        "auto_start_profile": "Auto-Start",
+        "auto_start_hint": "Häckli = immer mit dem Profil starte. Änderbar id Istellige → Profile."},
 }
 
 # =============================
@@ -2396,8 +2490,307 @@ COSMETICS_DB = {
     "top_hat": {"rarity": "Rare", "price_range": [280, 380], "type": "player", "category": "headwear", "name": {"Deutsch": "Zylinder", "English": "Top Hat", "Русский": "Цилиндр", "Türkçe": "Silindir Şapka", "Schwiizerdütsch": "Zylinder"}},
     "devil_horns": {"rarity": "Epic", "price_range": [420, 580], "type": "player", "category": "headwear", "name": {"Deutsch": "Teufelshörner", "English": "Devil Horns", "Русский": "Дьявольские рога", "Türkçe": "Şeytan Boynuzları", "Schwiizerdütsch": "Tüfels-Hörner"}},
     "clown_nose": {"rarity": "Common", "price_range": [100, 150], "type": "player", "category": "nose", "name": {"Deutsch": "Clown-Nase", "English": "Clown Nose", "Русский": "Клоунский нос", "Türkçe": "Palyaço Burnu", "Schwiizerdütsch": "Clown-Nase"}},
-    "big_grin": {"rarity": "Rare", "price_range": [220, 320], "type": "player", "category": "mouth", "name": {"Deutsch": "Breites Grinsen", "English": "Big Grin", "Русский": "Широкая ухмылка", "Türkçe": "Geniş Sırıtış", "Schwiizerdütsch": "Breits Grinse"}}
+    "big_grin": {"rarity": "Rare", "price_range": [220, 320], "type": "player", "category": "mouth", "name": {"Deutsch": "Breites Grinsen", "English": "Big Grin", "Русский": "Широкая ухмылка", "Türkçe": "Geniş Sırıtış", "Schwiizerdütsch": "Breits Grinse"}},
+    "rainbow_trail": {"rarity": "Legendary", "price_range": [800, 1200], "type": "trail", "category": "trail", "name": {"Deutsch": "Regenbogenspur", "English": "Rainbow Trail", "Русский": "радужный след", "Türkçe": "Gökkuşağı İzi", "Schwiizerdütsch": "Regeboge Spur"}},
+    "star_trail": {"rarity": "Rare", "price_range": [220, 320], "type": "trail", "category": "trail", "name": {"Deutsch": "Sternenspur", "English": "Star Trail", "Русский": "звёздный след", "Türkçe": "Yıldız İzi", "Schwiizerdütsch": "Sternespur"}},
+    "smoke_trail": {"rarity": "Common", "price_range": [100, 180], "type": "trail", "category": "trail", "name": {"Deutsch": "Rauchspur", "English": "Smoke Trail", "Русский": "дымный след", "Türkçe": "Duman İzi", "Schwiizerdütsch": "Rauch Spur"}},
+    "blood_trail": {"rarity": "Epic", "price_range": [350, 500], "type": "trail", "category": "trail", "name": {"Deutsch": "Blutspur", "English": "Blood Trail", "Русский": "кровавый след", "Türkçe": "Kan İzi", "Schwiizerdütsch": "Bluetspur"}},
+    "heart_trail": {"rarity": "Rare", "price_range": [200, 300], "type": "trail", "category": "trail", "name": {"Deutsch": "Herzspur", "English": "Heart Trail", "Русский": "след из сердец", "Türkçe": "Kalp İzi", "Schwiizerdütsch": "Härzspur"}},
+
+    # --- Kopfbedeckungen-Erweiterung ---
+    "halo": {"rarity": "Legendary", "price_range": [2000, 2500], "type": "player", "category": "headwear", "name": {"Deutsch": "Heiligenschein", "English": "Halo", "Русский": "Нимб", "Türkçe": "Hâle", "Schwiizerdütsch": "Heiligeschii"}},
+    "propeller_hat": {"rarity": "Rare", "price_range": [250, 350], "type": "player", "category": "headwear", "name": {"Deutsch": "Propellermütze", "English": "Propeller Hat", "Русский": "Шапка с пропеллером", "Türkçe": "Pervaneli Şapka", "Schwiizerdütsch": "Propeller-Mütz"}},
+    "ninja_headband": {"rarity": "Common", "price_range": [120, 200], "type": "player", "category": "headwear", "name": {"Deutsch": "Ninja-Stirnband", "English": "Ninja Headband", "Русский": "Ниндзя-повязка", "Türkçe": "Ninja Bandanası", "Schwiizerdütsch": "Ninja-Stirnband"}},
+
+    # --- Augen-Erweiterung ---
+    "sunglasses": {"rarity": "Common", "price_range": [130, 200], "type": "player", "category": "eyes", "name": {"Deutsch": "Sonnenbrille", "English": "Sunglasses", "Русский": "Солнцезащитные очки", "Türkçe": "Güneş Gözlüğü", "Schwiizerdütsch": "Sunnebrülle"}},
+    "3d_glasses": {"rarity": "Rare", "price_range": [200, 300], "type": "player", "category": "eyes", "name": {"Deutsch": "3D-Brille", "English": "3D Glasses", "Русский": "3D-очки", "Türkçe": "3D Gözlük", "Schwiizerdütsch": "3D-Brülle"}},
+    "robot_visor": {"rarity": "Epic", "price_range": [420, 580], "type": "player", "category": "eyes", "name": {"Deutsch": "Roboter-Visier", "English": "Robot Visor", "Русский": "Роботизированный визор", "Türkçe": "Robot Vizörü", "Schwiizerdütsch": "Roboter-Visier"}},
+
+    # --- Nasen- & Mund-Erweiterung ---
+    "pig_nose": {"rarity": "Rare", "price_range": [180, 260], "type": "player", "category": "nose", "name": {"Deutsch": "Schweinenase", "English": "Pig Nose", "Русский": "Свиной нос", "Türkçe": "Domuz Burnu", "Schwiizerdütsch": "Söili-Nase"}},
+    "bird_beak": {"rarity": "Rare", "price_range": [190, 270], "type": "player", "category": "mouth", "name": {"Deutsch": "Vogelschnabel", "English": "Bird Beak", "Русский": "Птичий клюв", "Türkçe": "Kuş Gagası", "Schwiizerdütsch": "Vogel-Schnabel"}},
+    "vampire_fangs": {"rarity": "Epic", "price_range": [380, 520], "type": "player", "category": "mouth", "name": {"Deutsch": "Vampirzähne", "English": "Vampire Fangs", "Русский": "Вампирские клыки", "Türkçe": "Vampir Dişleri", "Schwiizerdütsch": "Vampir-Zähn"}},
+    "nerd_teeth": {"rarity": "Common", "price_range": [110, 170], "type": "player", "category": "mouth", "name": {"Deutsch": "Nerd-Hasenzähne", "English": "Nerd Buck Teeth", "Русский": "Кроличьи зубы ботана", "Türkçe": "İnek Tavşan Dişleri", "Schwiizerdütsch": "Nerd-Häsezähn"}}
 }
+
+# Zentrale Liste aller Trail-Item-Keys, damit Partikel-Logik & Ausrüstungs-Checks
+# nicht bei jedem neuen Trail an mehreren Stellen manuell erweitert werden müssen.
+ALL_TRAIL_KEYS = [key for key, meta in COSMETICS_DB.items() if meta.get("category") == "trail"]
+
+# =============================
+# Gemeinsame Kosmetik-Optik (Rarität-Farben & Icon-Symbole)
+# Zentral definiert, damit Shop UND Inventar exakt dieselbe, hübsche
+# Kartenoptik (Farben je Seltenheit + Vektor-Icons) verwenden.
+# =============================
+RARITY_COLORS = {
+    "Common":    {"bg": (60, 130, 60),   "border": (100, 220, 100),  "badge": (80, 200, 80),   "label": "Common"},
+    "Rare":      {"bg": (40, 80, 180),   "border": (80, 140, 255),   "badge": (70, 130, 240),  "label": "Rare"},
+    "Epic":      {"bg": (100, 40, 160),  "border": (180, 80, 255),   "badge": (160, 70, 240),  "label": "Epic"},
+    "Legendary": {"bg": (160, 110, 10),  "border": (255, 200, 0),    "badge": (220, 170, 20),  "label": "Legendary"},
+}
+
+def get_rarity_colors(rarity):
+    """Gibt die Farbdefinition für eine Seltenheitsstufe zurück (Fallback: Common)."""
+    return RARITY_COLORS.get(rarity, RARITY_COLORS["Common"])
+
+# Icon draw functions per item (shape, color) — keine Emojis, reine Vektorformen
+ITEM_ICONS = {
+    "fire_trail":       ("triangle",  (255, 120, 30)),
+    "ice_trail":        ("diamond",   (140, 210, 255)),
+    "shadow_trail":     ("circle",    (60,  40,  80)),
+    "sparkle_trail":    ("star4",     (255, 240, 80)),
+    "toxic_trail":      ("hexagon",   (80,  210, 60)),
+    "electric_trail":   ("bolt",      (80,  220, 255)),
+    "yellow_crown":     ("crown",     (255, 215, 0)),
+    "pixel_eyes":       ("eyes",      (60,  60,  70)),
+    "top_hat":          ("tophat",    (25,  25,  30)),
+    "devil_horns":      ("horns",     (210, 30,  30)),
+    "clown_nose":       ("nose",      (230, 30,  30)),
+    "big_grin":         ("grin",      (255, 90,  120)),
+    "rainbow_trail":    ("rainbow",   (255, 255, 255)),
+    "star_trail":       ("star4",     (210, 230, 255)),
+    "smoke_trail":      ("cloud",     (170, 170, 175)),
+    "blood_trail":      ("drop",      (150, 10,  20)),
+    "heart_trail":      ("heart",     (230, 40,  90)),
+    "halo":             ("halo",      (255, 200, 20)),
+    "propeller_hat":    ("propeller", (230, 70,  60)),
+    "ninja_headband":   ("headband",  (25,  25,  30)),
+    "sunglasses":       ("sunglasses",(20,  20,  25)),
+    "3d_glasses":       ("3d_glasses",(230, 30,  30)),
+    "robot_visor":      ("robot_visor",(80, 220, 255)),
+    "pig_nose":         ("pig_nose",  (240, 150, 170)),
+    "bird_beak":        ("bird_beak", (240, 170, 30)),
+    "vampire_fangs":    ("vampire_fangs",(255, 255, 250)),
+    "nerd_teeth":       ("nerd_teeth",(255, 255, 250)),
+}
+
+def draw_cosmetic_icon(surface, key, icx, icy, big=False):
+    """Zeichnet das Vektor-Icon eines Kosmetik-Items zentriert bei (icx, icy).
+    'big' skaliert die Formen für die große Vorschau (Shop/Inventar-Detailkarten)."""
+    shape, ic = ITEM_ICONS.get(key, ("circle", (200, 200, 200)))
+    if shape == "circle":
+        pygame.draw.circle(surface, ic, (icx, icy), 16 if big else 9)
+    elif shape == "triangle":
+        pts = [(icx, icy - (18 if big else 10)), (icx - (16 if big else 9), icy + (13 if big else 7)), (icx + (16 if big else 9), icy + (13 if big else 7))]
+        pygame.draw.polygon(surface, ic, pts)
+    elif shape == "diamond":
+        d = 18 if big else 10
+        pts = [(icx, icy - d), (icx + d, icy), (icx, icy + d), (icx - d, icy)]
+        pygame.draw.polygon(surface, ic, pts)
+    elif shape == "star4":
+        o, i2 = (20, 7) if big else (11, 4)
+        pts = [(icx, icy - o), (icx + i2, icy - i2), (icx + o, icy),
+               (icx + i2, icy + i2), (icx, icy + o), (icx - i2, icy + i2),
+               (icx - o, icy), (icx - i2, icy - i2)]
+        pygame.draw.polygon(surface, ic, pts)
+    elif shape == "hexagon":
+        r = 18 if big else 10
+        pts = [(icx + int(r * math.cos(math.radians(60 * n - 30))),
+                icy + int(r * math.sin(math.radians(60 * n - 30)))) for n in range(6)]
+        pygame.draw.polygon(surface, ic, pts)
+    elif shape == "crown":
+        if big:
+            pygame.draw.rect(surface, ic, (icx - 16, icy + 4, 32, 12))
+            pygame.draw.polygon(surface, ic, [(icx - 16, icy + 4), (icx - 16, icy - 14), (icx - 6, icy - 4)])
+            pygame.draw.polygon(surface, ic, [(icx, icy + 4), (icx, icy - 18), (icx + 8, icy - 4)])
+            pygame.draw.polygon(surface, ic, [(icx + 16, icy + 4), (icx + 16, icy - 14), (icx + 6, icy - 4)])
+        else:
+            pygame.draw.rect(surface, ic, (icx - 9, icy + 2, 18, 7))
+            pygame.draw.polygon(surface, ic, [(icx - 9, icy + 2), (icx - 9, icy - 8), (icx - 4, icy - 2)])
+            pygame.draw.polygon(surface, ic, [(icx, icy + 2), (icx, icy - 10), (icx + 5, icy - 2)])
+            pygame.draw.polygon(surface, ic, [(icx + 9, icy + 2), (icx + 9, icy - 8), (icx + 4, icy - 2)])
+    elif shape == "bolt":
+        if big:
+            pts = [(icx + 5, icy - 19), (icx - 9, icy + 2), (icx - 2, icy + 2),
+                   (icx - 7, icy + 19), (icx + 10, icy - 3), (icx + 2, icy - 3)]
+        else:
+            pts = [(icx + 3, icy - 11), (icx - 5, icy + 1), (icx - 1, icy + 1),
+                   (icx - 4, icy + 11), (icx + 6, icy - 2), (icx + 1, icy - 2)]
+        pygame.draw.polygon(surface, ic, pts)
+    elif shape == "eyes":
+        if big:
+            pygame.draw.rect(surface, (255, 255, 255), (icx - 14, icy - 7, 10, 10))
+            pygame.draw.rect(surface, (255, 255, 255), (icx + 4, icy - 7, 10, 10))
+            pygame.draw.rect(surface, ic, (icx - 11, icy - 4, 4, 4))
+            pygame.draw.rect(surface, ic, (icx + 7, icy - 4, 4, 4))
+        else:
+            pygame.draw.rect(surface, (255, 255, 255), (icx - 8, icy - 4, 6, 6))
+            pygame.draw.rect(surface, (255, 255, 255), (icx + 2, icy - 4, 6, 6))
+            pygame.draw.rect(surface, ic, (icx - 6, icy - 2, 2, 2))
+            pygame.draw.rect(surface, ic, (icx + 4, icy - 2, 2, 2))
+    elif shape == "tophat":
+        if big:
+            pygame.draw.rect(surface, ic, (icx - 16, icy + 7, 32, 7))
+            pygame.draw.rect(surface, ic, (icx - 11, icy - 17, 22, 26))
+            pygame.draw.rect(surface, (150, 20, 20), (icx - 11, icy + 2, 22, 5))
+        else:
+            pygame.draw.rect(surface, ic, (icx - 9, icy + 4, 18, 4))
+            pygame.draw.rect(surface, ic, (icx - 6, icy - 10, 12, 15))
+            pygame.draw.rect(surface, (150, 20, 20), (icx - 6, icy + 1, 12, 3))
+    elif shape == "horns":
+        if big:
+            pygame.draw.polygon(surface, ic, [(icx - 4, icy + 14), (icx - 19, icy - 10), (icx - 7, icy + 5)])
+            pygame.draw.polygon(surface, ic, [(icx + 4, icy + 14), (icx + 19, icy - 10), (icx + 7, icy + 5)])
+        else:
+            pygame.draw.polygon(surface, ic, [(icx - 2, icy + 8), (icx - 11, icy - 6), (icx - 4, icy + 3)])
+            pygame.draw.polygon(surface, ic, [(icx + 2, icy + 8), (icx + 11, icy - 6), (icx + 4, icy + 3)])
+    elif shape == "nose":
+        r = 14 if big else 8
+        pygame.draw.circle(surface, ic, (icx, icy), r)
+        pygame.draw.circle(surface, tuple(max(0, c - 60) for c in ic), (icx, icy), r, width=2)
+    elif shape == "grin":
+        px = 3 if big else 1
+        pat = ["1..........1", "1..........1", "1..........1", "1..........1", "1..........1", "111111111111"]
+        for pr, prow in enumerate(pat):
+            for pc, pch in enumerate(prow):
+                if pch == "1":
+                    pygame.draw.rect(surface, (10, 10, 15),
+                                      (icx - 13 * px // 2 + pc * px, icy - 3 * px + pr * px, px, px))
+    elif shape == "rainbow":
+        cols = [(230, 60, 60), (240, 160, 40), (230, 220, 60), (90, 200, 90), (70, 140, 230)]
+        if big:
+            for ri, rc2 in enumerate(cols):
+                pygame.draw.arc(surface, rc2, (icx - 20, icy - 10 + ri * 2, 40, 40 - ri * 4), 3.14159, 2 * 3.14159, 3)
+        else:
+            for ri, rc2 in enumerate(cols):
+                pygame.draw.arc(surface, rc2, (icx - 12, icy - 6 + ri, 24, 24 - ri * 2), 3.14159, 2 * 3.14159, 2)
+    elif shape == "cloud":
+        r1, r2, dy = (10, 12, 4) if big else (6, 7, 2)
+        pygame.draw.circle(surface, ic, (icx - (10 if big else 6), icy + dy), r1)
+        pygame.draw.circle(surface, ic, (icx + (10 if big else 6), icy + dy), r1)
+        pygame.draw.circle(surface, ic, (icx, icy - (5 if big else 3)), r2)
+    elif shape == "drop":
+        if big:
+            pygame.draw.polygon(surface, ic, [(icx, icy - 18), (icx - 14, icy + 6), (icx + 14, icy + 6)])
+            pygame.draw.circle(surface, ic, (icx, icy + 8), 12)
+        else:
+            pygame.draw.polygon(surface, ic, [(icx, icy - 10), (icx - 8, icy + 4), (icx + 8, icy + 4)])
+            pygame.draw.circle(surface, ic, (icx, icy + 5), 7)
+    elif shape == "heart":
+        if big:
+            pygame.draw.circle(surface, ic, (icx - 9, icy - 5), 11)
+            pygame.draw.circle(surface, ic, (icx + 9, icy - 5), 11)
+            pygame.draw.polygon(surface, ic, [(icx - 18, icy - 2), (icx + 18, icy - 2), (icx, icy + 18)])
+        else:
+            pygame.draw.circle(surface, ic, (icx - 5, icy - 3), 6)
+            pygame.draw.circle(surface, ic, (icx + 5, icy - 3), 6)
+            pygame.draw.polygon(surface, ic, [(icx - 10, icy - 1), (icx + 10, icy - 1), (icx, icy + 10)])
+    elif shape == "halo":
+        # Goldgelber, runder Ring über dem Kopf
+        if big:
+            pygame.draw.ellipse(surface, ic, (icx - 15, icy - 10, 30, 20), width=4)
+        else:
+            pygame.draw.ellipse(surface, ic, (icx - 9, icy - 6, 18, 12), width=3)
+    elif shape == "propeller":
+        # Mütze mit Propeller-Kreuz obendrauf
+        if big:
+            pygame.draw.polygon(surface, ic, [(icx - 16, icy + 14), (icx + 16, icy + 14), (icx + 10, icy - 2), (icx - 10, icy - 2)])
+            pygame.draw.line(surface, (60, 60, 65), (icx - 18, icy - 12), (icx + 18, icy - 12), 3)
+            pygame.draw.line(surface, (60, 60, 65), (icx, icy - 24), (icx, icy - 2), 3)
+            pygame.draw.circle(surface, (255, 210, 40), (icx, icy - 12), 4)
+        else:
+            pygame.draw.polygon(surface, ic, [(icx - 9, icy + 8), (icx + 9, icy + 8), (icx + 6, icy - 2), (icx - 6, icy - 2)])
+            pygame.draw.line(surface, (60, 60, 65), (icx - 10, icy - 7), (icx + 10, icy - 7), 2)
+            pygame.draw.line(surface, (60, 60, 65), (icx, icy - 13), (icx, icy - 2), 2)
+            pygame.draw.circle(surface, (255, 210, 40), (icx, icy - 7), 2)
+    elif shape == "headband":
+        # Stirnband mit fliegenden Enden (Ninja-Style)
+        if big:
+            pygame.draw.rect(surface, ic, (icx - 18, icy - 5, 36, 11))
+            pygame.draw.polygon(surface, (190, 20, 20), [(icx + 14, icy + 6), (icx + 28, icy + 18), (icx + 16, icy + 18)])
+            pygame.draw.circle(surface, (190, 20, 20), (icx, icy), 3)
+        else:
+            pygame.draw.rect(surface, ic, (icx - 11, icy - 3, 22, 7))
+            pygame.draw.polygon(surface, (190, 20, 20), [(icx + 8, icy + 4), (icx + 16, icy + 11), (icx + 10, icy + 11)])
+            pygame.draw.circle(surface, (190, 20, 20), (icx, icy), 2)
+    elif shape == "helmet":
+        # Runder Helm mit blau schimmerndem Visier
+        if big:
+            pygame.draw.circle(surface, ic, (icx, icy), 19)
+            pygame.draw.ellipse(surface, (140, 210, 255), (icx - 11, icy - 10, 22, 18))
+            pygame.draw.ellipse(surface, (255, 255, 255), (icx - 11, icy - 10, 22, 18), width=2)
+        else:
+            pygame.draw.circle(surface, ic, (icx, icy), 11)
+            pygame.draw.ellipse(surface, (140, 210, 255), (icx - 6, icy - 6, 13, 11))
+            pygame.draw.ellipse(surface, (255, 255, 255), (icx - 6, icy - 6, 13, 11), width=1)
+    elif shape == "sunglasses":
+        # Runde Gläser mit dickem Rahmen und diagonalem Glanzstreifen
+        if big:
+            pygame.draw.circle(surface, ic, (icx - 10, icy), 11)
+            pygame.draw.circle(surface, ic, (icx + 10, icy), 11)
+            pygame.draw.circle(surface, (30, 30, 35), (icx - 10, icy), 8)
+            pygame.draw.circle(surface, (30, 30, 35), (icx + 10, icy), 8)
+            pygame.draw.line(surface, (140, 170, 200), (icx - 14, icy - 4), (icx - 7, icy + 3), 2)
+            pygame.draw.line(surface, (140, 170, 200), (icx + 6, icy - 4), (icx + 13, icy + 3), 2)
+            pygame.draw.rect(surface, ic, (icx - 3, icy - 2, 6, 4))
+            pygame.draw.line(surface, ic, (icx - 20, icy - 2), (icx - 21, icy - 6), 2)
+            pygame.draw.line(surface, ic, (icx + 20, icy - 2), (icx + 21, icy - 6), 2)
+        else:
+            pygame.draw.circle(surface, ic, (icx - 6, icy), 7)
+            pygame.draw.circle(surface, ic, (icx + 6, icy), 7)
+            pygame.draw.circle(surface, (30, 30, 35), (icx - 6, icy), 5)
+            pygame.draw.circle(surface, (30, 30, 35), (icx + 6, icy), 5)
+            pygame.draw.line(surface, (140, 170, 200), (icx - 9, icy - 2), (icx - 5, icy + 2), 1)
+            pygame.draw.line(surface, (140, 170, 200), (icx + 3, icy - 2), (icx + 7, icy + 2), 1)
+            pygame.draw.rect(surface, ic, (icx - 2, icy - 1, 4, 2))
+    elif shape == "3d_glasses":
+        # Klassische 3D-Brille: ein rotes und ein blaues Glas
+        if big:
+            pygame.draw.rect(surface, (200, 30, 30), (icx - 17, icy - 8, 14, 12))
+            pygame.draw.rect(surface, (40, 120, 220), (icx + 3, icy - 8, 14, 12))
+            pygame.draw.rect(surface, (20, 20, 25), (icx - 4, icy - 3, 8, 3))
+        else:
+            pygame.draw.rect(surface, (200, 30, 30), (icx - 10, icy - 5, 8, 7))
+            pygame.draw.rect(surface, (40, 120, 220), (icx + 2, icy - 5, 8, 7))
+            pygame.draw.rect(surface, (20, 20, 25), (icx - 2, icy - 2, 4, 2))
+    elif shape == "robot_visor":
+        # Durchgehendes, leuchtendes Visier über beiden Augen
+        if big:
+            pygame.draw.rect(surface, (30, 30, 35), (icx - 18, icy - 8, 36, 16), border_radius=6)
+            pygame.draw.rect(surface, ic, (icx - 14, icy - 4, 28, 8), border_radius=3)
+        else:
+            pygame.draw.rect(surface, (30, 30, 35), (icx - 10, icy - 5, 20, 10), border_radius=4)
+            pygame.draw.rect(surface, ic, (icx - 7, icy - 2, 14, 5), border_radius=2)
+    elif shape == "pig_nose":
+        # Rosa Rüsselscheibe mit zwei ovalen Nüstern
+        if big:
+            pygame.draw.ellipse(surface, ic, (icx - 13, icy - 9, 26, 18))
+            pygame.draw.ellipse(surface, (190, 100, 120), (icx - 13, icy - 9, 26, 18), width=2)
+            pygame.draw.ellipse(surface, (190, 100, 120), (icx - 7, icy - 3, 5, 7))
+            pygame.draw.ellipse(surface, (190, 100, 120), (icx + 2, icy - 3, 5, 7))
+        else:
+            pygame.draw.ellipse(surface, ic, (icx - 8, icy - 5, 16, 11))
+            pygame.draw.ellipse(surface, (190, 100, 120), (icx - 4, icy - 2, 3, 4))
+            pygame.draw.ellipse(surface, (190, 100, 120), (icx + 1, icy - 2, 3, 4))
+    elif shape == "bird_beak":
+        # Gelber Vogelschnabel, Ober- und Unterschnabel
+        if big:
+            pygame.draw.polygon(surface, ic, [(icx - 14, icy - 5), (icx + 15, icy), (icx - 11, icy + 4)])
+            pygame.draw.polygon(surface, (200, 140, 15), [(icx - 14, icy + 2), (icx + 10, icy + 5), (icx - 11, icy + 10)])
+        else:
+            pygame.draw.polygon(surface, ic, [(icx - 8, icy - 3), (icx + 9, icy), (icx - 6, icy + 2)])
+            pygame.draw.polygon(surface, (200, 140, 15), [(icx - 8, icy + 1), (icx + 6, icy + 3), (icx - 6, icy + 6)])
+    elif shape == "vampire_fangs":
+        # Zwei spitze weisse Reisszähne
+        if big:
+            pygame.draw.polygon(surface, ic, [(icx - 9, icy - 6), (icx - 3, icy - 6), (icx - 6, icy + 8)])
+            pygame.draw.polygon(surface, ic, [(icx + 3, icy - 6), (icx + 9, icy - 6), (icx + 6, icy + 8)])
+        else:
+            pygame.draw.polygon(surface, ic, [(icx - 5, icy - 4), (icx - 1, icy - 4), (icx - 3, icy + 5)])
+            pygame.draw.polygon(surface, ic, [(icx + 1, icy - 4), (icx + 5, icy - 4), (icx + 3, icy + 5)])
+    elif shape == "nerd_teeth":
+        # Zwei breite, quadratische Hasenzähne mit Mittelspalt (Nerd-Look)
+        if big:
+            pygame.draw.line(surface, (10, 10, 15), (icx - 10, icy - 6), (icx + 10, icy - 6), 2)
+            pygame.draw.rect(surface, ic, (icx - 9, icy - 6, 8, 12), border_radius=2)
+            pygame.draw.rect(surface, ic, (icx + 1, icy - 6, 8, 12), border_radius=2)
+            pygame.draw.rect(surface, (200, 200, 195), (icx - 9, icy - 6, 8, 12), width=1, border_radius=2)
+            pygame.draw.rect(surface, (200, 200, 195), (icx + 1, icy - 6, 8, 12), width=1, border_radius=2)
+        else:
+            pygame.draw.line(surface, (10, 10, 15), (icx - 6, icy - 4), (icx + 6, icy - 4), 1)
+            pygame.draw.rect(surface, ic, (icx - 5, icy - 4, 5, 7), border_radius=1)
+            pygame.draw.rect(surface, ic, (icx + 1, icy - 4, 5, 7), border_radius=1)
 
 # Alten, gemeinsamen 'equipped_player'-Slot (Kopfbedeckung + Gesicht teilten sich einen
 # Slot) einmalig in die neuen, getrennten Kategorie-Slots migrieren - jetzt, wo
@@ -2424,13 +2817,91 @@ def initialize_cosmetic_prices():
         save_section("cosmetics", cosmetics_state)  # Speichere feste Preise
 
 def get_cosmetic_price(cosmetic_key):
-    """Gibt den gespeicherten Preis zurück oder den Mittelwert des Bereichs als Fallback."""
+    """Gibt den aktuellen Preis zurück (gespeicherter Preis, oder Mittelwert des
+    Bereichs als Fallback), abzüglich eines eventuellen Sale-Rabatts von heute."""
     prices = cosmetics_state.get("prices", {})
     if cosmetic_key in prices:
-        return prices[cosmetic_key]  # Gespeicherter Preis
+        base_price = prices[cosmetic_key]  # Gespeicherter Preis
+    else:
+        meta = COSMETICS_DB.get(cosmetic_key, {})
+        rng = meta.get("price_range", [100, 300])
+        base_price = (rng[0] + rng[1]) // 2  # Mittelwert als Fallback
+    discount = get_sale_discount(cosmetic_key)
+    if discount:
+        return max(1, round(base_price * (100 - discount) / 100))
+    return base_price
+
+def get_cosmetic_base_price(cosmetic_key):
+    """Gibt den Preis OHNE Sale-Rabatt zurück - für die durchgestrichene
+    Originalpreis-Anzeige bei reduzierten Items."""
+    prices = cosmetics_state.get("prices", {})
+    if cosmetic_key in prices:
+        return prices[cosmetic_key]
     meta = COSMETICS_DB.get(cosmetic_key, {})
     rng = meta.get("price_range", [100, 300])
-    return (rng[0] + rng[1]) // 2  # Mittelwert als Fallback
+    return (rng[0] + rng[1]) // 2
+
+# =============================
+# Täglicher Shop-Sale
+# =============================
+# Jeden Tag werden ein paar zufällige Kosmetik-Items reduziert (ähnlich dem Daily
+# Reward). Die Auswahl wird in gameplay.json (Abschnitt "sale") gespeichert und
+# nur neu gewürfelt, wenn sich das (gecachte!) aktuelle Datum geändert hat -
+# siehe get_cached_current_date() weiter oben für den 5-Sekunden-Cache.
+_SALE_ITEM_COUNT = 4
+_SALE_DISCOUNTS = [20, 25, 30, 40, 50]
+# Je seltener ein Item, desto unwahrscheinlicher landet es im Sale - ein Mythic
+# soll deutlich seltener reduziert werden als ein Common. Gewichte für die
+# gewichtete Ziehung ohne Zurücklegen in _weighted_sample_without_replacement().
+_SALE_RARITY_WEIGHTS = {"Common": 100, "Rare": 45, "Epic": 20, "Legendary": 8, "Mythic": 3}
+
+def _weighted_sample_without_replacement(weighted_items, k):
+    """Zieht bis zu k eindeutige Keys aus [(key, gewicht), ...], ohne Zurücklegen,
+    proportional zum Gewicht - höheres Gewicht = höhere Ziehwahrscheinlichkeit."""
+    pool = list(weighted_items)
+    chosen = []
+    for _ in range(min(k, len(pool))):
+        total_weight = sum(w for _, w in pool)
+        if total_weight <= 0:
+            break
+        roll = random.uniform(0, total_weight)
+        running = 0
+        for i, (key, weight) in enumerate(pool):
+            running += weight
+            if running >= roll:
+                chosen.append(key)
+                pool.pop(i)
+                break
+    return chosen
+
+def ensure_daily_sale():
+    """Stellt sicher, dass der Sale des heutigen Tages existiert; würfelt bei
+    Tageswechsel neue Sale-Items. Günstig genug, um jeden Frame aufgerufen zu
+    werden - das eigentliche Datum wird ja bereits gecacht abgefragt."""
+    global sale_state
+    current_date, has_internet = get_cached_current_date()
+    if not has_internet:
+        return  # Ohne Zeitabgleich lieber den alten Sale behalten als raten
+    if sale_state.get("date") == current_date and sale_state.get("items"):
+        return  # Sale ist schon aktuell
+    weighted_keys = [
+        (k, _SALE_RARITY_WEIGHTS.get(meta.get("rarity"), 50))
+        for k, meta in COSMETICS_DB.items()
+    ]
+    count = min(_SALE_ITEM_COUNT, len(weighted_keys))
+    chosen = _weighted_sample_without_replacement(weighted_keys, count)
+    sale_state["date"] = current_date
+    sale_state["items"] = {k: random.choice(_SALE_DISCOUNTS) for k in chosen}
+    save_section("sale", sale_state)
+
+def get_sale_discount(cosmetic_key):
+    """Gibt den Rabatt (in %) für ein Item zurück, falls es heute im Angebot ist,
+    sonst 0."""
+    return sale_state.get("items", {}).get(cosmetic_key, 0)
+
+def get_sale_items():
+    """Gibt die Liste der Item-Keys zurück, die heute im Angebot sind."""
+    return list(sale_state.get("items", {}).keys())
 
 def buy_cosmetic(cosmetic_key):
     """Allgemeine Kauf-Logik für Kosmetik-Items."""
@@ -2487,7 +2958,7 @@ def is_dark_mode():
     Returns:
         bool: True wenn Dark Mode aktiv, False sonst
     """
-    return settings.get("dark_mode", False)
+    return settings.get("dark_mode", True)
 
 def get_bg_color():
     """Gibt die Hintergrundfarbe basierend auf dem aktuellen Modus zurück.
@@ -2710,19 +3181,21 @@ def get_daily_reward_status():
     return get_text("daily_reward_available")
 
 def get_time_until_reset():
-    """Berechnet die Zeit bis zum nächsten Daily Reward Reset.
+    """Berechnet die Zeit bis zum nächsten täglichen Reset (Daily Reward & Sale).
 
-    Berechnet die verbleibende Zeit bis zum nächsten täglichen Reset um 00:00 Uhr.
-    Bei Internet-Fehlern wird ein Fallback-Text zurückgegeben.
+    Nutzt die gecachte Uhrzeit (siehe get_cached_now), damit hier nicht bei jedem
+    Aufruf eine echte Internet-/Zeitanfrage gestellt wird - die Sekunden zählen
+    trotzdem jeden Frame flüssig weiter, da get_cached_now() zwischen den echten
+    Checks lokal weiterrechnet.
 
     Returns:
         str: Formatierte Zeit (HH:MM:SS) oder Fallback-Text
     """
     try:
-        if not check_internet_connection():
+        current_time, has_internet = get_cached_now()
+        if not has_internet:
             return "Keine Internetverbindung"
 
-        current_time = datetime.now()
         # Nächster Reset ist um 00:00 Uhr des nächsten Tages
         next_reset = current_time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         time_diff = next_reset - current_time
@@ -2889,13 +3362,13 @@ def update_button_texts():
             buttons[1].text = f"{get_text('difficulty')}: {get_difficulty_name(local_diff)}"
             buttons[2].text = get_text("start")
             buttons[3].text = get_text("stats")
-            buttons[4].text = get_text("shop") + f" ({stats.get('coins',0)})"
+            buttons[4].text = get_text("shop")
             buttons[5].text = get_text("loadout")
             buttons[6].text = get_text("admin")
         else:
             # New layout: [Start, Shop, Loadout, Settings, More]
             if len(buttons) >= 1: buttons[0].text = get_text("start")
-            if len(buttons) >= 2: buttons[1].text = get_text("shop") + f" ({stats.get('coins',0)})"
+            if len(buttons) >= 2: buttons[1].text = get_text("shop")
             if len(buttons) >= 3: buttons[2].text = get_text("loadout")
             if len(buttons) >= 4: buttons[3].text = get_text("settings")
             if len(buttons) >= 5: buttons[4].text = get_text("more")
@@ -2908,7 +3381,7 @@ start_x = WIDTH//2 - 180  # Breiter für längere Texte
 start_y = 155
 gap = 56
 buttons.append(Button(start_x, start_y + 0*gap, 360, 48, get_text('start'), start_game, menu_font))
-buttons.append(Button(start_x, start_y + 1*gap, 360, 48, get_text('shop') + f" ({stats.get('coins',0)})", open_shop_menu, menu_font))
+buttons.append(Button(start_x, start_y + 1*gap, 360, 48, get_text('shop'), open_shop_menu, menu_font))
 buttons.append(Button(start_x, start_y + 2*gap, 360, 48, get_text('loadout'), open_loadout_menu, menu_font))
 buttons.append(Button(start_x, start_y + 3*gap, 360, 48, get_text('settings'), open_settings_menu, menu_font))
 buttons.append(Button(start_x, start_y + 4*gap, 360, 48, get_text('more'), lambda: open_more_menu(), menu_font))
@@ -4359,6 +4832,7 @@ def draw_profile_select():
     fill_bg(rings=True)
     dark = is_dark_mode()
     all_profiles = get_all_profiles()
+    auto_start_name = get_auto_start_profile()
     mp = get_mouse_pos_logical()
 
     title = font.render(get_text("who_is_playing"), True, get_text_color())
@@ -4375,12 +4849,15 @@ def draw_profile_select():
     start_y = 130
 
     card_rects = []
+    checkbox_rects = []  # (rect, name) - "Immer mit diesem Profil starten" pro Karte
+    last_row_bottom = start_y
     for i, name in enumerate(items):
         col = i % cols
         row = i // cols
         cx = start_x + col * (card_w + gap)
         cy = start_y + row * (card_h + gap)
         rect = pygame.Rect(cx, cy, card_w, card_h)
+        last_row_bottom = max(last_row_bottom, rect.bottom)
         card_rects.append((rect, name))
         hov = rect.collidepoint(mp) or nav_is_focused("profile_select", i, len(items))
 
@@ -4414,8 +4891,30 @@ def draw_profile_select():
             pygame.draw.line(base_surface, (255,255,255), (del_rect.x+_m, del_rect.y+_m), (del_rect.right-_m, del_rect.bottom-_m), 2)
             pygame.draw.line(base_surface, (255,255,255), (del_rect.right-_m, del_rect.y+_m), (del_rect.x+_m, del_rect.bottom-_m), 2)
 
+            # "Immer mit diesem Profil starten" - kleine Checkbox unten in der Karte.
+            # Exklusiv: nur ein Profil kann gleichzeitig Auto-Start-Ziel sein.
+            checked = (auto_start_name == name)
+            cb_rect = pygame.Rect(rect.x + 10, rect.bottom - 20, 14, 14)
+            checkbox_rects.append((cb_rect, name))
+            cb_hov = cb_rect.collidepoint(mp)
+            cb_border = (255, 210, 60) if (checked or cb_hov) else (140, 140, 150)
+            pygame.draw.rect(base_surface, get_bg_color(), cb_rect, border_radius=3)
+            pygame.draw.rect(base_surface, cb_border, cb_rect, width=2, border_radius=3)
+            if checked:
+                pygame.draw.line(base_surface, (255, 210, 60), (cb_rect.x + 3, cb_rect.centery),
+                                  (cb_rect.centerx - 1, cb_rect.bottom - 3), 2)
+                pygame.draw.line(base_surface, (255, 210, 60), (cb_rect.centerx - 1, cb_rect.bottom - 3),
+                                  (cb_rect.right - 2, cb_rect.y + 2), 2)
+            cb_label = tab_font.render(get_text("auto_start_profile"), True, get_text_color())
+            base_surface.blit(cb_label, (cb_rect.right + 6, cb_rect.centery - cb_label.get_height() // 2))
+
+    # Hinweis, dass sich die Auto-Start-Auswahl jederzeit in den Einstellungen
+    # unter "Profile" ändern lässt - derselbe Screen wird von dort aus geöffnet.
+    hint_surf = small_font.render(get_text("auto_start_hint"), True, get_text_color())
+    base_surface.blit(hint_surf, (WIDTH // 2 - hint_surf.get_width() // 2, last_row_bottom + 16))
+
     pygame.display.flip()
-    return card_rects
+    return card_rects, checkbox_rects
 
 
 # Draw more menu
@@ -5304,10 +5803,18 @@ def run_classic_game():
 
         # ===================== Ende Original-Code aus Spiel.py =====================
 
-        # In das (skalierbare) JumpNDodge-Fenster einblenden
+        # In das (skalierbare) JumpNDodge-Fenster einblenden - mit Letterboxing:
+        # Classic ist fest 800x600 (4:3), das Fenster kann aber jedes Seitenverhältnis
+        # haben. Bisher wurde einfach auf die volle Fenstergröße gestreckt (verzerrt
+        # das Bild bei jedem Nicht-4:3-Fenster). Jetzt: seitenverhältnistreu skalieren
+        # und links/rechts bzw. oben/unten mit schwarzen Balken auffüllen.
         sync_window_size()
-        scaled = pygame.transform.smoothscale(screen, (base_surface.get_width(), base_surface.get_height()))
-        base_surface.blit(scaled, (0, 0))
+        base_w, base_h = base_surface.get_width(), base_surface.get_height()
+        fit_scale = min(base_w / 800, base_h / 600)
+        scaled_w, scaled_h = max(1, int(800 * fit_scale)), max(1, int(600 * fit_scale))
+        scaled = pygame.transform.smoothscale(screen, (scaled_w, scaled_h))
+        base_surface.fill((0, 0, 0))
+        base_surface.blit(scaled, ((base_w - scaled_w) // 2, (base_h - scaled_h) // 2))
         pygame.display.flip()
         classic_clock.tick(30)
 
@@ -6769,30 +7276,79 @@ def loadout_menu_loop():
 
 
 
-# Reihenfolge & Zuordnung der 6 Kosmetik-Tabs im Inventar
-# 0 = Spuren (trail), 1 = Kopfbedeckungen (headwear), 2 = Augen (eyes),
-# 3 = Nase (nose), 4 = Mund (mouth), 5 = Tools (coming soon)
-COSMETIC_TAB_CATEGORIES = ["trail", "headwear", "eyes", "nose", "mouth", None]
-COSMETIC_TAB_LABEL_KEYS = ["trails_tab", "headwear_tab", "eyes_tab", "nose_tab", "mouth_tab", "tools_tab"]
+# Reihenfolge & Zuordnung der 4 Kosmetik-Tabs im Inventar
+# 0 = Spuren (trail), 1 = Kopfbedeckungen (headwear), 2 = Gesichtsmerkmale (face,
+# mit Unterkategorien Augen/Nase/Mund), 3 = Tools (coming soon)
+COSMETIC_TAB_CATEGORIES = ["trail", "headwear", "face", None]
+COSMETIC_TAB_LABEL_KEYS = ["trails_tab", "headwear_tab", "face_tab", "tools_tab"]
 
-def get_cosmetic_tab_layout():
+# Unterkategorien des "Gesichtsmerkmale"-Tabs. Jede hat weiterhin ihren eigenen,
+# unabhängigen Ausrüstungs-Slot (equipped_eyes / equipped_nose / equipped_mouth),
+# nur die Tab-Navigation wurde zusammengefasst.
+FACE_SUBCATEGORIES = ["eyes", "nose", "mouth"]
+FACE_SUBCATEGORY_LABEL_KEYS = ["eyes_tab", "nose_tab", "mouth_tab"]
+face_subcategory = "eyes"  # aktuell gewählte Unterkategorie im Gesichtsmerkmale-Tab
+
+def resolve_cosmetic_category(tab):
+    """Löst einen Tab-Index in die tatsächliche Item-Kategorie auf. Beim
+    'face'-Tab (Gesichtsmerkmale) bestimmt die aktuell gewählte Unterkategorie
+    (face_subcategory) die echte Kategorie (eyes/nose/mouth)."""
+    category = COSMETIC_TAB_CATEGORIES[tab]
+    if category == "face":
+        return face_subcategory
+    return category
+
+def get_face_subtab_layout():
+    """Position/Größe der 3 Unterkategorie-Buttons (Augen/Nase/Mund), die nur
+    innerhalb des 'Gesichtsmerkmale'-Haupttabs angezeigt werden."""
+    count = len(FACE_SUBCATEGORIES)
+    gap = 6
+    h = 30
+    w = min(150, (WIDTH - 80 - (count - 1) * gap) // count)
+    x_start = WIDTH // 2 - (count * w + (count - 1) * gap) // 2
+    y = 146
+    return [pygame.Rect(x_start + i * (w + gap), y, w, h) for i in range(count)]
+
+def get_cosmetic_tab_layout(reserve_sale=False):
     """Berechnet Position/Größe der Kosmetik-Tabs anhand der aktuellen Tab-Anzahl
     (COSMETIC_TAB_CATEGORIES). Zentrale Stelle für Zeichnen UND Klick-Erkennung,
     damit beide bei einer wachsenden Tab-Anzahl nie auseinanderlaufen und die
-    Tab-Leiste immer auf den Bildschirm passt."""
+    Tab-Leiste immer auf den Bildschirm passt.
+    reserve_sale=True (nur im Kosmetik-Shop): reserviert links von den Tabs Platz
+    für den Sale-Button, damit beide Gruppen zusammen zentriert sind, statt dass
+    der Sale-Button in die Tabs hineinragt oder der freie Platz fehlt."""
     tab_count = len(COSMETIC_TAB_CATEGORIES)
     tab_gap = 6
     tab_h = 40
     margin = 40  # Rand links/rechts, damit die Leiste nie über den Bildschirmrand ragt
-    tab_w = min(172, (WIDTH - margin - (tab_count - 1) * tab_gap) // tab_count)
-    x_start = WIDTH // 2 - (tab_count * tab_w + (tab_count - 1) * tab_gap) // 2
+    sale_w, sale_gap = _SALE_BUTTON_W, _SALE_BUTTON_GAP
+    reserved = (sale_w + sale_gap) if reserve_sale else 0
+    tab_w = min(172, (WIDTH - margin - reserved - (tab_count - 1) * tab_gap) // tab_count)
+    tabs_total_w = tab_count * tab_w + (tab_count - 1) * tab_gap
     y_tabs = 100
-    tab_rects = [pygame.Rect(x_start + i * (tab_w + tab_gap), y_tabs, tab_w, tab_h) for i in range(tab_count)]
+    if reserve_sale:
+        group_w = sale_w + sale_gap + tabs_total_w
+        tabs_x_start = WIDTH // 2 - group_w // 2 + sale_w + sale_gap
+    else:
+        tabs_x_start = WIDTH // 2 - tabs_total_w // 2
+    tab_rects = [pygame.Rect(tabs_x_start + i * (tab_w + tab_gap), y_tabs, tab_w, tab_h) for i in range(tab_count)]
     return tab_rects, tab_w, tab_h
+
+_SALE_BUTTON_W = 100
+_SALE_BUTTON_GAP = 12
+
+def get_sale_button_rect():
+    """Position/Größe des roten Sale-Buttons im Kosmetik-Shop - direkt links
+    neben dem ersten Kategorie-Tab (Spuren), auf gleicher Höhe. Wird von der
+    Tab-Leiste selbst abgeleitet (reserve_sale=True), damit beide garantiert
+    zusammenpassen und nie auseinanderlaufen."""
+    tab_rects, _tab_w, tab_h = get_cosmetic_tab_layout(reserve_sale=True)
+    first_tab = tab_rects[0]
+    return pygame.Rect(first_tab.x - _SALE_BUTTON_GAP - _SALE_BUTTON_W, first_tab.y, _SALE_BUTTON_W, tab_h)
 
 def get_cosmetics_for_tab(tab):
     """Gibt (gefilterte_owned_liste, aktuell_ausgerüstetes_item) für den gegebenen Tab-Index zurück."""
-    category = COSMETIC_TAB_CATEGORIES[tab]
+    category = resolve_cosmetic_category(tab)
     owned = cosmetics_state.get("owned", [])
     if category is None:  # Tools-Tab: noch keine Items
         return [], None
@@ -6811,7 +7367,7 @@ def equip_toggle_cosmetic(tab, cosmetic, active_equipped):
     """Rüstet ein Kosmetik-Item aus/an, je nach Tab-Kategorie. Jede Kategorie hat ihren
     eigenen Slot, sodass max. 1 Item pro Kategorie/Tab gleichzeitig ausgerüstet ist,
     aber verschiedene Kategorien sich nicht gegenseitig verdrängen."""
-    category = COSMETIC_TAB_CATEGORIES[tab]
+    category = resolve_cosmetic_category(tab)
     meta = COSMETICS_DB.get(cosmetic, {})
     name = meta.get("name", {}).get(languages[language_index], cosmetic)
     if active_equipped == cosmetic:
@@ -6835,12 +7391,11 @@ def draw_cosmetic_inventory():
     fill_bg(rings=True)
 
     title = font.render(get_text("cosmetic_inventory"), True, get_text_color())
-    base_surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 70))
+    base_surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
 
-    # Tabs at top (6 Kategorien: Spuren, Kopfbedeckungen, Augen, Nase, Mund, Tools)
+    # Tabs at top (4 Kategorien: Spuren, Kopfbedeckungen, Gesichtsmerkmale, Tools)
     tab_rects, tab_w, tab_h = get_cosmetic_tab_layout()
     tab_labels = [get_text(k) for k in COSMETIC_TAB_LABEL_KEYS]
-    # Kompaktere Schrift, da 6 Tabs nebeneinander weniger Platz pro Tab haben als früher 4
     tab_label_font = tab_font if tab_w < 150 else small_font
 
     # Tabs zeichnen
@@ -6858,13 +7413,38 @@ def draw_cosmetic_inventory():
         base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
                                 rect.centery - text_surf.get_height() // 2))
 
+    # Unterkategorie-Buttons (Augen/Nase/Mund) nur sichtbar, wenn der aktuelle
+    # Haupt-Tab "Gesichtsmerkmale" ist. Verschiebt das Panel etwas nach unten,
+    # damit genug Platz für die Buttons ist.
+    is_face_tab = COSMETIC_TAB_CATEGORIES[cosmetic_tab] == "face"
+    if is_face_tab:
+        sub_rects = get_face_subtab_layout()
+        sub_labels = [get_text(k) for k in FACE_SUBCATEGORY_LABEL_KEYS]
+        for i, (srect, slabel) in enumerate(zip(sub_rects, sub_labels)):
+            active = FACE_SUBCATEGORIES[i] == face_subcategory
+            sbg = get_button_color() if active else get_panel_color()
+            sborder = get_button_hover_color() if active else (150, 150, 150)
+            pygame.draw.rect(base_surface, sbg, srect, border_radius=10)
+            pygame.draw.rect(base_surface, sborder, srect, width=2, border_radius=10)
+            stext = small_font.render(slabel, True, get_text_color())
+            base_surface.blit(stext, (srect.centerx - stext.get_width() // 2,
+                                      srect.centery - stext.get_height() // 2))
+        panel_top = 186
+    else:
+        panel_top = 150
+
     # List owned cosmetics based on tab
-    y = 160
-    panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
+    y = panel_top + 10
+    panel = pygame.Rect(50, panel_top, WIDTH - 100, HEIGHT - panel_top - 60)
     pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=16)
     pygame.draw.rect(base_surface, (60, 80, 140), panel, width=3, border_radius=16)
 
     filtered_owned, active_equipped = get_cosmetics_for_tab(cosmetic_tab)
+
+    # Kleiner Zähler oben rechts im Panel ("X besessen")
+    if COSMETIC_TAB_CATEGORIES[cosmetic_tab] is not None:
+        count_surf = tab_font.render(f"{len(filtered_owned)} {get_text('owned_tab')}", True, get_text_color())
+        base_surface.blit(count_surf, (panel.right - count_surf.get_width() - 16, panel.y - 22))
 
     if COSMETIC_TAB_CATEGORIES[cosmetic_tab] is None:  # Tools - coming soon
         msg = small_font.render(get_text("tools_coming_soon"), True, get_text_color())
@@ -6874,64 +7454,59 @@ def draw_cosmetic_inventory():
         base_surface.blit(msg, (panel.x + 20, y))
     else:
         for i, cosmetic in enumerate(filtered_owned):
-            # Item background
-            item_rect = pygame.Rect(panel.x + 20, y, panel.width - 40, 50)
-            pygame.draw.rect(base_surface, get_panel_color(), item_rect, border_radius=8)
-            pygame.draw.rect(base_surface, (200, 200, 200), item_rect, width=1, border_radius=8)
-
-            # Icon based on cosmetic type
-            icon_rect = pygame.Rect(item_rect.x + 10, item_rect.y + 10, 30, 30)
-            if cosmetic == "fire_trail":
-                pygame.draw.rect(base_surface, (255, 100, 0), icon_rect, border_radius=4)
-            elif cosmetic == "ice_trail":
-                pygame.draw.rect(base_surface, (180, 220, 255), icon_rect, border_radius=4)
-            elif cosmetic == "shadow_trail":
-                pygame.draw.rect(base_surface, (30, 30, 30), icon_rect, border_radius=4)
-            elif cosmetic == "sparkle_trail":
-                pygame.draw.rect(base_surface, (240, 240, 120), icon_rect, border_radius=4)
-            elif cosmetic == "toxic_trail":
-                pygame.draw.rect(base_surface, (120, 200, 80), icon_rect, border_radius=4)
-            elif cosmetic == "electric_trail":
-                pygame.draw.rect(base_surface, (80, 220, 255), icon_rect, border_radius=4)
-            elif cosmetic == "yellow_crown":
-                pygame.draw.rect(base_surface, (255, 215, 0), icon_rect, border_radius=4)  # Gold for crown
-            elif cosmetic == "pixel_eyes":
-                pygame.draw.rect(base_surface, (240, 240, 245), icon_rect, border_radius=4)
-            elif cosmetic == "top_hat":
-                pygame.draw.rect(base_surface, (25, 25, 30), icon_rect, border_radius=4)
-            elif cosmetic == "devil_horns":
-                pygame.draw.rect(base_surface, (210, 30, 30), icon_rect, border_radius=4)
-            elif cosmetic == "clown_nose":
-                pygame.draw.circle(base_surface, (230, 30, 30), icon_rect.center, 14)
-            elif cosmetic == "big_grin":
-                pygame.draw.rect(base_surface, (255, 90, 120), icon_rect, border_radius=4)
-            else:
-                pygame.draw.rect(base_surface, (200,200,200), icon_rect, border_radius=4)
-
             meta = COSMETICS_DB.get(cosmetic, {})
+            rarity = meta.get("rarity", "Common")
+            rc = get_rarity_colors(rarity)
+            equipped = active_equipped == cosmetic
+
+            # Item-Karte: dezenter Schatten + rarität-getönter linker Akzentbalken
+            item_rect = pygame.Rect(panel.x + 20, y, panel.width - 40, 50)
+            shadow_rect = item_rect.move(2, 2)
+            pygame.draw.rect(base_surface, (0, 0, 0, 40) if is_dark_mode() else (210, 210, 225), shadow_rect, border_radius=10)
+            pygame.draw.rect(base_surface, get_panel_color(), item_rect, border_radius=10)
+            border_col = GREEN if equipped else rc["border"]
+            pygame.draw.rect(base_surface, border_col, item_rect, width=2, border_radius=10)
+            # Linker Akzentbalken in Raritätsfarbe
+            accent_rect = pygame.Rect(item_rect.x, item_rect.y, 5, item_rect.height)
+            pygame.draw.rect(base_surface, rc["border"], accent_rect, border_radius=6)
+
+            # Icon in rarität-getöntem Kreis-Badge
+            icx, icy = item_rect.x + 34, item_rect.centery
+            pygame.draw.circle(base_surface, rc["bg"], (icx, icy), 19)
+            pygame.draw.circle(base_surface, rc["border"], (icx, icy), 19, width=2)
+            draw_cosmetic_icon(base_surface, cosmetic, icx, icy, big=False)
+
+            # Name + kleine Raritäts-Pille
             name = meta.get("name", {}).get(languages[language_index], cosmetic)
             name_surf = small_font.render(name, True, get_text_color())
-            base_surface.blit(name_surf, (item_rect.x + 50, item_rect.y + 15))
+            base_surface.blit(name_surf, (item_rect.x + 62, item_rect.y + 8))
+            badge_text = tab_font.render(rc["label"], True, (255, 255, 255))
+            badge_rect = pygame.Rect(item_rect.x + 62, item_rect.y + 28, badge_text.get_width() + 12, 16)
+            pygame.draw.rect(base_surface, rc["badge"], badge_rect, border_radius=8)
+            base_surface.blit(badge_text, (badge_rect.x + 6, badge_rect.y + 1))
 
-            # Equip/Unequip button
+            # Equip/Unequip button (abgerundete Pille mit Häkchen bei Equipped)
             _ci_focused = nav_is_focused("cosmetic_inventory", i, len(filtered_owned) + 1)
-            if active_equipped == cosmetic:
-                status_surf = small_font.render(get_text("equipped"), True, GREEN)
-                base_surface.blit(status_surf, (item_rect.right - 120, item_rect.y + 15))
-                unequip_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
-                # draw unequip button look
-                pygame.draw.rect(base_surface, get_button_hover_color() if _ci_focused else get_button_color(), unequip_rect, border_radius=6)
+            btn_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
+            if equipped:
+                btn_bg = (30, 170, 90) if not _ci_focused else (40, 200, 110)
+                pygame.draw.rect(base_surface, btn_bg, btn_rect, border_radius=15)
                 if _ci_focused:
-                    pygame.draw.rect(base_surface, (255, 255, 255), unequip_rect, width=2, border_radius=6)
-                unequip_text = small_font.render(get_text("unequip"), True, get_text_color())
-                base_surface.blit(unequip_text, (unequip_rect.centerx - unequip_text.get_width()//2, unequip_rect.centery - unequip_text.get_height()//2))
+                    pygame.draw.rect(base_surface, (255, 255, 255), btn_rect, width=2, border_radius=15)
+                # Kleines Häkchen-Symbol
+                pygame.draw.lines(base_surface, (255, 255, 255), False,
+                                   [(btn_rect.x + 10, btn_rect.centery), (btn_rect.x + 15, btn_rect.centery + 5),
+                                    (btn_rect.x + 24, btn_rect.centery - 6)], 2)
+                unequip_text = small_font.render(get_text("unequip"), True, (255, 255, 255))
+                base_surface.blit(unequip_text, (btn_rect.x + 30, btn_rect.centery - unequip_text.get_height() // 2))
             else:
-                equip_rect = pygame.Rect(item_rect.right - 120, item_rect.y + 10, 100, 30)
-                pygame.draw.rect(base_surface, get_button_hover_color() if _ci_focused else get_button_color(), equip_rect, border_radius=6)
-                if _ci_focused:
-                    pygame.draw.rect(base_surface, (255, 255, 255), equip_rect, width=2, border_radius=6)
+                btn_bg = get_button_hover_color() if _ci_focused else get_button_color()
+                pygame.draw.rect(base_surface, btn_bg, btn_rect, border_radius=15)
+                pygame.draw.rect(base_surface, rc["border"] if not _ci_focused else (255, 255, 255),
+                                  btn_rect, width=2, border_radius=15)
                 equip_text = small_font.render(get_text("equip"), True, get_text_color())
-                base_surface.blit(equip_text, (equip_rect.centerx - equip_text.get_width()//2, equip_rect.centery - equip_text.get_height()//2))
+                base_surface.blit(equip_text, (btn_rect.centerx - equip_text.get_width() // 2,
+                                                btn_rect.centery - equip_text.get_height() // 2))
 
             y += 60
             if y > panel.bottom - 80:
@@ -6957,13 +7532,15 @@ def draw_cosmetic_inventory():
 
 
 def cosmetic_inventory_loop():
-    global in_cosmetic_inventory, in_loadout_menu, cosmetics_state, cosmetic_tab
+    global in_cosmetic_inventory, in_loadout_menu, cosmetics_state, cosmetic_tab, face_subcategory
     while in_cosmetic_inventory:
         back_rect = draw_cosmetic_inventory()
 
         # Registry der Item-Buttons (gleiche Iterationslogik wie draw_cosmetic_inventory)
-        _ci_panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
-        _ci_y = 160
+        _ci_is_face_tab = COSMETIC_TAB_CATEGORIES[cosmetic_tab] == "face"
+        _ci_panel_top = 186 if _ci_is_face_tab else 150
+        _ci_panel = pygame.Rect(50, _ci_panel_top, WIDTH - 100, HEIGHT - _ci_panel_top - 60)
+        _ci_y = _ci_panel_top + 10
         _ci_filtered, _ci_active = get_cosmetics_for_tab(cosmetic_tab)
         _ci_items = []
         for cosmetic in _ci_filtered:
@@ -6988,6 +7565,7 @@ def cosmetic_inventory_loop():
                     if d in ("left", "right"):
                         step = 1 if d == "right" else -1
                         cosmetic_tab = (cosmetic_tab + step) % len(COSMETIC_TAB_CATEGORIES)
+                        face_subcategory = "eyes"  # Unterkategorie beim Haupt-Tab-Wechsel zurücksetzen
                         nav_set_focus("cosmetic_inventory", 0)
                     elif d in ("up", "down"):
                         cur = nav_get_focus("cosmetic_inventory", len(_ci_nav_rects))
@@ -7012,14 +7590,27 @@ def cosmetic_inventory_loop():
                         break
                 if _clicked_tab:
                     continue
+                # Check Unterkategorie-Buttons (Augen/Nase/Mund), nur im "Gesichtsmerkmale"-Tab
+                if COSMETIC_TAB_CATEGORIES[cosmetic_tab] == "face":
+                    _clicked_sub = False
+                    for i, srect in enumerate(get_face_subtab_layout()):
+                        if srect.collidepoint((mx, my)):
+                            face_subcategory = FACE_SUBCATEGORIES[i]
+                            _clicked_sub = True
+                            nav_set_focus("cosmetic_inventory", 0)
+                            break
+                    if _clicked_sub:
+                        continue
                 # Check back button
                 if back_rect.collidepoint((mx, my)):
                     in_cosmetic_inventory = False
                     in_loadout_menu = True
                     break
                 # Check owned items and their equip/unequip buttons by reconstructing positions used in draw_cosmetic_inventory
-                panel = pygame.Rect(50, 150, WIDTH - 100, HEIGHT - 210)
-                y = 160
+                _is_face_tab = COSMETIC_TAB_CATEGORIES[cosmetic_tab] == "face"
+                _panel_top = 186 if _is_face_tab else 150
+                panel = pygame.Rect(50, _panel_top, WIDTH - 100, HEIGHT - _panel_top - 60)
+                y = _panel_top + 10
                 filtered_owned, active_equipped = get_cosmetics_for_tab(cosmetic_tab)
                 for cosmetic in filtered_owned:
                     item_rect = pygame.Rect(panel.x + 20, y, panel.width - 40, 50)
@@ -7036,10 +7627,11 @@ def cosmetic_inventory_loop():
 
 
 def draw_cosmetic_shop():
-    global cosmetic_shop_scroll, _trail_anim_t
+    global cosmetic_shop_scroll, _trail_anim_t, cosmetic_shop_tab, shop_face_subcategory
     _trail_anim_t = (_trail_anim_t + 0.06) % (2 * 3.14159265)
     mouse_pos = get_mouse_pos_logical()
     dark = is_dark_mode()
+    ensure_daily_sale()  # Prüft (gecacht, siehe get_cached_current_date) ob heute ein neuer Sale nötig ist
 
     # Background
     fill_bg(rings=True)
@@ -7067,50 +7659,106 @@ def draw_cosmetic_shop():
     coin_text = small_font.render(f"  {stats.get('coins', 0)} Coins", True, GOLD)
     base_surface.blit(coin_text, (coin_bg.x + 10, coin_bg.y + 7))
 
-    # Rarity color mapping
-    RARITY_COLORS = {
-        "Common":    {"bg": (60, 130, 60),   "border": (100, 220, 100),  "badge": (80, 200, 80),   "label": "Common"},
-        "Rare":      {"bg": (40, 80, 180),   "border": (80, 140, 255),   "badge": (70, 130, 240),  "label": "Rare"},
-        "Epic":      {"bg": (100, 40, 160),  "border": (180, 80, 255),   "badge": (160, 70, 240),  "label": "Epic"},
-        "Legendary": {"bg": (160, 110, 10),  "border": (255, 200, 0),    "badge": (220, 170, 20),  "label": "Legendary"},
-    }
+    # --- Kategorien-Tableiste (Spuren / Kopfbedeckungen / Gesichtsmerkmale / Tools) ---
+    # Nutzt dieselbe Tab-Infrastruktur wie das Kosmetik-Inventar, aber mit eigenem
+    # Tab-Zustand (cosmetic_shop_tab), damit Shop und Inventar unabhängig voneinander
+    # auf einer Kategorie stehen bleiben können. Im Sale-Modus werden die Tabs nur
+    # gedimmt angezeigt (nicht anklickbar aktiv), da die Sale-Ansicht kategorieübergreifend ist.
+    # reserve_sale=True reserviert links davon den Platz für den Sale-Button.
+    tab_rects, tab_w, tab_h = get_cosmetic_tab_layout(reserve_sale=True)
+    tab_labels = [get_text(k) for k in COSMETIC_TAB_LABEL_KEYS]
+    tab_label_font = tab_font if tab_w < 150 else small_font
+    for i, (trect, tlabel) in enumerate(zip(tab_rects, tab_labels)):
+        if (not cosmetic_shop_showing_sale) and cosmetic_shop_tab == i:
+            tbg, tborder = get_button_color(), get_button_hover_color()
+        else:
+            tbg, tborder = get_panel_color(), (180, 180, 180)
+        pygame.draw.rect(base_surface, tbg, trect, border_radius=12)
+        pygame.draw.rect(base_surface, tborder, trect, width=2, border_radius=12)
+        tsurf = tab_label_font.render(tlabel, True, get_text_color())
+        base_surface.blit(tsurf, (trect.centerx - tsurf.get_width() // 2, trect.centery - tsurf.get_height() // 2))
 
-    # Icon draw functions per item (shape, color) — no emojis
-    ITEM_ICONS = {
-        "fire_trail":    ("triangle", (255, 120, 30)),
-        "ice_trail":     ("diamond",  (140, 210, 255)),
-        "shadow_trail":  ("circle",   (60,  40,  80)),
-        "sparkle_trail": ("star4",    (255, 240, 80)),
-        "toxic_trail":   ("hexagon",  (80,  210, 60)),
-        "electric_trail":("bolt",     (80,  220, 255)),
-        "yellow_crown":  ("crown",    (255, 215, 0)),
-        "pixel_eyes":    ("eyes",     (60,  60,  70)),
-        "top_hat":       ("tophat",   (25,  25,  30)),
-        "devil_horns":   ("horns",    (210, 30,  30)),
-        "clown_nose":    ("nose",     (230, 30,  30)),
-        "big_grin":      ("grin",     (255, 90,  120)),
-    }
+    # --- Roter Sale-Button (links neben dem ersten Tab "Spuren") ---
+    # Schaltet zwischen normaler Kategorie-Ansicht und einer Ansicht mit allen
+    # heute reduzierten Items (über alle Kategorien hinweg) um. Text ist bewusst
+    # NICHT übersetzt - soll in jeder Sprache schlicht "Sale" heißen.
+    sale_rect = get_sale_button_rect()
+    sale_hovered = sale_rect.collidepoint(mouse_pos)
+    sale_bg = (230, 40, 40) if (cosmetic_shop_showing_sale or sale_hovered) else (170, 25, 25)
+    pygame.draw.rect(base_surface, sale_bg, sale_rect, border_radius=15)
+    pygame.draw.rect(base_surface, (255, 120, 120) if cosmetic_shop_showing_sale else (100, 15, 15), sale_rect, width=2, border_radius=15)
+    sale_btn_text = small_font.render("Sale", True, (255, 255, 255))
+    base_surface.blit(sale_btn_text, (sale_rect.centerx - sale_btn_text.get_width() // 2,
+                                      sale_rect.centery - sale_btn_text.get_height() // 2))
 
-    # Grid: 3 Spalten, so viele Zeilen wie nötig. Sortiert nach Typ (Trail vor Player)
-    # und innerhalb davon nach Seltenheit, damit es nicht durcheinander wirkt; eine
+    # Vertikaler Abstand zwischen Tab-Leiste (endet bei y=140) und dem Inhalt
+    # darunter (Grid oder Sale-Titel), damit nichts mehr direkt aneinanderklebt.
+    content_top = 140 + 20
+
+    if cosmetic_shop_showing_sale:
+        # Sale-Ansicht: keine Kategorie-/Unterkategorie-Filterung, zeigt alle
+        # heute reduzierten Items zusammen an.
+        resolved_category = "__sale__"
+        # Titel + Countdown untereinander, sauber unter der Tab-Leiste, dann erst das Grid.
+        sale_title_surf = menu_font.render(get_text("sale_view_title"), True, (255, 90, 90))
+        base_surface.blit(sale_title_surf, (WIDTH // 2 - sale_title_surf.get_width() // 2, content_top))
+        sale_countdown_surf = small_font.render(f"{get_text('sale_next_in')} {get_time_until_reset()}", True, get_text_color())
+        base_surface.blit(sale_countdown_surf, (WIDTH // 2 - sale_countdown_surf.get_width() // 2,
+                                                 content_top + sale_title_surf.get_height() + 4))
+        grid_start_y = content_top + sale_title_surf.get_height() + 4 + sale_countdown_surf.get_height() + 16
+    else:
+        shop_category = COSMETIC_TAB_CATEGORIES[cosmetic_shop_tab]
+        is_shop_face_tab = shop_category == "face"
+        if is_shop_face_tab:
+            sub_rects = get_face_subtab_layout()
+            sub_labels = [get_text(k) for k in FACE_SUBCATEGORY_LABEL_KEYS]
+            for i, (srect, slabel) in enumerate(zip(sub_rects, sub_labels)):
+                active = FACE_SUBCATEGORIES[i] == shop_face_subcategory
+                sbg = get_button_color() if active else get_panel_color()
+                sborder = get_button_hover_color() if active else (150, 150, 150)
+                pygame.draw.rect(base_surface, sbg, srect, border_radius=10)
+                pygame.draw.rect(base_surface, sborder, srect, width=2, border_radius=10)
+                stext = small_font.render(slabel, True, get_text_color())
+                base_surface.blit(stext, (srect.centerx - stext.get_width() // 2, srect.centery - stext.get_height() // 2))
+            resolved_category = shop_face_subcategory
+            grid_start_y = sub_rects[0].bottom + 20
+        else:
+            resolved_category = shop_category
+            grid_start_y = content_top
+
+    # Grid: 3 Spalten, so viele Zeilen wie nötig. Nur Items der aktuell gewählten
+    # Kategorie, sortiert nach Seltenheit, damit es nicht durcheinander wirkt; eine
     # unvollständige letzte Zeile wird zentriert statt links hängen zu bleiben.
     cols = 3
     tile_w, tile_h = 220, 155
     spacing_x, spacing_y = 18, 18
-    _cosm_type_order = {"trail": 0, "player": 1}
     _cosm_rarity_order = {"Common": 0, "Rare": 1, "Epic": 2, "Legendary": 3, "Mythic": 4}
-    items = sorted(COSMETICS_DB.items(), key=lambda kv: (
-        _cosm_type_order.get(kv[1].get("type"), 9),
-        _cosm_rarity_order.get(kv[1].get("rarity"), 9)
-    ))
+    if resolved_category == "__sale__":
+        items = sorted(
+            ((k, COSMETICS_DB[k]) for k in get_sale_items() if k in COSMETICS_DB),
+            key=lambda kv: _cosm_rarity_order.get(kv[1].get("rarity"), 9)
+        )
+    elif resolved_category is None:  # Tools-Tab: noch keine Items
+        items = []
+    else:
+        items = sorted(
+            ((k, m) for k, m in COSMETICS_DB.items() if m.get("category") == resolved_category),
+            key=lambda kv: _cosm_rarity_order.get(kv[1].get("rarity"), 9)
+        )
     total_grid_w = cols * tile_w + (cols - 1) * spacing_x
     grid_start_x = WIDTH // 2 - total_grid_w // 2
-    grid_start_y = 90
 
     item_rects = {}
     _owned_keys = set(cosmetics_state.get("owned", []))
     _total_buyable = sum(1 for key, _meta in items if key not in _owned_keys)
     _buy_idx = 0
+
+    if resolved_category is None:
+        msg = small_font.render(get_text("tools_coming_soon"), True, get_text_color())
+        base_surface.blit(msg, (WIDTH // 2 - msg.get_width() // 2, grid_start_y + 60))
+    elif resolved_category == "__sale__" and not items:
+        msg = small_font.render(get_text("sale_no_items"), True, get_text_color())
+        base_surface.blit(msg, (WIDTH // 2 - msg.get_width() // 2, grid_start_y + 60))
 
     for i, (key, meta) in enumerate(items):
         col = i % cols
@@ -7123,6 +7771,8 @@ def draw_cosmetic_shop():
 
         item_name = meta.get("name", {}).get(languages[language_index], key)
         price = get_cosmetic_price(key)
+        base_price = get_cosmetic_base_price(key)
+        discount = get_sale_discount(key)
         owned = key in cosmetics_state.get("owned", [])
         rarity = meta.get("rarity", "Common")
         rc = RARITY_COLORS.get(rarity, RARITY_COLORS["Common"])
@@ -7152,68 +7802,10 @@ def draw_cosmetic_shop():
         base_surface.blit(badge_text, (badge_rect.x + 7, badge_rect.y + 2))
 
         # Icon shape (top-right circle)
-        icon_shape, icon_color = ITEM_ICONS.get(key, ("circle", (200, 200, 200)))
         icx, icy = x + tile_w - 28, y + 22
         pygame.draw.circle(base_surface, tuple(min(255, c + 40) for c in card_bg), (icx, icy), 18)
         pygame.draw.circle(base_surface, rc["border"], (icx, icy), 18, width=2)
-        import math
-        if icon_shape == "circle":
-            pygame.draw.circle(base_surface, icon_color, (icx, icy), 9)
-        elif icon_shape == "triangle":
-            pts = [(icx, icy - 10), (icx - 9, icy + 7), (icx + 9, icy + 7)]
-            pygame.draw.polygon(base_surface, icon_color, pts)
-        elif icon_shape == "diamond":
-            pts = [(icx, icy - 10), (icx + 9, icy), (icx, icy + 10), (icx - 9, icy)]
-            pygame.draw.polygon(base_surface, icon_color, pts)
-        elif icon_shape == "star4":
-            pts = [(icx, icy - 11), (icx + 4, icy - 4), (icx + 11, icy),
-                   (icx + 4, icy + 4), (icx, icy + 11), (icx - 4, icy + 4),
-                   (icx - 11, icy), (icx - 4, icy - 4)]
-            pygame.draw.polygon(base_surface, icon_color, pts)
-        elif icon_shape == "hexagon":
-            pts = [(icx + int(10 * math.cos(math.radians(60 * n - 30))),
-                    icy + int(10 * math.sin(math.radians(60 * n - 30)))) for n in range(6)]
-            pygame.draw.polygon(base_surface, icon_color, pts)
-        elif icon_shape == "crown":
-            # Simple crown: base rect + 3 prongs
-            pygame.draw.rect(base_surface, icon_color, (icx - 9, icy + 2, 18, 7))
-            pygame.draw.polygon(base_surface, icon_color, [(icx - 9, icy + 2), (icx - 9, icy - 8), (icx - 4, icy - 2)])
-            pygame.draw.polygon(base_surface, icon_color, [(icx, icy + 2), (icx, icy - 10), (icx + 5, icy - 2)])
-            pygame.draw.polygon(base_surface, icon_color, [(icx + 9, icy + 2), (icx + 9, icy - 8), (icx + 4, icy - 2)])
-        elif icon_shape == "bolt":
-            pts = [(icx + 3, icy - 11), (icx - 5, icy + 1), (icx - 1, icy + 1),
-                   (icx - 4, icy + 11), (icx + 6, icy - 2), (icx + 1, icy - 2)]
-            pygame.draw.polygon(base_surface, icon_color, pts)
-        elif icon_shape == "eyes":
-            pygame.draw.rect(base_surface, (255, 255, 255), (icx - 8, icy - 4, 6, 6))
-            pygame.draw.rect(base_surface, (255, 255, 255), (icx + 2, icy - 4, 6, 6))
-            pygame.draw.rect(base_surface, icon_color, (icx - 6, icy - 2, 2, 2))
-            pygame.draw.rect(base_surface, icon_color, (icx + 4, icy - 2, 2, 2))
-        elif icon_shape == "tophat":
-            pygame.draw.rect(base_surface, icon_color, (icx - 9, icy + 4, 18, 4))
-            pygame.draw.rect(base_surface, icon_color, (icx - 6, icy - 10, 12, 15))
-            pygame.draw.rect(base_surface, (150, 20, 20), (icx - 6, icy + 1, 12, 3))
-        elif icon_shape == "horns":
-            pygame.draw.polygon(base_surface, icon_color, [(icx - 2, icy + 8), (icx - 11, icy - 6), (icx - 4, icy + 3)])
-            pygame.draw.polygon(base_surface, icon_color, [(icx + 2, icy + 8), (icx + 11, icy - 6), (icx + 4, icy + 3)])
-        elif icon_shape == "nose":
-            pygame.draw.circle(base_surface, icon_color, (icx, icy), 8)
-            pygame.draw.circle(base_surface, tuple(max(0, c - 60) for c in icon_color), (icx, icy), 8, width=2)
-        elif icon_shape == "grin":
-            _ipx = 1
-            _ipat = [
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "111111111111",
-            ]
-            for _ir, _irow in enumerate(_ipat):
-                for _ic2, _ich in enumerate(_irow):
-                    if _ich == "1":
-                        pygame.draw.rect(base_surface, (10, 10, 15),
-                                         (icx - 13 * _ipx // 2 + _ic2 * _ipx, icy - 3 * _ipx + _ir * _ipx, _ipx, _ipx))
+        draw_cosmetic_icon(base_surface, key, icx, icy, big=False)
 
         # Item name
         name_surf = menu_font.render(item_name, True, (255, 255, 255))
@@ -7228,11 +7820,21 @@ def draw_cosmetic_shop():
         pygame.draw.line(base_surface, tuple(min(255, c + 30) for c in card_bg),
                          (x + 10, y + 88), (x + tile_w - 10, y + 88), 1)
 
-        # Price with drawn coin
+        # Price with drawn coin. Bei aktivem Rabatt: durchgestrichener Originalpreis
+        # links vom reduzierten (roten) Preis, damit die Ersparnis sofort sichtbar ist.
         pygame.draw.circle(base_surface, GOLD, (x + 20, y + 104), 7)
         pygame.draw.circle(base_surface, (200, 160, 0), (x + 20, y + 104), 7, width=2)
-        price_surf = small_font.render(f"{price}", True, GOLD)
-        base_surface.blit(price_surf, (x + 32, y + 96))
+        if discount:
+            base_price_surf = small_font.render(f"{base_price}", True, (170, 170, 170))
+            base_surface.blit(base_price_surf, (x + 32, y + 96))
+            strike_y = y + 96 + base_price_surf.get_height() // 2
+            pygame.draw.line(base_surface, (170, 170, 170),
+                              (x + 32, strike_y), (x + 32 + base_price_surf.get_width(), strike_y), 2)
+            price_surf = small_font.render(f"{price}", True, (255, 70, 70))
+            base_surface.blit(price_surf, (x + 32 + base_price_surf.get_width() + 8, y + 96))
+        else:
+            price_surf = small_font.render(f"{price}", True, GOLD)
+            base_surface.blit(price_surf, (x + 32, y + 96))
 
         # Owned badge or Buy button
         if owned:
@@ -7259,6 +7861,11 @@ def draw_cosmetic_shop():
         "shadow_trail":  [(120, 120, 120), (60, 60, 60), (20, 20, 20)],
         "sparkle_trail": [(255, 255, 230), (255, 230, 80), (200, 180, 0)],
         "toxic_trail":   [(150, 220, 100), (120, 180, 150), (100, 80, 180)],
+        "rainbow_trail": [(230, 60, 60), (230, 220, 60), (70, 140, 230)],
+        "star_trail":    [(255, 255, 255), (210, 230, 255), (140, 190, 255)],
+        "smoke_trail":   [(220, 220, 225), (150, 150, 155), (80, 80, 85)],
+        "blood_trail":   [(200, 20, 30), (140, 10, 20), (80, 5, 10)],
+        "heart_trail":   [(255, 180, 200), (230, 40, 90), (160, 10, 50)],
         "yellow_crown":  None,  # Kein Trail — eigene Vorschau
     }
 
@@ -7304,66 +7911,10 @@ def draw_cosmetic_shop():
         pygame.draw.rect(base_surface, prc["border"], pygame.Rect(pv_x, pv_y, pv_w, pv_h), width=2, border_radius=12)
 
         # Grosses Icon links
-        icon_shape2, icon_color2 = ITEM_ICONS.get(hovered_key, ("circle", (200, 200, 200)))
         icx2, icy2 = pv_x + 46, pv_y + pv_h // 2
         pygame.draw.circle(base_surface, tuple(min(255, ch + 30) for ch in prc["bg"]), (icx2, icy2), 32)
         pygame.draw.circle(base_surface, prc["border"], (icx2, icy2), 32, width=2)
-        import math as _math
-        _s, _ic = icon_shape2, icon_color2
-        if _s == "circle":
-            pygame.draw.circle(base_surface, _ic, (icx2, icy2), 16)
-        elif _s == "triangle":
-            pygame.draw.polygon(base_surface, _ic, [(icx2, icy2 - 18), (icx2 - 16, icy2 + 13), (icx2 + 16, icy2 + 13)])
-        elif _s == "diamond":
-            pygame.draw.polygon(base_surface, _ic, [(icx2, icy2 - 18), (icx2 + 16, icy2), (icx2, icy2 + 18), (icx2 - 16, icy2)])
-        elif _s == "star4":
-            pts = [(icx2, icy2 - 20), (icx2 + 7, icy2 - 7), (icx2 + 20, icy2),
-                   (icx2 + 7, icy2 + 7), (icx2, icy2 + 20), (icx2 - 7, icy2 + 7),
-                   (icx2 - 20, icy2), (icx2 - 7, icy2 - 7)]
-            pygame.draw.polygon(base_surface, _ic, pts)
-        elif _s == "hexagon":
-            pts = [(icx2 + int(18 * _math.cos(_math.radians(60 * n - 30))),
-                    icy2 + int(18 * _math.sin(_math.radians(60 * n - 30)))) for n in range(6)]
-            pygame.draw.polygon(base_surface, _ic, pts)
-        elif _s == "crown":
-            pygame.draw.rect(base_surface, _ic, (icx2 - 16, icy2 + 4, 32, 12))
-            pygame.draw.polygon(base_surface, _ic, [(icx2 - 16, icy2 + 4), (icx2 - 16, icy2 - 14), (icx2 - 6, icy2 - 4)])
-            pygame.draw.polygon(base_surface, _ic, [(icx2, icy2 + 4), (icx2, icy2 - 18), (icx2 + 8, icy2 - 4)])
-            pygame.draw.polygon(base_surface, _ic, [(icx2 + 16, icy2 + 4), (icx2 + 16, icy2 - 14), (icx2 + 6, icy2 - 4)])
-        elif _s == "bolt":
-            pts = [(icx2 + 5, icy2 - 19), (icx2 - 9, icy2 + 2), (icx2 - 2, icy2 + 2),
-                   (icx2 - 7, icy2 + 19), (icx2 + 10, icy2 - 3), (icx2 + 2, icy2 - 3)]
-            pygame.draw.polygon(base_surface, _ic, pts)
-        elif _s == "eyes":
-            pygame.draw.rect(base_surface, (255, 255, 255), (icx2 - 14, icy2 - 7, 10, 10))
-            pygame.draw.rect(base_surface, (255, 255, 255), (icx2 + 4, icy2 - 7, 10, 10))
-            pygame.draw.rect(base_surface, _ic, (icx2 - 11, icy2 - 4, 4, 4))
-            pygame.draw.rect(base_surface, _ic, (icx2 + 7, icy2 - 4, 4, 4))
-        elif _s == "tophat":
-            pygame.draw.rect(base_surface, _ic, (icx2 - 16, icy2 + 7, 32, 7))
-            pygame.draw.rect(base_surface, _ic, (icx2 - 11, icy2 - 17, 22, 26))
-            pygame.draw.rect(base_surface, (150, 20, 20), (icx2 - 11, icy2 + 2, 22, 5))
-        elif _s == "horns":
-            pygame.draw.polygon(base_surface, _ic, [(icx2 - 4, icy2 + 14), (icx2 - 19, icy2 - 10), (icx2 - 7, icy2 + 5)])
-            pygame.draw.polygon(base_surface, _ic, [(icx2 + 4, icy2 + 14), (icx2 + 19, icy2 - 10), (icx2 + 7, icy2 + 5)])
-        elif _s == "nose":
-            pygame.draw.circle(base_surface, _ic, (icx2, icy2), 14)
-            pygame.draw.circle(base_surface, tuple(max(0, c - 60) for c in _ic), (icx2, icy2), 14, width=2)
-        elif _s == "grin":
-            _ppx = 3
-            _ppat = [
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "111111111111",
-            ]
-            for _pr, _prow in enumerate(_ppat):
-                for _pc, _pch in enumerate(_prow):
-                    if _pch == "1":
-                        pygame.draw.rect(base_surface, (10, 10, 15),
-                                         (icx2 - 13 * _ppx // 2 + _pc * _ppx, icy2 - 3 * _ppx + _pr * _ppx, _ppx, _ppx))
+        draw_cosmetic_icon(base_surface, hovered_key, icx2, icy2, big=True)
 
         # Name + Rarity + Typ
         tx = pv_x + 96
@@ -7424,7 +7975,7 @@ def buy_fire_trail():
     push_overlay(f"{get_text('fire_trail')} acquired!", GOLD)
 
 def cosmetic_shop_loop():
-    global in_cosmetic_shop, in_shop_menu, cosmetic_shop_scroll
+    global in_cosmetic_shop, in_shop_menu, cosmetic_shop_scroll, cosmetic_shop_tab, shop_face_subcategory, cosmetic_shop_showing_sale
     while in_cosmetic_shop:
         back_rect, buy_rects = draw_cosmetic_shop()
         _cs_keys  = list(buy_rects.keys())
@@ -7437,6 +7988,12 @@ def cosmetic_shop_loop():
                 if event.key == pygame.K_m or is_back_key(event.key):
                     in_cosmetic_shop = False
                     in_shop_menu = True
+                elif event.key == pygame.K_TAB:
+                    # Tab-Taste zyklisch durch die Kosmetik-Kategorien (Spuren/Kopfbedeckungen/...)
+                    cosmetic_shop_tab = (cosmetic_shop_tab + 1) % len(COSMETIC_TAB_CATEGORIES)
+                    shop_face_subcategory = "eyes"
+                    cosmetic_shop_showing_sale = False  # Kategorie-Wahl verlässt die Sale-Ansicht
+                    nav_set_focus("cosmetic_shop", 0)
                 else:
                     d = nav_direction(event.key)
                     if d:
@@ -7451,6 +8008,38 @@ def cosmetic_shop_loop():
                             in_shop_menu = True
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = get_mouse_pos_logical()
+                # Sale-Button anklicken: schaltet die kategorieübergreifende Angebots-
+                # Ansicht um. Hat Vorrang vor den Kategorie-Tabs darunter.
+                if get_sale_button_rect().collidepoint(mouse_pos):
+                    cosmetic_shop_showing_sale = not cosmetic_shop_showing_sale
+                    nav_set_focus("cosmetic_shop", 0)
+                    play_sound(menu_click_sound)
+                    continue
+                # Kategorie-Tabs anklicken (reserve_sale=True: gleiche Positionen wie beim Zeichnen)
+                _tab_rects, _tab_w, _tab_h = get_cosmetic_tab_layout(reserve_sale=True)
+                _clicked_tab = False
+                for i, trect in enumerate(_tab_rects):
+                    if trect.collidepoint(mouse_pos):
+                        cosmetic_shop_tab = i
+                        shop_face_subcategory = "eyes"
+                        cosmetic_shop_showing_sale = False  # Kategorie-Wahl verlässt die Sale-Ansicht
+                        nav_set_focus("cosmetic_shop", 0)
+                        _clicked_tab = True
+                        break
+                if _clicked_tab:
+                    continue
+                # Unterkategorie-Buttons (Augen/Nase/Mund), nur im "Gesichtsmerkmale"-Tab
+                # und nur außerhalb der Sale-Ansicht (dort werden sie gar nicht gezeichnet)
+                if (not cosmetic_shop_showing_sale) and COSMETIC_TAB_CATEGORIES[cosmetic_shop_tab] == "face":
+                    _clicked_sub = False
+                    for i, srect in enumerate(get_face_subtab_layout()):
+                        if srect.collidepoint(mouse_pos):
+                            shop_face_subcategory = FACE_SUBCATEGORIES[i]
+                            nav_set_focus("cosmetic_shop", 0)
+                            _clicked_sub = True
+                            break
+                    if _clicked_sub:
+                        continue
                 if back_rect and back_rect.collidepoint(mouse_pos):
                     in_cosmetic_shop = False
                     in_shop_menu = True
@@ -7578,6 +8167,9 @@ loadout_tab = 0  # 0 = owned, 1 = all
 loadout_scroll = 0
 cosmetic_tab = 0  # 0 = trails, 1 = player
 cosmetic_shop_scroll = 0.0
+cosmetic_shop_tab = 0  # aktueller Kategorie-Tab im Kosmetik-Shop (unabhängig vom Inventar-Tab)
+shop_face_subcategory = "eyes"  # aktuelle Unterkategorie (Augen/Nase/Mund) im Shop-"Gesichtsmerkmale"-Tab
+cosmetic_shop_showing_sale = False  # True = Sale-Ansicht (reduzierte Items aller Kategorien) statt normalem Tab
 
 def draw_hover_tooltip(content, mouse_pos, max_width=280, accent_color=None, anchor_rect=None):
     """Zeichnet eine kleine Erklärungs-Box in der Nähe des Cursors (an den Bildschirmrand
@@ -8446,10 +9038,15 @@ _mods_scroll = 0
 _mods_edit   = None   # (mod_index, setting_key) — active input field
 _mods_edit_text = ''
 
-# Startup: profile selection
+# Startup: profile selection - falls ein Profil als Auto-Start markiert wurde
+# (Checkbox im Profil-Screen), wird direkt dieses geladen und der Auswahl-
+# Bildschirm komplett übersprungen.
 _startup_profiles = get_all_profiles()
+_startup_auto_name = get_auto_start_profile()
 if not _startup_profiles:
     in_profile_name_input = True
+elif _startup_auto_name and _startup_auto_name in _startup_profiles:
+    _enter_profile(_startup_auto_name)
 else:
     in_profile_select = True
 
@@ -8869,13 +9466,15 @@ def run_game():
     player = pygame.Rect(50, HEIGHT - 50, 50, 50)
     player_velocity_y = 0
 
-    # Trail particles for all cosmetic trails
-    fire_particles = []
-    ice_particles = []
-    shadow_particles = []
-    sparkle_particles = []
-    toxic_particles = []
-    electric_particles = []
+    # Trail particles for all cosmetic trails (ein Partikel-Puffer je Trail-Item,
+    # ALL_TRAIL_KEYS wächst automatisch mit COSMETICS_DB mit)
+    trail_particle_lists = {key: [] for key in ALL_TRAIL_KEYS}
+    fire_particles = trail_particle_lists["fire_trail"]
+    ice_particles = trail_particle_lists["ice_trail"]
+    shadow_particles = trail_particle_lists["shadow_trail"]
+    sparkle_particles = trail_particle_lists["sparkle_trail"]
+    toxic_particles = trail_particle_lists["toxic_trail"]
+    electric_particles = trail_particle_lists["electric_trail"]
     PARTICLE_SPEED = 2
 
     # Fire trail effect
@@ -9198,15 +9797,13 @@ def run_game():
             player.right = WIDTH
 
         # Update trail particles for all equipped trails
-        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail", "electric_trail"]
+        equipped_trails = [t for t in ALL_TRAIL_KEYS
                           if t in cosmetics_state.get("owned", []) and t in cosmetics_state.get("equipped", [])]
 
         # Add new particles only when moving and trails are equipped
         if equipped_trails and (any_action_pressed(keys, "left") or any_action_pressed(keys, "right") or player_velocity_y < 0):
             for trail in equipped_trails:
-                particles = {"fire_trail": fire_particles, "ice_trail": ice_particles,
-                           "shadow_trail": shadow_particles, "sparkle_trail": sparkle_particles,
-                           "toxic_trail": toxic_particles, "electric_trail": electric_particles}[trail]
+                particles = trail_particle_lists[trail]
 
                 # Different particle counts for different trails
                 particle_count = {
@@ -9215,7 +9812,12 @@ def run_game():
                     "shadow_trail": 3,    # Sparse shadow particles
                     "sparkle_trail": 6,   # Lots of sparkles
                     "toxic_trail": 4,     # Medium toxic particles
-                    "electric_trail": 5   # Dense, snappy sparks
+                    "electric_trail": 5,  # Dense, snappy sparks
+                    "rainbow_trail": 6,   # Legendary: viele bunte Partikel
+                    "star_trail": 4,      # Ruhig treibende Sterne
+                    "smoke_trail": 3,     # Sparse, langsam wachsender Rauch
+                    "blood_trail": 4,     # Tropfen, die nach unten fallen
+                    "heart_trail": 4      # Herzen, die sanft nach oben schweben
                 }.get(trail, 3)
 
                 for _ in range(particle_count):
@@ -9246,6 +9848,21 @@ def run_game():
                     elif trail == "electric_trail":
                         vy = random.uniform(-1.5, 1.5)  # Sparks jitter erratically
                         life = random.uniform(18, 32)   # Short, snappy zaps
+                    elif trail == "rainbow_trail":
+                        vy = random.uniform(-1.5, 0.5)  # Legendary Partikel schweben leicht nach oben
+                        life = random.uniform(35, 60)
+                    elif trail == "star_trail":
+                        vy = random.uniform(-1.5, 0.5)  # Sterne treiben ruhig nach oben
+                        life = random.uniform(35, 55)
+                    elif trail == "smoke_trail":
+                        vy = random.uniform(-1.2, -0.2)  # Rauch steigt gleichmäßig auf
+                        life = random.uniform(40, 70)
+                    elif trail == "blood_trail":
+                        vy = random.uniform(0, 1.5)     # Blutstropfen fallen nach unten
+                        life = random.uniform(18, 32)
+                    elif trail == "heart_trail":
+                        vy = random.uniform(-1.8, -0.3)  # Herzen schweben nach oben
+                        life = random.uniform(30, 55)
                     else:  # fire_trail
                         vy = random.uniform(-1, 0)      # Fire particles with upward bias
                         life = random.uniform(20, 40)
@@ -9264,7 +9881,7 @@ def run_game():
                     particles.append(particle_data)
 
         # Update all particle types with enhanced physics
-        for particles in [fire_particles, ice_particles, shadow_particles, sparkle_particles, toxic_particles, electric_particles]:
+        for particles in trail_particle_lists.values():
             particles[:] = [p for p in particles if p['life'] > 0]
             for p in particles:
                 p['x'] += p['vx']
@@ -9285,6 +9902,21 @@ def run_game():
                 elif p['trail_type'] == "electric_trail":
                     p['vx'] += random.uniform(-0.15, 0.15)  # Erratic crackling jitter
                     p['vy'] += random.uniform(-0.15, 0.15)
+                elif p['trail_type'] == "rainbow_trail":
+                    p['vy'] += 0.03  # Legendary Partikel schweben sanft
+                    p['angle'] = (p.get('angle', 0) + 4) % 360  # Farbrotation für Regenbogen-Effekt
+                elif p['trail_type'] == "star_trail":
+                    p['vy'] += 0.04  # Sterne treiben ruhig nach oben
+                    p['angle'] = (p.get('angle', 0) + 3) % 360  # Funkeln
+                elif p['trail_type'] == "smoke_trail":
+                    p['vy'] += 0.015  # Rauch steigt langsam und gleichmäßig
+                    p['vx'] *= 0.985  # Rauch verliert horizontalen Schwung
+                    p['size'] = p.get('size', 2.5) + 0.03  # Rauch wird beim Aufsteigen größer
+                elif p['trail_type'] == "blood_trail":
+                    p['vy'] += 0.18   # Blutstropfen fallen deutlich schneller nach unten
+                elif p['trail_type'] == "heart_trail":
+                    p['vy'] += 0.02   # Herzen schweben leicht nach oben
+                    p['vx'] += math.sin(p.get('angle', 0) * 0.05) * 0.05  # sanftes Schlängeln
                 else:  # fire_trail
                     p['vy'] += 0.1    # Fire particles have normal gravity
 
@@ -9427,6 +10059,7 @@ def run_game():
                 ctx["1ups"] += 1
                 ctx["1ups_total"] += 1
                 powerups.remove(p)
+                play_sound(oneup_sound)
                 show_1up_text_overlay(player_rect=player)
                 push_overlay("1-UP eingesammelt", (0,150,0), pos=(player.centerx, player.top-20))
                 check_achievements(ctx)
@@ -9659,6 +10292,40 @@ def run_game():
             hy = player.top
             pygame.draw.polygon(base_surface, (210, 30, 30), [(hx - 6, hy + 4), (hx - 16, hy - 14), (hx - 4, hy - 2)])
             pygame.draw.polygon(base_surface, (210, 30, 30), [(hx + 6, hy + 4), (hx + 16, hy - 14), (hx + 4, hy - 2)])
+        elif equipped_headwear == "halo":
+            # Goldgelber, runder, leicht schwebender Ring über dem Kopf
+            halo_x = player.centerx
+            halo_y = player.top - 18
+            pygame.draw.ellipse(base_surface, (255, 200, 20), (halo_x - 24, halo_y - 12, 48, 24), width=6)
+        elif equipped_headwear == "propeller_hat":
+            # Grosse Mütze mit rotierendem Propeller-Kreuz obendrauf
+            ph_x = player.centerx
+            ph_top = player.top
+            pygame.draw.polygon(base_surface, (230, 70, 60), [
+                (ph_x - 24, ph_top + 8), (ph_x + 24, ph_top + 8),
+                (ph_x + 15, ph_top - 18), (ph_x - 15, ph_top - 18)
+            ])
+            pygame.draw.rect(base_surface, (230, 70, 60), (ph_x - 24, ph_top + 2, 48, 8), border_radius=3)
+            _prop_angle = (pygame.time.get_ticks() / 60.0) % 360
+            _prop_rad = math.radians(_prop_angle)
+            _prop_dx = int(26 * math.cos(_prop_rad))
+            _prop_dy = int(6 * math.sin(_prop_rad))
+            pygame.draw.line(base_surface, (60, 60, 65),
+                              (ph_x - _prop_dx, ph_top - 34 - _prop_dy), (ph_x + _prop_dx, ph_top - 34 + _prop_dy), 4)
+            pygame.draw.line(base_surface, (60, 60, 65), (ph_x, ph_top - 44), (ph_x, ph_top - 18), 4)
+            pygame.draw.circle(base_surface, (255, 210, 40), (ph_x, ph_top - 34), 6)
+        elif equipped_headwear == "ninja_headband":
+            # Breites schwarzes Stirnband mit rotem Knoten und fliegenden Enden
+            nb_x = player.centerx
+            nb_y = player.top + 6
+            pygame.draw.rect(base_surface, (25, 25, 30), (nb_x - 26, nb_y - 8, 52, 16))
+            pygame.draw.polygon(base_surface, (190, 20, 20), [
+                (nb_x + 20, nb_y + 8), (nb_x + 42, nb_y + 26), (nb_x + 22, nb_y + 24)
+            ])
+            pygame.draw.polygon(base_surface, (190, 20, 20), [
+                (nb_x + 24, nb_y + 6), (nb_x + 46, nb_y + 18), (nb_x + 26, nb_y + 20)
+            ])
+            pygame.draw.circle(base_surface, (190, 20, 20), (nb_x, nb_y), 5)
 
         if equipped_eyes == "pixel_eyes":
             # Blockige Pixel-Augen auf dem Spieler (bewusst nicht realistisch)
@@ -9668,6 +10335,32 @@ def run_game():
             pygame.draw.rect(base_surface, (255, 255, 255), (ex + 5, ey - 5, 9, 9))
             pygame.draw.rect(base_surface, (20, 20, 25), (ex - 11, ey - 2, 4, 4))
             pygame.draw.rect(base_surface, (20, 20, 25), (ex + 8, ey - 2, 4, 4))
+        elif equipped_eyes == "sunglasses":
+            # Sonnenbrille mit dickem Rahmen, dunklen Gläsern, Glanzstreifen und Bügeln
+            ex = player.centerx
+            ey = player.centery - 8
+            pygame.draw.circle(base_surface, (20, 20, 25), (ex - 9, ey), 10)
+            pygame.draw.circle(base_surface, (20, 20, 25), (ex + 9, ey), 10)
+            pygame.draw.circle(base_surface, (35, 35, 40), (ex - 9, ey), 7)
+            pygame.draw.circle(base_surface, (35, 35, 40), (ex + 9, ey), 7)
+            pygame.draw.line(base_surface, (150, 180, 210), (ex - 13, ey - 3), (ex - 6, ey + 3), 2)
+            pygame.draw.line(base_surface, (150, 180, 210), (ex + 5, ey - 3), (ex + 12, ey + 3), 2)
+            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 4, ey - 2, 8, 4))
+            pygame.draw.line(base_surface, (20, 20, 25), (ex - 19, ey - 2), (ex - 22, ey - 6), 2)
+            pygame.draw.line(base_surface, (20, 20, 25), (ex + 19, ey - 2), (ex + 22, ey - 6), 2)
+        elif equipped_eyes == "3d_glasses":
+            # Klassische 3D-Brille mit rotem und blauem Glas
+            ex = player.centerx
+            ey = player.centery - 8
+            pygame.draw.rect(base_surface, (200, 30, 30), (ex - 16, ey - 7, 13, 11))
+            pygame.draw.rect(base_surface, (40, 120, 220), (ex + 3, ey - 7, 13, 11))
+            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 4, ey - 2, 8, 3))
+        elif equipped_eyes == "robot_visor":
+            # Durchgehendes, leuchtend blaues Visier über beiden Augen
+            ex = player.centerx
+            ey = player.centery - 8
+            pygame.draw.rect(base_surface, (30, 30, 35), (ex - 17, ey - 7, 34, 15), border_radius=6)
+            pygame.draw.rect(base_surface, (80, 220, 255), (ex - 13, ey - 3, 26, 7), border_radius=3)
 
         if equipped_nose == "clown_nose":
             # Runde rote Clown-Nase mittig im Gesicht
@@ -9675,11 +10368,19 @@ def run_game():
             ny = player.centery
             pygame.draw.circle(base_surface, (230, 30, 30), (nx, ny), 6)
             pygame.draw.circle(base_surface, (150, 10, 10), (nx, ny), 6, width=1)
+        elif equipped_nose == "pig_nose":
+            # Rosa Rüsselscheibe mit zwei ovalen Nüstern
+            nx = player.centerx
+            ny = player.centery
+            pygame.draw.ellipse(base_surface, (240, 150, 170), (nx - 9, ny - 6, 18, 13))
+            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx - 9, ny - 6, 18, 13), width=1)
+            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx - 5, ny - 2, 4, 5))
+            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx + 1, ny - 2, 4, 5))
 
         if equipped_mouth == "big_grin":
             # Wemmbu Smile: pixelig/blockig im Minecraft-Stil (eckige U-Klammer, dicke Wände)
             mx = player.centerx
-            my = player.centery + 4
+            my = player.centery + 10
             _wpx = 2
             _wpat = [
                 "1..........1",
@@ -9694,6 +10395,29 @@ def run_game():
                     if _wch == "1":
                         pygame.draw.rect(base_surface, (10, 10, 15),
                                          (mx - 13 * _wpx // 2 + _wc * _wpx, my - 3 * _wpx + _wr * _wpx, _wpx, _wpx))
+        elif equipped_mouth == "vampire_fangs":
+            # Zwei spitze weisse Reisszähne unter einem dunklen Lächeln-Strich
+            mx = player.centerx
+            my = player.centery + 10
+            pygame.draw.line(base_surface, (10, 10, 15), (mx - 8, my), (mx + 8, my), 2)
+            pygame.draw.polygon(base_surface, (255, 255, 250), [(mx - 6, my), (mx - 2, my), (mx - 4, my + 7)])
+            pygame.draw.polygon(base_surface, (255, 255, 250), [(mx + 2, my), (mx + 6, my), (mx + 4, my + 7)])
+        elif equipped_mouth == "nerd_teeth":
+            # Zwei breite, quadratische Hasenzähne mit Mittelspalt
+            mx = player.centerx
+            my = player.centery + 10
+            pygame.draw.line(base_surface, (10, 10, 15), (mx - 10, my), (mx + 10, my), 2)
+            pygame.draw.rect(base_surface, (255, 255, 250), (mx - 9, my, 8, 11), border_radius=2)
+            pygame.draw.rect(base_surface, (255, 255, 250), (mx + 1, my, 8, 11), border_radius=2)
+            pygame.draw.rect(base_surface, (200, 200, 195), (mx - 9, my, 8, 11), width=1, border_radius=2)
+            pygame.draw.rect(base_surface, (200, 200, 195), (mx + 1, my, 8, 11), width=1, border_radius=2)
+        elif equipped_mouth == "bird_beak":
+            # Spitzer, gelber Vogelschnabel über dem Mund (Ober- und Unterschnabel)
+            mx = player.centerx
+            my = player.centery + 10
+            pygame.draw.polygon(base_surface, (240, 170, 30), [(mx - 12, my - 3), (mx + 13, my), (mx - 10, my + 4)])
+            pygame.draw.polygon(base_surface, (200, 140, 15), [(mx - 12, my + 2), (mx + 9, my + 4), (mx - 10, my + 9)])
+            pygame.draw.line(base_surface, (150, 100, 5), (mx - 11, my + 1), (mx + 8, my + 3), 1)
 
         # Obstacles mit Schatten
         for obs in obstacles:
@@ -9864,13 +10588,11 @@ def run_game():
         draw_ingame_achievement_banner(base_surface)
 
         # Draw all trail particles with enhanced visual effects
-        equipped_trails = [t for t in ["fire_trail", "ice_trail", "shadow_trail", "sparkle_trail", "toxic_trail", "electric_trail"]
+        equipped_trails = [t for t in ALL_TRAIL_KEYS
                           if t in cosmetics_state.get("owned", []) and t in cosmetics_state.get("equipped", [])]
 
         for trail in equipped_trails:
-            particles = {"fire_trail": fire_particles, "ice_trail": ice_particles,
-                        "shadow_trail": shadow_particles, "sparkle_trail": sparkle_particles,
-                        "toxic_trail": toxic_particles, "electric_trail": electric_particles}[trail]
+            particles = trail_particle_lists[trail]
 
             for p in particles:
                 progress = p['life'] / p['max_life']
@@ -9884,7 +10606,12 @@ def run_game():
                     "shadow_trail": 0.8,
                     "sparkle_trail": 1.5,
                     "toxic_trail": 1.1,
-                    "electric_trail": 0.9
+                    "electric_trail": 0.9,
+                    "rainbow_trail": 1.3,
+                    "star_trail": 1.2,
+                    "smoke_trail": 1.4,
+                    "blood_trail": 1.1,
+                    "heart_trail": 1.3
                 }.get(trail, 1.0)
 
                 radius = max(1, int(base_size * progress * size_multiplier))
@@ -9948,6 +10675,45 @@ def run_game():
                     else:
                         color = (40, 130, 220)   # Fading deep blue
 
+                elif trail == "rainbow_trail":
+                    # Rainbow: rotierender Regenbogen-Farbverlauf (HSV -> RGB) je Partikel,
+                    # angetrieben vom 'angle'-Wert, der bei der Physik-Aktualisierung dreht
+                    hue = (p.get('angle', 0) / 360.0) % 1.0
+                    r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.55 + 0.45 * progress)
+                    color = (clamp_color(int(r * 255)), clamp_color(int(g * 255)), clamp_color(int(b * 255)))
+
+                elif trail == "star_trail":
+                    # Star: kühles Weiß-Blau mit Funkeln
+                    twinkle = 0.75 + 0.35 * (1 if int(p.get('angle', 0) * progress) % 3 == 0 else 0)
+                    brightness = clamp_color(int(255 * progress * twinkle))
+                    if progress > 0.6:
+                        color = (brightness, brightness, brightness)  # Reines Weiß
+                    else:
+                        color = (clamp_color(int(brightness * 0.8)), clamp_color(int(brightness * 0.9)), brightness)  # Eisblau
+
+                elif trail == "smoke_trail":
+                    # Smoke: grauer Rauch, der beim Verblassen heller/durchsichtiger wirkt
+                    grey = clamp_color(int(90 + 100 * progress))
+                    color = (grey, grey, clamp_color(grey + 5))
+
+                elif trail == "blood_trail":
+                    # Blood: dunkles, sattes Rot, das beim Verblassen fast schwarz wird
+                    if progress > 0.6:
+                        color = (200, 20, 30)   # Frisches Blutrot
+                    elif progress > 0.3:
+                        color = (150, 10, 20)   # Dunkleres Rot
+                    else:
+                        color = (80, 5, 10)     # Fast schwarz
+
+                elif trail == "heart_trail":
+                    # Heart: pinkes bis kräftig rotes Herz-Glühen
+                    if progress > 0.6:
+                        color = (255, 180, 200)  # Zartes Pink
+                    elif progress > 0.3:
+                        color = (230, 40, 90)    # Kräftiges Pink-Rot
+                    else:
+                        color = (160, 10, 50)    # Dunkles Rot
+
                 # Draw main particle
                 pygame.draw.circle(base_surface, color, (int(p['x']), int(p['y'])), radius)
 
@@ -9978,6 +10744,35 @@ def run_game():
                     jx = int(p['x'] + random.uniform(-4, 4))
                     jy = int(p['y'] + random.uniform(-4, 4))
                     pygame.draw.line(base_surface, (200, 240, 255), (int(p['x']), int(p['y'])), (jx, jy), 1)
+
+                elif trail == "rainbow_trail" and radius > 1:
+                    # Regenbogenspur bekommt einen leichten weißen Glanzkern
+                    pygame.draw.circle(base_surface, (255, 255, 255), (int(p['x']), int(p['y'])), max(1, radius - 1), width=1)
+
+                elif trail == "star_trail" and radius > 1:
+                    # Sterne bekommen kleine funkelnde Zacken
+                    for _sa in (0, 90, 180, 270):
+                        _srad = math.radians(_sa + p.get('angle', 0))
+                        sx2 = int(p['x'] + math.cos(_srad) * (radius + 3) * progress)
+                        sy2 = int(p['y'] + math.sin(_srad) * (radius + 3) * progress)
+                        pygame.draw.line(base_surface, (255, 255, 255), (int(p['x']), int(p['y'])), (sx2, sy2), 1)
+
+                elif trail == "smoke_trail" and progress > 0.2:
+                    # Rauchpartikel bekommen einen weichen, durchscheinenden Rand
+                    glow_radius = radius + 2
+                    glow_color = (clamp_color(color[0] + 15), clamp_color(color[1] + 15), clamp_color(color[2] + 15))
+                    pygame.draw.circle(base_surface, glow_color, (int(p['x']), int(p['y'])), glow_radius, width=1)
+
+                elif trail == "blood_trail" and progress > 0.4:
+                    # Blutstropfen bekommen eine kleine "Schweif"-Linie nach oben (Fallrichtung)
+                    tx2 = int(p['x'] - p.get('vx', 0) * 2)
+                    ty2 = int(p['y'] - p.get('vy', 0) * 2)
+                    pygame.draw.line(base_surface, color, (int(p['x']), int(p['y'])), (tx2, ty2), max(1, radius - 1))
+
+                elif trail == "heart_trail" and radius > 1:
+                    # Herzen bekommen einen zarten hellen Kern
+                    pygame.draw.circle(base_surface, (255, 220, 230), (int(p['x']), int(p['y'])), max(1, radius - 2))
+
 
         # Screen flash effect
         if flash_timer > 0:
@@ -10686,7 +11481,7 @@ while True:
         clock.tick(60)
 
     elif in_profile_select:
-        card_rects_ps = draw_profile_select()
+        card_rects_ps, checkbox_rects_ps = draw_profile_select()
         _ps_rects = [r for r, _n in card_rects_ps]
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -10708,6 +11503,19 @@ while True:
                             _enter_profile(name)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
+                # "Immer mit diesem Profil starten"-Checkbox hat Vorrang vor dem
+                # Karten-Klick darunter, sonst würde man beim Ankreuzen versehentlich
+                # gleich das Profil betreten.
+                _clicked_checkbox = False
+                for cb_rect, cb_name in checkbox_rects_ps:
+                    if cb_rect.collidepoint((mx, my)):
+                        current_auto = get_auto_start_profile()
+                        set_auto_start_profile(None if current_auto == cb_name else cb_name)
+                        play_sound(click_sound)
+                        _clicked_checkbox = True
+                        break
+                if _clicked_checkbox:
+                    continue
                 for rect, name in card_rects_ps:
                     if rect.collidepoint((mx, my)):
                         if name == "+":
