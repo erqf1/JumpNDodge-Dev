@@ -183,6 +183,24 @@ def merge_copy(src_dir, dst_dir, rel_path=""):
             shutil.copy2(s, d)
 
 
+def find_content_root(extract_dir):
+    """Manche Release-Zips (je nach Build-Pipeline) enthalten keinen flachen Satz an
+    Dateien, sondern einen einzigen Wrapping-Ordner (z.B. 'JumpNDodge-linux/'), in dem
+    die eigentlichen Dateien liegen. Ohne diese Erkennung würde apply_update() diesen
+    Ordner 1:1 als Unterordner in den App-Ordner kopieren, statt seinen Inhalt direkt
+    ins App-Verzeichnis zu übernehmen - die eigentlichen Dateien (Executable, sound/,
+    data/, ...) würden dann nie aktualisiert, obwohl der Updater 'Erfolg' meldet.
+    Deshalb: falls der extrahierte Ordner genau einen Eintrag enthält und das ein
+    Ordner ist, gilt dessen Inhalt als eigentlicher Update-Root."""
+    entries = os.listdir(extract_dir)
+    if len(entries) == 1:
+        single_path = os.path.join(extract_dir, entries[0])
+        if os.path.isdir(single_path):
+            log(f"Erkenne Wrapping-Ordner '{entries[0]}' im Update-Archiv -> flache ihn ab")
+            return single_path
+    return extract_dir
+
+
 def apply_update(extracted_root, app_dir):
     """Überträgt die Update-Dateien in den App-Ordner. Überschreibt bestehende Dateien
     mit gleichem Namen (außer in PROTECTED_DIRS, siehe merge_copy), löscht aber
@@ -289,7 +307,8 @@ def main():
             with zipfile.ZipFile(zip_path, "r") as z:
                 z.extractall(extract_dir)
 
-            apply_update(extract_dir, app_dir)
+            content_root = find_content_root(extract_dir)
+            apply_update(content_root, app_dir)
 
             with open(os.path.join(app_dir, VERSION_FILE), "w", encoding="utf-8") as f:
                 f.write(remote_tag.lstrip("v"))
