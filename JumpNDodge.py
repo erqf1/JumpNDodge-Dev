@@ -15,6 +15,20 @@ import urllib.error  # Fehlerbehandlung für HTTP-Anfragen
 import base64        # Base64-Kodierung für verschlüsselte Dateien
 import hashlib       # SHA256-Prüfsummen für Dateiintegrität / Schlüsselableitung
 import hmac          # HMAC für Verschlüsselung (Keystream) und Integritätsprüfung
+import threading     # Dev-Konsole: liest stdin in einem Hintergrund-Thread
+import queue         # Dev-Konsole: Thread-sichere Übergabe der eingelesenen Zeilen
+
+# Konsole auf UTF-8 umstellen - sonst erscheinen Umlaute in print()-Ausgaben (z.B. der
+# Dev-Konsole) auf Windows als Mojibake, weil cmd.exe/PowerShell oft eine andere
+# Standard-Codepage (cp1252/850) verwenden. sys.stdout/stdin sind bei der kompilierten
+# --windows-console-mode=disable-exe None, deshalb der Guard.
+try:
+    if sys.stdout is not None:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if sys.stdin is not None:
+        sys.stdin.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 
 # Basisverzeichnis korrekt setzen, egal ob PyInstaller-, Nuitka-Onefile-Build
@@ -223,7 +237,18 @@ def draw_bg_effects(surface, w, h, show_rings=True):
         pygame.draw.circle(surface, col, (cx, cy), max(1, int(r)))
 
 def fill_bg(rings=False):
-    """Füllt base_surface und zeichnet Hintergrund-Animationen."""
+    """Füllt base_surface und zeichnet Hintergrund-Animationen.
+
+    Ruft sync_window_size() auf, BEVOR base_surface gefüllt wird: Praktisch jeder
+    Menü-Screen (Shop, Kosmetik-Shop, Loadout, Achievements, Settings, Admin, ...) hat
+    seine EIGENE while-Schleife statt über die äußere Hauptschleife zu laufen, und ruft
+    hier zu Beginn jedes Frames fill_bg() auf - das ist der einzige gemeinsame Punkt, den
+    praktisch alle Menü-Screens durchlaufen. Vorher wurde sync_window_size() nur in der
+    äußeren Hauptschleife und ein paar Gameplay-Loops aufgerufen; Screens mit eigener
+    Schleife (z.B. der Shop) bekamen dadurch nie ein Update von WIDTH/HEIGHT/base_surface
+    bei laufendem Fenster-Resize, wodurch _jnd_flip() das (falsch-große) base_surface beim
+    finalen Blit nicht-proportional auf die neue Fenstergröße gestreckt hat."""
+    sync_window_size()
     base_surface.fill(get_bg_color())
     draw_bg_effects(base_surface, WIDTH, HEIGHT, show_rings=rings)
 
@@ -285,7 +310,7 @@ def set_display_mode():
     physische Bildschirmgröße skaliert. Im Fenstermodus wird 1:1 dargestellt.
     Berechnet Skalierungsfaktoren und Versätze für Mauskoordinaten.
     """
-    global base_surface, display_surface, scale_x, scale_y, offset_x, offset_y, WIDTH, HEIGHT
+    global base_surface, display_surface, scale_x, scale_y, offset_x, offset_y, WIDTH, HEIGHT, _window_locked_for_gameplay
     if settings.get("fullscreen", False):
         info = pygame.display.Info()
         screen_w, screen_h = info.current_w, info.current_h
@@ -304,6 +329,7 @@ def set_display_mode():
         scale_y = 1.0
         offset_x = 0
         offset_y = 0
+        _window_locked_for_gameplay = False
 
 
     # Sicherheitsprüfungen: Stelle sicher, dass display_surface und base_surface existieren
@@ -1363,13 +1389,34 @@ def request_fade(callback):
     _fade_dir      = 1
     _fade_callback = callback
 
+_window_locked_for_gameplay = False  # Spiegelt, ob das Fenster gerade (wegen game_running) nicht-resizebar ist
+
 def sync_window_size():
-    """Muss am Anfang jedes Frames aufgerufen werden — updated WIDTH/HEIGHT vor dem Draw."""
-    global base_surface, WIDTH, HEIGHT, scale_x, scale_y, offset_x, offset_y
+    """Muss am Anfang jedes Frames aufgerufen werden — updated WIDTH/HEIGHT vor dem Draw.
+
+    Während einer laufenden Runde (game_running) wird das Fenster im Fenstermodus auf
+    nicht-resizebar umgeschaltet, damit es während der Runde gar nicht erst per Maus in der
+    Größe geändert werden kann - vorher konnte ein Live-Resize Boden/Wände verschieben und
+    dadurch Spieler und Hindernisse springen lassen. Die Umschaltung (pygame.display.set_mode
+    mit/ohne RESIZABLE-Flag) passiert nur EINMAL beim Wechsel, erkannt über den Vergleich mit
+    _window_locked_for_gameplay - game_running wird an vielen Stellen im Code gesetzt (Pause/
+    Resume/Rematch usw.), die dafür nicht einzeln angefasst werden müssen. Sobald die Runde
+    vorbei ist, wird die Resizebarkeit automatisch wiederhergestellt."""
+    global base_surface, WIDTH, HEIGHT, scale_x, scale_y, offset_x, offset_y, display_surface, _window_locked_for_gameplay
     try:
+        _process_dev_commands()
+    except Exception:
+        pass
+    try:
+        fullscreen = settings.get("fullscreen", False)
+        if not fullscreen and game_running != _window_locked_for_gameplay:
+            flags = 0 if game_running else pygame.RESIZABLE
+            display_surface = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+            _window_locked_for_gameplay = game_running
+
         win_w = display_surface.get_width()
         win_h = display_surface.get_height()
-        if not settings.get("fullscreen", False):
+        if not fullscreen:
             win_w = max(win_w, 400)
             win_h = max(win_h, 300)
         gui_scale = 1.0 if game_running else max(0.5, min(2.0, settings.get("gui_scale", 1.0)))
@@ -1516,9 +1563,26 @@ texts = {
         "enter_name": "Wie heißt du?", "confirm": "Bestätigen", "delete_profile": "Löschen",
         "name_taken": "Name bereits vergeben!", "name_empty": "Bitte einen Namen eingeben!",
         "auto_start_profile": "Auto-Start",
-        "auto_start_hint": "Häkchen = immer mit diesem Profil starten. Änderbar in Einstellungen → Profile."},
+        "auto_start_hint": "Häkchen = immer mit diesem Profil starten.",
         "fire_trail": "Feuerspur",
         "yellow_crown": "Gelbe Krone",
+        "buy": "Kaufen", "owned": "Besessen",
+        "choose_difficulty_title": "Schwierigkeit wählen", "selected_badge": "Ausgewählt", "press_a_key": "Taste drücken...",
+        "no_coins_badge": "Keine Coins", "pts_per_coin": "{0} Punkte = 1 Coin",
+        "scroll_back_hint": "↑/↓: Scroll   ESC/M: Zurück", "future_version_notice": "Kommt in einer zukünftigen Version.",
+        "achievements_disabled_notice": "Erfolge sind momentan deaktiviert.",
+        "enter_click_close_hint": "ENTER / Klick: Schließen", "enter_click_esc_close_hint": "ENTER/Klick/ESC/M: Schließen",
+        "enter_login_menu_hint": "ENTER: Login  |  ESC/M: Menü", "enter_confirm_menu_hint": "ENTER: Bestätigen  |  ESC/M: Menü",
+        "esc_menu_hint": "ESC: Menü", "item_acquired": "{0} erhalten!",
+        "vs_mode_label": "VS", "coop_mode_label": "Koop",
+        "profile_hub_title": "Profil", "change_cosmetics": "Kosmetik ändern", "switch_profile": "Profil wechseln",
+        "gui_size_label": "GUI Größe:", "recommended_label": "Empfohlen", "background_label": "Hintergrund:",
+        "bg_stars_toggle": "Sterne", "bg_rings_toggle": "Ringe", "bg_animated_toggle": "Animiert", "bg_mono_toggle": "Mono", "bg_floor_toggle": "Boden",
+        "controls_menu_btn": "Steuerung", "reset_defaults": "Standard wiederherstellen",
+        "controls_title": "Steuerung anpassen", "controls_hint_legend": "Klicke eine Taste zum Entfernen  ·  [+] zum Hinzufügen  ·  ⚠ = Taste auch anderswo belegt",
+        "controls_scroll_hint": "↑/↓ oder Mausrad: Scrollen",
+        "controls_tab_standard": "Standard", "controls_tab_2p": "2-Spieler", "controls_tab_menu": "Menü",
+    },
     "English": {
         "ice_trail": "Ice Trail",
         "shadow_trail": "Shadow Trail",
@@ -1580,7 +1644,23 @@ texts = {
         "enter_name": "What's your name?", "confirm": "Confirm", "delete_profile": "Delete",
         "name_taken": "Name already taken!", "name_empty": "Please enter a name!",
         "auto_start_profile": "Auto-Start",
-        "auto_start_hint": "Checkbox = always start with this profile. Changeable in Settings → Profiles."},
+        "auto_start_hint": "Checkbox = always start with this profile.",
+        "choose_difficulty_title": "Choose Difficulty", "selected_badge": "Selected", "press_a_key": "Press a key...",
+        "no_coins_badge": "No Coins", "pts_per_coin": "{0} Pts = 1 Coin",
+        "scroll_back_hint": "↑/↓: Scroll   ESC/M: Back", "future_version_notice": "Coming in a future version.",
+        "achievements_disabled_notice": "Achievements are currently disabled.",
+        "enter_click_close_hint": "ENTER / Click: Close", "enter_click_esc_close_hint": "ENTER/Click/ESC/M: Close",
+        "enter_login_menu_hint": "ENTER: Login  |  ESC/M: Menu", "enter_confirm_menu_hint": "ENTER: Confirm  |  ESC/M: Menu",
+        "esc_menu_hint": "ESC: Menu", "item_acquired": "{0} acquired!",
+        "vs_mode_label": "VS", "coop_mode_label": "Co-op",
+        "profile_hub_title": "Profile", "change_cosmetics": "Change Cosmetics", "switch_profile": "Switch Profile",
+        "gui_size_label": "GUI Size:", "recommended_label": "Recommended", "background_label": "Background:",
+        "bg_stars_toggle": "Stars", "bg_rings_toggle": "Rings", "bg_animated_toggle": "Animated", "bg_mono_toggle": "Mono", "bg_floor_toggle": "Floor",
+        "controls_menu_btn": "Controls", "reset_defaults": "Reset to Default",
+        "controls_title": "Customize Controls", "controls_hint_legend": "Click a key to remove  ·  [+] to add  ·  ⚠ = key also bound elsewhere",
+        "controls_scroll_hint": "↑/↓ or mouse wheel: Scroll",
+        "controls_tab_standard": "Standard", "controls_tab_2p": "2-Player", "controls_tab_menu": "Menu",
+    },
     "Русский": {
         "ice_trail": "ледяной след",
         "shadow_trail": "тень след",
@@ -1642,7 +1722,23 @@ texts = {
         "enter_name": "Как тебя зовут?", "confirm": "Подтвердить", "delete_profile": "Удалить",
         "name_taken": "Имя уже занято!", "name_empty": "Введите имя!",
         "auto_start_profile": "Автозапуск",
-        "auto_start_hint": "Флажок = всегда начинать с этим профилем. Изменить: Настройки → Профили."},
+        "auto_start_hint": "Флажок = всегда начинать с этим профилем.",
+        "choose_difficulty_title": "Выбери сложность", "selected_badge": "Выбрано", "press_a_key": "Нажми клавишу...",
+        "no_coins_badge": "Без монет", "pts_per_coin": "{0} очк. = 1 монета",
+        "scroll_back_hint": "↑/↓: Прокрутка   ESC/M: Назад", "future_version_notice": "Появится в будущей версии.",
+        "achievements_disabled_notice": "Достижения сейчас отключены.",
+        "enter_click_close_hint": "ENTER / Клик: Закрыть", "enter_click_esc_close_hint": "ENTER/Клик/ESC/M: Закрыть",
+        "enter_login_menu_hint": "ENTER: Вход  |  ESC/M: Меню", "enter_confirm_menu_hint": "ENTER: Подтвердить  |  ESC/M: Меню",
+        "esc_menu_hint": "ESC: Меню", "item_acquired": "{0} получено!",
+        "vs_mode_label": "VS", "coop_mode_label": "Кооп",
+        "profile_hub_title": "Профиль", "change_cosmetics": "Изменить косметику", "switch_profile": "Сменить профиль",
+        "gui_size_label": "Размер интерфейса:", "recommended_label": "Рекомендовано", "background_label": "Фон:",
+        "bg_stars_toggle": "Звёзды", "bg_rings_toggle": "Кольца", "bg_animated_toggle": "Анимировано", "bg_mono_toggle": "Моно", "bg_floor_toggle": "Пол",
+        "controls_menu_btn": "Управление", "reset_defaults": "Сбросить на стандартные",
+        "controls_title": "Настроить управление", "controls_hint_legend": "Нажми клавишу, чтобы удалить  ·  [+] чтобы добавить  ·  ⚠ = клавиша занята также в другом месте",
+        "controls_scroll_hint": "↑/↓ или колесо мыши: Прокрутка",
+        "controls_tab_standard": "Стандарт", "controls_tab_2p": "2 игрока", "controls_tab_menu": "Меню",
+    },
     "Türkçe": {
         "ice_trail": "Buz İz",
         "shadow_trail": "Gölge İz",
@@ -1704,7 +1800,23 @@ texts = {
         "enter_name": "Adın ne?", "confirm": "Onayla", "delete_profile": "Sil",
         "name_taken": "Bu isim alındı!", "name_empty": "Lütfen bir isim girin!",
         "auto_start_profile": "Otomatik Başlat",
-        "auto_start_hint": "Kutu = her zaman bu profille başla. Ayarlar → Profiller'den değiştirilebilir."},
+        "auto_start_hint": "Kutu = her zaman bu profille başla.",
+        "choose_difficulty_title": "Zorluk Seç", "selected_badge": "Seçildi", "press_a_key": "Bir tuşa bas...",
+        "no_coins_badge": "Coin Yok", "pts_per_coin": "{0} Puan = 1 Coin",
+        "scroll_back_hint": "↑/↓: Kaydır   ESC/M: Geri", "future_version_notice": "Gelecek bir sürümde geliyor.",
+        "achievements_disabled_notice": "Başarılar şu anda devre dışı.",
+        "enter_click_close_hint": "ENTER / Tıkla: Kapat", "enter_click_esc_close_hint": "ENTER/Tıkla/ESC/M: Kapat",
+        "enter_login_menu_hint": "ENTER: Giriş  |  ESC/M: Menü", "enter_confirm_menu_hint": "ENTER: Onayla  |  ESC/M: Menü",
+        "esc_menu_hint": "ESC: Menü", "item_acquired": "{0} kazanıldı!",
+        "vs_mode_label": "VS", "coop_mode_label": "Koop",
+        "profile_hub_title": "Profil", "change_cosmetics": "Kozmetikleri Değiştir", "switch_profile": "Profili Değiştir",
+        "gui_size_label": "Arayüz Boyutu:", "recommended_label": "Önerilen", "background_label": "Arka Plan:",
+        "bg_stars_toggle": "Yıldızlar", "bg_rings_toggle": "Halkalar", "bg_animated_toggle": "Animasyonlu", "bg_mono_toggle": "Mono", "bg_floor_toggle": "Zemin",
+        "controls_menu_btn": "Kontroller", "reset_defaults": "Varsayılana Sıfırla",
+        "controls_title": "Kontrolleri Özelleştir", "controls_hint_legend": "Kaldırmak için bir tuşa tıkla  ·  Eklemek için [+]  ·  ⚠ = tuş başka yerde de kullanılıyor",
+        "controls_scroll_hint": "↑/↓ veya fare tekerleği: Kaydır",
+        "controls_tab_standard": "Standart", "controls_tab_2p": "2 Oyuncu", "controls_tab_menu": "Menü",
+    },
     "Schwiizerdütsch": {
         "ice_trail": "Iis Spur",
         "shadow_trail": "Schatte Spur",
@@ -1766,7 +1878,23 @@ texts = {
         "enter_name": "Wie heischsch du?", "confirm": "Bestätige", "delete_profile": "Lösche",
         "name_taken": "Name scho vergäbe!", "name_empty": "Bitte en Name igäh!",
         "auto_start_profile": "Auto-Start",
-        "auto_start_hint": "Häckli = immer mit dem Profil starte. Änderbar id Istellige → Profile."},
+        "auto_start_hint": "Häckli = immer mit dem Profil starte.",
+        "choose_difficulty_title": "Schwierigkeit uswähle", "selected_badge": "Uswählt", "press_a_key": "Tascht drücke...",
+        "no_coins_badge": "Kei Coins", "pts_per_coin": "{0} Punkt = 1 Coin",
+        "scroll_back_hint": "↑/↓: Scroll   ESC/M: Zrugg", "future_version_notice": "Chunt i re zuekünftige Version.",
+        "achievements_disabled_notice": "Erfolg sind momentan deaktiviert.",
+        "enter_click_close_hint": "ENTER / Klick: Zuemache", "enter_click_esc_close_hint": "ENTER/Klick/ESC/M: Zuemache",
+        "enter_login_menu_hint": "ENTER: Login  |  ESC/M: Menü", "enter_confirm_menu_hint": "ENTER: Bestätige  |  ESC/M: Menü",
+        "esc_menu_hint": "ESC: Menü", "item_acquired": "{0} übercho!",
+        "vs_mode_label": "VS", "coop_mode_label": "Koop",
+        "profile_hub_title": "Profil", "change_cosmetics": "Kosmetik ändere", "switch_profile": "Profil wächsle",
+        "gui_size_label": "GUI Grössi:", "recommended_label": "Empfohle", "background_label": "Hindergrund:",
+        "bg_stars_toggle": "Stärne", "bg_rings_toggle": "Ringe", "bg_animated_toggle": "Animiert", "bg_mono_toggle": "Mono", "bg_floor_toggle": "Bode",
+        "controls_menu_btn": "Steurig", "reset_defaults": "Standard wiederherstelle",
+        "controls_title": "Steurig aapasse", "controls_hint_legend": "Klick e Tascht zum Entferne  ·  [+] zum Dezuefüege  ·  ⚠ = Tascht au anderswo belegt",
+        "controls_scroll_hint": "↑/↓ oder Muusrad: Scrolle",
+        "controls_tab_standard": "Standard", "controls_tab_2p": "2-Spieler", "controls_tab_menu": "Menü",
+    },
 }
 
 # =============================
@@ -1932,7 +2060,6 @@ def pick_obstacle_type(difficulty, dynamic_speed=None):
     if klassik_mode:
         return "normal"
     if difficulty == "Dynamisch" and dynamic_speed is not None:
-        s = dynamic_speed
         weights = {"normal": 100}
     else:
         weights = difficulty_obstacle_types.get(difficulty, {"normal": 100})
@@ -1998,16 +2125,56 @@ _DEFAULT_KB = {
     "power1": [pygame.K_q],
     "power2": [pygame.K_e],
     "pause":  [pygame.K_ESCAPE],
+    "p1_jump":  [pygame.K_SPACE, pygame.K_w],
+    "p1_left":  [pygame.K_a],
+    "p1_right": [pygame.K_d],
+    "p2_jump":  [pygame.K_UP],
+    "p2_left":  [pygame.K_LEFT],
+    "p2_right": [pygame.K_RIGHT],
 }
 
-_ACTION_LABELS = {
-    "jump":   "Springen",
-    "left":   "Links",
-    "right":  "Rechts",
-    "power1": "Power 1",
-    "power2": "Power 2",
-    "pause":  "Pause",
+_STANDARD_ACTIONS = ["jump", "left", "right", "power1", "power2", "pause"]
+_2P_ACTIONS = ["p1_jump", "p1_left", "p1_right", "p2_jump", "p2_left", "p2_right"]
+_MENU_NAV_ACTIONS = ["nav_up", "nav_down", "nav_left", "nav_right", "nav_confirm", "nav_back"]
+
+_ACTION_LABELS_TRANSLATIONS = {
+    "Deutsch": {
+        "jump": "Springen", "left": "Links", "right": "Rechts", "power1": "Power 1", "power2": "Power 2", "pause": "Pause",
+        "p1_jump": "2P – Spieler 1: Springen", "p1_left": "2P – Spieler 1: Links", "p1_right": "2P – Spieler 1: Rechts",
+        "p2_jump": "2P – Spieler 2: Springen", "p2_left": "2P – Spieler 2: Links", "p2_right": "2P – Spieler 2: Rechts",
+        "nav_up": "Hoch", "nav_down": "Runter", "nav_left": "Links", "nav_right": "Rechts", "nav_confirm": "Bestätigen", "nav_back": "Zurück",
+    },
+    "English": {
+        "jump": "Jump", "left": "Left", "right": "Right", "power1": "Power 1", "power2": "Power 2", "pause": "Pause",
+        "p1_jump": "2P – Player 1: Jump", "p1_left": "2P – Player 1: Left", "p1_right": "2P – Player 1: Right",
+        "p2_jump": "2P – Player 2: Jump", "p2_left": "2P – Player 2: Left", "p2_right": "2P – Player 2: Right",
+        "nav_up": "Up", "nav_down": "Down", "nav_left": "Left", "nav_right": "Right", "nav_confirm": "Confirm", "nav_back": "Back",
+    },
+    "Русский": {
+        "jump": "Прыжок", "left": "Влево", "right": "Вправо", "power1": "Power 1", "power2": "Power 2", "pause": "Пауза",
+        "p1_jump": "2P – Игрок 1: Прыжок", "p1_left": "2P – Игрок 1: Влево", "p1_right": "2P – Игрок 1: Вправо",
+        "p2_jump": "2P – Игрок 2: Прыжок", "p2_left": "2P – Игрок 2: Влево", "p2_right": "2P – Игрок 2: Вправо",
+        "nav_up": "Вверх", "nav_down": "Вниз", "nav_left": "Влево", "nav_right": "Вправо", "nav_confirm": "Подтвердить", "nav_back": "Назад",
+    },
+    "Türkçe": {
+        "jump": "Zıpla", "left": "Sol", "right": "Sağ", "power1": "Power 1", "power2": "Power 2", "pause": "Duraklat",
+        "p1_jump": "2P – Oyuncu 1: Zıpla", "p1_left": "2P – Oyuncu 1: Sol", "p1_right": "2P – Oyuncu 1: Sağ",
+        "p2_jump": "2P – Oyuncu 2: Zıpla", "p2_left": "2P – Oyuncu 2: Sol", "p2_right": "2P – Oyuncu 2: Sağ",
+        "nav_up": "Yukarı", "nav_down": "Aşağı", "nav_left": "Sol", "nav_right": "Sağ", "nav_confirm": "Onayla", "nav_back": "Geri",
+    },
+    "Schwiizerdütsch": {
+        "jump": "Springe", "left": "Links", "right": "Rechts", "power1": "Power 1", "power2": "Power 2", "pause": "Pause",
+        "p1_jump": "2P – Spieler 1: Springe", "p1_left": "2P – Spieler 1: Links", "p1_right": "2P – Spieler 1: Rechts",
+        "p2_jump": "2P – Spieler 2: Springe", "p2_left": "2P – Spieler 2: Links", "p2_right": "2P – Spieler 2: Rechts",
+        "nav_up": "Uehi", "nav_down": "Aabe", "nav_left": "Links", "nav_right": "Rechts", "nav_confirm": "Bestätige", "nav_back": "Zrugg",
+    },
 }
+
+def get_action_label(action):
+    """Gibt die lokalisierte Beschriftung für eine (Re-)Bind-Aktion zurück (Steuerung-Screen)."""
+    lang = languages[language_index]
+    pack = _ACTION_LABELS_TRANSLATIONS.get(lang, _ACTION_LABELS_TRANSLATIONS["Deutsch"])
+    return pack.get(action, _ACTION_LABELS_TRANSLATIONS["Deutsch"].get(action, action))
 
 def get_keybindings():
     stored = settings.get("keybindings", {})
@@ -2057,6 +2224,26 @@ _NAV_LEFT, _NAV_RIGHT = (pygame.K_LEFT, pygame.K_a), (pygame.K_RIGHT, pygame.K_d
 _NAV_CONFIRM_KEYS = (pygame.K_SPACE, pygame.K_RETURN)
 _NAV_BACK_KEYS    = (pygame.K_ESCAPE, pygame.K_CAPSLOCK)   # + Backspace, bedingt (siehe is_back_key)
 
+# Der "Menü"-Tab im Steuerung-Screen macht die Navigations-Tasten oben ANZEIGBAR und
+# ERGÄNZBAR, aber nicht ENTFERNBAR: _NAV_UP usw. bleiben immer zusätzlich aktiv, egal was
+# hier gespeichert ist. Das verhindert, dass man sich durch Entfernen aller Tasten von der
+# Menü-Navigation aussperrt (bis hin zu diesem Screen selbst) - _DEFAULT_KB/get_keybindings()
+# wird hierfür bewusst NICHT genutzt, weil dort Tasten komplett entfernbar sind.
+_MENU_NAV_DEFAULT_TUPLES = {
+    "nav_up": _NAV_UP, "nav_down": _NAV_DOWN, "nav_left": _NAV_LEFT, "nav_right": _NAV_RIGHT,
+    "nav_confirm": _NAV_CONFIRM_KEYS, "nav_back": _NAV_BACK_KEYS,
+}
+
+def get_menu_nav_extra_keys():
+    extras = settings.setdefault("menu_nav_extra_keys", {})
+    for _a in _MENU_NAV_ACTIONS:
+        extras.setdefault(_a, [])
+    return extras
+
+def save_menu_nav_extra_keys(extras):
+    settings["menu_nav_extra_keys"] = extras
+    save_section("settings", settings)
+
 _nav_focus = {}   # screen_id (str) -> int Fokusindex; lazy befüllt, kein expliziter Reset
 
 # Fokus-Ring nur sichtbar, nachdem tatsächlich eine Pfeil-/WASD-Taste gedrückt wurde ("man ist
@@ -2067,22 +2254,23 @@ _last_mouse_phys_pos = None
 
 def nav_direction(key):
     d = None
-    if key in _NAV_UP: d = "up"
-    elif key in _NAV_DOWN: d = "down"
-    elif key in _NAV_LEFT: d = "left"
-    elif key in _NAV_RIGHT: d = "right"
+    _extra = get_menu_nav_extra_keys()
+    if key in _NAV_UP or key in _extra["nav_up"]: d = "up"
+    elif key in _NAV_DOWN or key in _extra["nav_down"]: d = "down"
+    elif key in _NAV_LEFT or key in _extra["nav_left"]: d = "left"
+    elif key in _NAV_RIGHT or key in _extra["nav_right"]: d = "right"
     if d is not None:
         global _kb_nav_active
         _kb_nav_active = True
     return d
 
 def is_nav_confirm(key):
-    return key in _NAV_CONFIRM_KEYS
+    return key in _NAV_CONFIRM_KEYS or key in get_menu_nav_extra_keys()["nav_confirm"]
 
 def is_back_key(key, allow_backspace=True):
     """allow_backspace=False an Stellen, wo Backspace bereits ein Zeichen in
     einem aktiven Textfeld löscht (Profilname, Mods-Menü-Textedit)."""
-    if key in _NAV_BACK_KEYS:
+    if key in _NAV_BACK_KEYS or key in get_menu_nav_extra_keys()["nav_back"]:
         return True
     return allow_backspace and key == pygame.K_BACKSPACE
 
@@ -2441,6 +2629,30 @@ POWERS_DB = {
             "Türkçe": "Pasif dirilme sistemi. Ölümcül hasarda oyuncu 2 HP ile dirilir, 2 saniye hasarsızlık kazanır ve oyun 6 saniye yavaşlar. Bekleme süresi: 2 dakika.",
             "Schwiizerdütsch": "Passivi Uferstehungssystem. Bi letalem Schade wird de Spieler mit 2 HP ufersteut, erhalt 2 Sekunde Unverwundbarkeit und s Spiel wird 6 Sekunde verlangsamt. Cooldown: 2 Minute."
         }
+    },
+    "Magnet": {
+        "rarity": "Rare",
+        "name": {
+            "Deutsch": "Magnet",
+            "English": "Magnet",
+            "Русский": "Магнит",
+            "Türkçe": "Mıknatıs",
+            "Schwiizerdütsch": "Magnet"
+        },
+        "desc": {
+            "Deutsch": "Zieht 1-UPs aus der Nähe an",
+            "English": "Pulls nearby 1-UPs toward you",
+            "Русский": "Притягивает ближние 1-UP",
+            "Türkçe": "Yakındaki 1-UP'ları çeker",
+            "Schwiizerdütsch": "Zieht 1-UPs i de Nöchi a"
+        },
+        "detailed_desc": {
+            "Deutsch": "Passiv: Zieht 1-UP-Powerups automatisch in einem Radius zum Spieler, sodass sie leichter eingesammelt werden können.",
+            "English": "Passive: Automatically pulls 1-UP powerups within a radius toward the player, making them easier to collect.",
+            "Русский": "Пассивно: автоматически притягивает 1-UP усиления в радиусе к игроку, облегчая их сбор.",
+            "Türkçe": "Pasif: Belirli bir yarıçaptaki 1-UP güçlendirmelerini otomatik olarak oyuncuya çeker, toplamayı kolaylaştırır.",
+            "Schwiizerdütsch": "Passiv: Zieht 1-UP-Powerups automatisch i eme Radius zum Spieler, so dass sie liechter iigsammlet werde chönd."
+        }
     }
 }
 
@@ -2563,6 +2775,11 @@ ITEM_ICONS = {
     "bird_beak":        ("bird_beak", (240, 170, 30)),
     "vampire_fangs":    ("vampire_fangs",(255, 255, 250)),
     "nerd_teeth":       ("nerd_teeth",(255, 255, 250)),
+}
+
+_COSMETIC_CATEGORY_TO_SLOT = {
+    "headwear": "equipped_headwear", "eyes": "equipped_eyes",
+    "nose": "equipped_nose", "mouth": "equipped_mouth",
 }
 
 def draw_cosmetic_icon(surface, key, icx, icy, big=False):
@@ -2922,7 +3139,7 @@ def buy_cosmetic(cosmetic_key):
     # Lokalisierte Erfolgsnachricht anzeigen
     meta = COSMETICS_DB.get(cosmetic_key, {})
     name = meta.get("name", {}).get(languages[language_index], cosmetic_key)
-    push_overlay(f"{name} acquired!", (255,215,0))
+    push_overlay(get_text("item_acquired").format(name), (255,215,0))
     return True
 
 # Initialize cosmetic prices at startup
@@ -3163,6 +3380,24 @@ def open_loadout_menu():
     in_menu = False
     in_loadout_menu = True
 
+def open_profile_hub():
+    play_sound(menu_click_sound)
+    global in_menu, in_profile_hub
+    in_menu = False
+    in_profile_hub = True
+
+def back_to_main_from_profile_hub():
+    play_sound(click_back_sound)
+    global in_profile_hub, in_menu
+    in_profile_hub = False
+    in_menu = True
+
+def open_profile_select_from_hub():
+    play_sound(menu_click_sound)
+    global in_profile_hub, in_profile_select
+    in_profile_hub = False
+    in_profile_select = True
+
 def get_daily_reward_status():
     """Gibt den Status des Daily Rewards zurück.
 
@@ -3375,6 +3610,15 @@ def update_button_texts():
     except Exception as e:
         print('[update_button_texts] Fehler:', e)
 
+def _get_profile_hub_btn_rect():
+    """Rect des Profil-Buttons unten links im Hauptmenü - HEIGHT-abhängig (oberhalb des
+    Mods-Buttons, falls der grad sichtbar ist), deshalb als Funktion statt fixem Rect und
+    sowohl im Event-Handler als auch in draw_menu() separat aufgerufen (gleiches Muster
+    wie mods_btn_check/mods_btn_rect). Unten links statt oben links (war vorher direkt
+    unter der Coin-Anzeige) - dort ist immer genug Freiraum nach oben für hohe
+    Kopfbedeckungen (Propeller-Mütze etc.), ohne mit der Coin-Anzeige zu kollidieren."""
+    return pygame.Rect(15, HEIGHT - 118, 220, 56)
+
 # Erstelle die Hauptmenü-Buttons mit ihren Positionen, Größen und Callbacks
 buttons = []
 start_x = WIDTH//2 - 180  # Breiter für längere Texte
@@ -3399,7 +3643,7 @@ def draw_menu():
         btn.rect.y = 155 + i * 56
 
     _menu_has_mods  = len(mod_system.mods) > 0
-    _menu_nav_total = len(buttons) + (1 if _menu_has_mods else 0) + 1  # + Mods-Button (bedingt) + Daily-Reward
+    _menu_nav_total = len(buttons) + (1 if _menu_has_mods else 0) + 2  # + Mods-Button (bedingt) + Daily-Reward + Profil-Button
 
     # Schöner Gradient-Hintergrund
     fill_bg(rings=True)
@@ -3414,13 +3658,30 @@ def draw_menu():
     subtitle = small_font.render(get_text("game_subtitle"), True, (80, 80, 100))
     base_surface.blit(subtitle, (WIDTH // 2 - subtitle.get_width() // 2, 110))
     
-    # Coin-Anzeige mit schönem Design
+    # Coin-Anzeige - selber Stil wie auf jedem anderen Screen (Shop, Mehr-Menü, etc.:
+    # get_panel_color()/get_text_color(), Dark-Mode-tauglich). Hauptmenü war bisher die
+    # einzige Ausnahme mit hart codiertem Weiß, das im Dark Mode nicht mitgewechselt hat.
     coin_bg = pygame.Rect(15, 15, 200, 35)
-    pygame.draw.rect(base_surface, (255, 255, 255), coin_bg, border_radius=18)
+    pygame.draw.rect(base_surface, get_panel_color(), coin_bg, border_radius=18)
     pygame.draw.rect(base_surface, (200, 200, 200), coin_bg, width=2, border_radius=18)
 
-    coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, (40,40,40))
+    coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, get_text_color())
     base_surface.blit(coin_text, (25, 22))
+
+    # Profil-Button (Avatar-Vorschau + Name) - unten links, Avatar in echter Gameplay-
+    # Größe (50x50), damit Kosmetik genauso aussieht wie im Spiel selbst.
+    _profile_hub_btn_rect = _get_profile_hub_btn_rect()
+    _profile_nav_idx = len(buttons) + (1 if _menu_has_mods else 0) + 1  # nach Mods (bedingt) + Daily-Reward
+    _profile_hovered = _profile_hub_btn_rect.collidepoint(mouse_pos) or nav_is_focused("menu", _profile_nav_idx, _menu_nav_total)
+    pygame.draw.rect(base_surface, get_button_hover_color() if _profile_hovered else get_button_color(),
+                      _profile_hub_btn_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), _profile_hub_btn_rect, width=2, border_radius=10)
+    _pb_avatar_rect = pygame.Rect(_profile_hub_btn_rect.x + 3, _profile_hub_btn_rect.y + 3, 50, 50)
+    draw_avatar(base_surface, _pb_avatar_rect)
+    _pb_name_surf = small_font.render(current_profile_name or "-", True, get_text_color())
+    _pb_name_surf = _fit_surf(_pb_name_surf, _profile_hub_btn_rect.width - _pb_avatar_rect.width - 20)
+    base_surface.blit(_pb_name_surf, (_pb_avatar_rect.right + 10,
+                                       _profile_hub_btn_rect.centery - _pb_name_surf.get_height() // 2))
 
     # Buttons mit verbessertem Design
     for i, button in enumerate(buttons):
@@ -3812,48 +4073,232 @@ _diff_colors = {
     "Dynamisch": (150,  80, 255),
 }
 
-_diff_short = {
-    "Leicht":    "Ideal für Einsteiger. Langsam & entspannt.",
-    "Mittel":    "Ausgewogen. Guter Einstieg für alle.",
-    "Schwer":    "Echte Herausforderung für Fortgeschrittene.",
-    "Hardcore":  "Nur für Erfahrene. Hohe Geschwindigkeit.",
-    "Unmöglich": "Extreme Geschwindigkeit. Kaum zu schaffen.",
-    "Albtraum":  "Für die Härtesten. Fast nicht überlebbar.",
-    "Hölle":     "Überleben ist fast unmöglich.",
-    "Dynamisch": "Startet langsam – wird endlos schneller.",
+_diff_short_translations = {
+    "Deutsch": {
+        "Leicht":    "Ideal für Einsteiger. Langsam & entspannt.",
+        "Mittel":    "Ausgewogen. Guter Einstieg für alle.",
+        "Schwer":    "Echte Herausforderung für Fortgeschrittene.",
+        "Hardcore":  "Nur für Erfahrene. Hohe Geschwindigkeit.",
+        "Unmöglich": "Extreme Geschwindigkeit. Kaum zu schaffen.",
+        "Albtraum":  "Für die Härtesten. Fast nicht überlebbar.",
+        "Hölle":     "Überleben ist fast unmöglich.",
+        "Dynamisch": "Startet langsam – wird endlos schneller.",
+    },
+    "English": {
+        "Leicht":    "Ideal for beginners. Slow & relaxed.",
+        "Mittel":    "Balanced. A good start for everyone.",
+        "Schwer":    "A real challenge for advanced players.",
+        "Hardcore":  "Experienced players only. High speed.",
+        "Unmöglich": "Extreme speed. Barely doable.",
+        "Albtraum":  "For the toughest. Almost unsurvivable.",
+        "Hölle":     "Survival is nearly impossible.",
+        "Dynamisch": "Starts slow — gets endlessly faster.",
+    },
+    "Русский": {
+        "Leicht":    "Идеально для новичков. Медленно и спокойно.",
+        "Mittel":    "Сбалансировано. Хороший старт для всех.",
+        "Schwer":    "Настоящий вызов для продвинутых игроков.",
+        "Hardcore":  "Только для опытных. Высокая скорость.",
+        "Unmöglich": "Экстремальная скорость. Едва проходимо.",
+        "Albtraum":  "Для самых стойких. Почти невозможно выжить.",
+        "Hölle":     "Выжить почти невозможно.",
+        "Dynamisch": "Начинается медленно — становится бесконечно быстрее.",
+    },
+    "Türkçe": {
+        "Leicht":    "Yeni başlayanlar için ideal. Yavaş ve rahat.",
+        "Mittel":    "Dengeli. Herkes için iyi bir başlangıç.",
+        "Schwer":    "İleri seviye oyuncular için gerçek bir meydan okuma.",
+        "Hardcore":  "Sadece deneyimliler için. Yüksek hız.",
+        "Unmöglich": "Aşırı hız. Zar zor başarılabilir.",
+        "Albtraum":  "En güçlüler için. Neredeyse hayatta kalınamaz.",
+        "Hölle":     "Hayatta kalmak neredeyse imkansız.",
+        "Dynamisch": "Yavaş başlar — sonsuza dek hızlanır.",
+    },
+    "Schwiizerdütsch": {
+        "Leicht":    "Ideal für Aafänger. Langsam & entspannt.",
+        "Mittel":    "Usgwoge. Guete Iistig für alli.",
+        "Schwer":    "Echti Useforderig für Fortgschrittni.",
+        "Hardcore":  "Nur für Erfahreni. Hoi Gschwindigkeit.",
+        "Unmöglich": "Extremi Gschwindigkeit. Chuum z schaffe.",
+        "Albtraum":  "Für die Härtiste. Fasch nöd überlebbar.",
+        "Hölle":     "Überläbe isch fasch unmögli.",
+        "Dynamisch": "Startet langsam – wird ändlos schneller.",
+    },
 }
 
-_diff_hover = {
-    "Leicht":    ("Geschwindigkeit: 6  |  Hindernis-Pause: 1.4 – 2.2 s",
-                  "Keine Coins. Ideal zum Lernen und Üben."),
-    "Mittel":    ("Geschwindigkeit: 8  |  Hindernis-Pause: 1.0 – 1.8 s",
-                  "Keine Coins. Gutes Training für höhere Schwierigkeiten."),
-    "Schwer":    ("Geschwindigkeit: 11  |  Hindernis-Pause: 0.6 – 1.3 s",
-                  "Coins: 10 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
-    "Hardcore":  ("Geschwindigkeit: 15  |  Hindernis-Pause: 0.4 – 1.0 s",
-                  "Coins: 5 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
-    "Unmöglich": ("Geschwindigkeit: 18  |  Hindernis-Pause: 0.5 – 1.0 s",
-                  "Coins: 3 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
-    "Albtraum":  ("Geschwindigkeit: 24  |  Hindernis-Pause: 0.2 – 0.5 s",
-                  "Coins: 2 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
-    "Hölle":     ("Geschwindigkeit: 32  |  Hindernis-Pause: 0.12 – 0.3 s",
-                  "Coins: 1,5 Punkte = 1 Coin (aufgerundet)  (min. 15 Sek. überleben)"),
-    "Dynamisch": ("Startet bei Geschwindigkeit 7, Pause 1.4 – 2.4 s — steigt alle 5 Sek. für immer.",
-                  "Keine Coins. Hört niemals auf schneller zu werden. Wie weit kommst du?"),
+def get_diff_short(diff):
+    """Gibt die lokalisierte Kurzbeschreibung einer Schwierigkeit zurück."""
+    lang = languages[language_index]
+    pack = _diff_short_translations.get(lang, _diff_short_translations["Deutsch"])
+    return pack.get(diff, _diff_short_translations["Deutsch"].get(diff, diff))
+
+_diff_hover_translations = {
+    "Deutsch": {
+        "Leicht":    ("Geschwindigkeit: 6  |  Hindernis-Pause: 1.4 – 2.2 s",
+                      "Keine Coins. Ideal zum Lernen und Üben."),
+        "Mittel":    ("Geschwindigkeit: 8  |  Hindernis-Pause: 1.0 – 1.8 s",
+                      "Keine Coins. Gutes Training für höhere Schwierigkeiten."),
+        "Schwer":    ("Geschwindigkeit: 11  |  Hindernis-Pause: 0.6 – 1.3 s",
+                      "Coins: 10 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
+        "Hardcore":  ("Geschwindigkeit: 15  |  Hindernis-Pause: 0.4 – 1.0 s",
+                      "Coins: 5 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
+        "Unmöglich": ("Geschwindigkeit: 18  |  Hindernis-Pause: 0.5 – 1.0 s",
+                      "Coins: 3 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
+        "Albtraum":  ("Geschwindigkeit: 24  |  Hindernis-Pause: 0.2 – 0.5 s",
+                      "Coins: 2 Punkte = 1 Coin  (min. 15 Sek. überleben)"),
+        "Hölle":     ("Geschwindigkeit: 32  |  Hindernis-Pause: 0.12 – 0.3 s",
+                      "Coins: 1,5 Punkte = 1 Coin (aufgerundet)  (min. 15 Sek. überleben)"),
+        "Dynamisch": ("Startet bei Geschwindigkeit 7, Pause 1.4 – 2.4 s — steigt alle 5 Sek. für immer.",
+                      "Keine Coins. Hört niemals auf schneller zu werden. Wie weit kommst du?"),
+    },
+    "English": {
+        "Leicht":    ("Speed: 6  |  Obstacle Pause: 1.4 – 2.2 s",
+                      "No coins. Ideal for learning and practicing."),
+        "Mittel":    ("Speed: 8  |  Obstacle Pause: 1.0 – 1.8 s",
+                      "No coins. Good training for higher difficulties."),
+        "Schwer":    ("Speed: 11  |  Obstacle Pause: 0.6 – 1.3 s",
+                      "Coins: 10 points = 1 coin  (survive min. 15 sec.)"),
+        "Hardcore":  ("Speed: 15  |  Obstacle Pause: 0.4 – 1.0 s",
+                      "Coins: 5 points = 1 coin  (survive min. 15 sec.)"),
+        "Unmöglich": ("Speed: 18  |  Obstacle Pause: 0.5 – 1.0 s",
+                      "Coins: 3 points = 1 coin  (survive min. 15 sec.)"),
+        "Albtraum":  ("Speed: 24  |  Obstacle Pause: 0.2 – 0.5 s",
+                      "Coins: 2 points = 1 coin  (survive min. 15 sec.)"),
+        "Hölle":     ("Speed: 32  |  Obstacle Pause: 0.12 – 0.3 s",
+                      "Coins: 1.5 points = 1 coin (rounded up)  (survive min. 15 sec.)"),
+        "Dynamisch": ("Starts at speed 7, pause 1.4 – 2.4 s — increases every 5 sec. forever.",
+                      "No coins. Never stops getting faster. How far will you get?"),
+    },
+    "Русский": {
+        "Leicht":    ("Скорость: 6  |  Пауза препятствий: 1.4 – 2.2 с",
+                      "Без монет. Идеально для изучения и практики."),
+        "Mittel":    ("Скорость: 8  |  Пауза препятствий: 1.0 – 1.8 с",
+                      "Без монет. Хорошая тренировка для высоких сложностей."),
+        "Schwer":    ("Скорость: 11  |  Пауза препятствий: 0.6 – 1.3 с",
+                      "Монеты: 10 очков = 1 монета  (мин. 15 сек. выжить)"),
+        "Hardcore":  ("Скорость: 15  |  Пауза препятствий: 0.4 – 1.0 с",
+                      "Монеты: 5 очков = 1 монета  (мин. 15 сек. выжить)"),
+        "Unmöglich": ("Скорость: 18  |  Пауза препятствий: 0.5 – 1.0 с",
+                      "Монеты: 3 очка = 1 монета  (мин. 15 сек. выжить)"),
+        "Albtraum":  ("Скорость: 24  |  Пауза препятствий: 0.2 – 0.5 с",
+                      "Монеты: 2 очка = 1 монета  (мин. 15 сек. выжить)"),
+        "Hölle":     ("Скорость: 32  |  Пауза препятствий: 0.12 – 0.3 с",
+                      "Монеты: 1,5 очка = 1 монета (округляется)  (мин. 15 сек. выжить)"),
+        "Dynamisch": ("Начинается со скорости 7, пауза 1.4 – 2.4 с — увеличивается каждые 5 сек. бесконечно.",
+                      "Без монет. Никогда не перестаёт ускоряться. Как далеко ты продвинешься?"),
+    },
+    "Türkçe": {
+        "Leicht":    ("Hız: 6  |  Engel Arası: 1.4 – 2.2 sn",
+                      "Coin yok. Öğrenmek ve alıştırma için ideal."),
+        "Mittel":    ("Hız: 8  |  Engel Arası: 1.0 – 1.8 sn",
+                      "Coin yok. Daha yüksek zorluklar için iyi antrenman."),
+        "Schwer":    ("Hız: 11  |  Engel Arası: 0.6 – 1.3 sn",
+                      "Coin: 10 puan = 1 coin  (min. 15 sn. hayatta kal)"),
+        "Hardcore":  ("Hız: 15  |  Engel Arası: 0.4 – 1.0 sn",
+                      "Coin: 5 puan = 1 coin  (min. 15 sn. hayatta kal)"),
+        "Unmöglich": ("Hız: 18  |  Engel Arası: 0.5 – 1.0 sn",
+                      "Coin: 3 puan = 1 coin  (min. 15 sn. hayatta kal)"),
+        "Albtraum":  ("Hız: 24  |  Engel Arası: 0.2 – 0.5 sn",
+                      "Coin: 2 puan = 1 coin  (min. 15 sn. hayatta kal)"),
+        "Hölle":     ("Hız: 32  |  Engel Arası: 0.12 – 0.3 sn",
+                      "Coin: 1,5 puan = 1 coin (yukarı yuvarlanır)  (min. 15 sn. hayatta kal)"),
+        "Dynamisch": ("Hız 7'de başlar, ara 1.4 – 2.4 sn — her 5 sn.'de sonsuza dek artar.",
+                      "Coin yok. Hızlanmayı asla bırakmaz. Ne kadar ileri gidebilirsin?"),
+    },
+    "Schwiizerdütsch": {
+        "Leicht":    ("Gschwindigkeit: 6  |  Hindernis-Pause: 1.4 – 2.2 s",
+                      "Kei Coins. Ideal zum Lehrne und Übe."),
+        "Mittel":    ("Gschwindigkeit: 8  |  Hindernis-Pause: 1.0 – 1.8 s",
+                      "Kei Coins. Guets Training für höchi Schwierigkeite."),
+        "Schwer":    ("Gschwindigkeit: 11  |  Hindernis-Pause: 0.6 – 1.3 s",
+                      "Coins: 10 Punkt = 1 Coin  (min. 15 Sek. überläbe)"),
+        "Hardcore":  ("Gschwindigkeit: 15  |  Hindernis-Pause: 0.4 – 1.0 s",
+                      "Coins: 5 Punkt = 1 Coin  (min. 15 Sek. überläbe)"),
+        "Unmöglich": ("Gschwindigkeit: 18  |  Hindernis-Pause: 0.5 – 1.0 s",
+                      "Coins: 3 Punkt = 1 Coin  (min. 15 Sek. überläbe)"),
+        "Albtraum":  ("Gschwindigkeit: 24  |  Hindernis-Pause: 0.2 – 0.5 s",
+                      "Coins: 2 Punkt = 1 Coin  (min. 15 Sek. überläbe)"),
+        "Hölle":     ("Gschwindigkeit: 32  |  Hindernis-Pause: 0.12 – 0.3 s",
+                      "Coins: 1,5 Punkt = 1 Coin (ufgrundet)  (min. 15 Sek. überläbe)"),
+        "Dynamisch": ("Startet bi Gschwindigkeit 7, Pause 1.4 – 2.4 s — steigt alli 5 Sek. für immer.",
+                      "Kei Coins. Hört nie uf schneller z werde. Wie wiit chunsch du?"),
+    },
 }
 
-_modifier_hover = {
-    "custom_oneups": ("Steuert, ob während der Runde 1-UP-Powerups (extra Leben) spawnen können.",
-                       "Aus = keine Extra-Leben mehr einsammelbar, sonst unverändert."),
-    "custom_vertical_obstacles": ("Zusätzlich zu normalen Hindernissen fallen welche von oben herab.",
-                                   "Macht die Runde spürbar schwerer, unabhängig von Speed/Pause-Slidern."),
-    "custom_wind_sides": ("Böiger Wind von links/rechts schiebt Spieler und Boden-Hindernisse horizontal.",
-                           "Stärke & Richtung wechseln automatisch in Phasen - mal Flaute, mal starke Böe."),
-    "custom_wind_all": ("Wie Wind (Seiten), plus vertikaler Wind von oben/unten als zweite Achse.",
-                         "Wind von oben bremst deinen Fall (man wird getragen), Wind von unten beschleunigt ihn."),
-    "custom_free_roam": ("Ersetzt Sprung/Schwerkraft durch freie WASD-Bewegung in alle 4 Richtungen.",
-                          "Hindernisse kommen dann von allen 4 Bildschirmkanten statt nur von rechts."),
+def get_diff_hover(diff):
+    """Gibt das lokalisierte Hover-Tooltip (2 Zeilen) einer Schwierigkeit zurück."""
+    lang = languages[language_index]
+    pack = _diff_hover_translations.get(lang, _diff_hover_translations["Deutsch"])
+    return pack.get(diff, _diff_hover_translations["Deutsch"].get(diff, ("", "")))
+
+_modifier_hover_translations = {
+    "Deutsch": {
+        "custom_oneups": ("Steuert, ob während der Runde 1-UP-Powerups (extra Leben) spawnen können.",
+                           "Aus = keine Extra-Leben mehr einsammelbar, sonst unverändert."),
+        "custom_vertical_obstacles": ("Zusätzlich zu normalen Hindernissen fallen welche von oben herab.",
+                                       "Macht die Runde spürbar schwerer, unabhängig von Speed/Pause-Slidern."),
+        "custom_wind_sides": ("Böiger Wind von links/rechts schiebt Spieler und Boden-Hindernisse horizontal.",
+                               "Stärke & Richtung wechseln automatisch in Phasen - mal Flaute, mal starke Böe."),
+        "custom_wind_all": ("Wie Wind (Seiten), plus vertikaler Wind von oben/unten als zweite Achse.",
+                             "Wind von oben bremst deinen Fall (man wird getragen), Wind von unten beschleunigt ihn."),
+        "custom_free_roam": ("Ersetzt Sprung/Schwerkraft durch freie WASD-Bewegung in alle 4 Richtungen.",
+                              "Hindernisse kommen dann von allen 4 Bildschirmkanten statt nur von rechts."),
+    },
+    "English": {
+        "custom_oneups": ("Controls whether 1-UP powerups (extra lives) can spawn during the round.",
+                           "Off = no more extra lives to collect, otherwise unchanged."),
+        "custom_vertical_obstacles": ("In addition to normal obstacles, some fall from above.",
+                                       "Makes the round noticeably harder, independent of the speed/pause sliders."),
+        "custom_wind_sides": ("Gusty wind from left/right pushes the player and ground obstacles horizontally.",
+                               "Strength & direction change automatically in phases - sometimes calm, sometimes a strong gust."),
+        "custom_wind_all": ("Like Wind (Sides), plus vertical wind from above/below as a second axis.",
+                             "Wind from above slows your fall (you get carried), wind from below speeds it up."),
+        "custom_free_roam": ("Replaces jump/gravity with free WASD movement in all 4 directions.",
+                              "Obstacles then come from all 4 screen edges instead of just the right."),
+    },
+    "Русский": {
+        "custom_oneups": ("Определяет, могут ли во время раунда появляться усиления 1-UP (доп. жизни).",
+                           "Выкл. = больше нельзя собрать доп. жизни, в остальном без изменений."),
+        "custom_vertical_obstacles": ("В дополнение к обычным препятствиям некоторые падают сверху.",
+                                       "Заметно усложняет раунд, независимо от ползунков скорости/паузы."),
+        "custom_wind_sides": ("Порывистый ветер слева/справа толкает игрока и наземные препятствия по горизонтали.",
+                               "Сила и направление меняются автоматически фазами - то штиль, то сильный порыв."),
+        "custom_wind_all": ("Как Ветер (по бокам), плюс вертикальный ветер сверху/снизу как вторая ось.",
+                             "Ветер сверху замедляет падение (тебя несёт), ветер снизу ускоряет его."),
+        "custom_free_roam": ("Заменяет прыжок/гравитацию свободным движением WASD во всех 4 направлениях.",
+                              "Препятствия тогда появляются со всех 4 краёв экрана, а не только справа."),
+    },
+    "Türkçe": {
+        "custom_oneups": ("Tur sırasında 1-UP güçlendirmelerinin (ekstra can) belirip belirmeyeceğini kontrol eder.",
+                           "Kapalı = artık ekstra can toplanamaz, geri kalanı değişmez."),
+        "custom_vertical_obstacles": ("Normal engellere ek olarak bazıları yukarıdan düşer.",
+                                       "Hız/ara kaydırıcılarından bağımsız olarak turu belirgin şekilde zorlaştırır."),
+        "custom_wind_sides": ("Sol/sağdan gelen sağanak rüzgar oyuncuyu ve yerdeki engelleri yatay itiyor.",
+                               "Güç ve yön otomatik olarak evreler halinde değişir - bazen sakin, bazen güçlü esinti."),
+        "custom_wind_all": ("Rüzgar (Yanlar) gibi, artı ikinci eksen olarak yukarıdan/aşağıdan dikey rüzgar.",
+                             "Yukarıdan gelen rüzgar düşüşünü yavaşlatır (taşınırsın), aşağıdan geleni hızlandırır."),
+        "custom_free_roam": ("Zıplama/yer çekimini 4 yönde serbest WASD hareketiyle değiştirir.",
+                              "Engeller o zaman sadece sağdan değil, ekranın 4 kenarından da gelir."),
+    },
+    "Schwiizerdütsch": {
+        "custom_oneups": ("Stürt, öb während de Runde 1-UP-Powerups (extra Läbe) chöi spawne.",
+                           "Us = kei extra Läbe me sammelbar, sonst unverändert."),
+        "custom_vertical_obstacles": ("Zuesätzlich zu normale Hindernis falled welligi vo obe abe.",
+                                       "Macht d Runde spürbar schwerer, unabhängig vo Speed/Pause-Slider."),
+        "custom_wind_sides": ("Böige Wind vo links/rechts schiebt Spieler und Bode-Hindernis horizontal.",
+                               "Stärki & Richtig wechsled automatisch i Phase - mal Flouti, mal starchi Böö."),
+        "custom_wind_all": ("Wie Wind (Site), plus vertikale Wind vo obe/une als zwöiti Achse.",
+                             "Wind vo obe bremst dis Falle (me wird treit), Wind vo une beschleunigt's."),
+        "custom_free_roam": ("Ersetzt Sprung/Schwerkraft dur frei WASD-Bewegig i alli 4 Richtige.",
+                              "Hindernis chömed denn vo allne 4 Bildschirmchante statt nur vo rechts."),
+    },
 }
+
+def get_modifier_hover(key):
+    """Gibt das lokalisierte Hover-Tooltip (2 Zeilen) für einen Custom-Mode-Modifier zurück."""
+    lang = languages[language_index]
+    pack = _modifier_hover_translations.get(lang, _modifier_hover_translations["Deutsch"])
+    return pack.get(key, _modifier_hover_translations["Deutsch"].get(key, ("", "")))
 
 
 def _fit_surf(surf, max_w):
@@ -3886,7 +4331,7 @@ def draw_difficulty_select():
 
 
     # Title
-    title_surf = menu_font.render("Schwierigkeit wählen", True, get_text_color())
+    title_surf = menu_font.render(get_text("choose_difficulty_title"), True, get_text_color())
     base_surface.blit(title_surf, (WIDTH // 2 - title_surf.get_width() // 2, 30))
 
     # ---- Sidebar: Custom ist der Hauptmodus (großer Button), Presets (Standard/Klassik/
@@ -4065,8 +4510,8 @@ def draw_difficulty_select():
         _hint_y = toggle_y + _toggle_rows * (th + row_gap) + 4
         hint = small_font.render("Keine Coins im Custom-Modus. Freie Bewegung: WASD.", True, (150, 150, 150) if dark else (110, 110, 110))
         base_surface.blit(hint, (card_x, _hint_y))
-        if hovered_modifier and hovered_modifier in _modifier_hover:
-            draw_hover_tooltip(_modifier_hover[hovered_modifier], mouse_pos, max_width=600, anchor_rect=hovered_modifier_rect)
+        if hovered_modifier and hovered_modifier in _modifier_hover_translations["Deutsch"]:
+            draw_hover_tooltip(get_modifier_hover(hovered_modifier), mouse_pos, max_width=600, anchor_rect=hovered_modifier_rect)
     else:
         for i, diff in enumerate(difficulties):
             card_y = cards_y0 + i * gap
@@ -4110,25 +4555,25 @@ def draw_difficulty_select():
 
             # Short description (only if space allows)
             desc_col = get_text_color() if (is_hovered or is_selected) else ((150, 150, 150) if dark else (110, 110, 110))
-            desc_surf = small_font.render(_diff_short[diff], True, desc_col)
+            desc_surf = small_font.render(get_diff_short(diff), True, desc_col)
             base_surface.blit(desc_surf, (card_x + 175, card_y + card_h // 2 - desc_surf.get_height() // 2))
 
             # Right badge
             if is_selected:
                 badge_col = _sel_text_col if dark else (0, 110, 190)
-                badge = small_font.render("Ausgewählt", True, badge_col)
+                badge = small_font.render(get_text("selected_badge"), True, badge_col)
             elif klassik_mode:
-                badge = small_font.render("Keine Coins", True, (120, 120, 120))
+                badge = small_font.render(get_text("no_coins_badge"), True, (120, 120, 120))
             elif diff in coin_rules:
-                badge = small_font.render(f"{coin_rules[diff]} Pts = 1 Coin", True, (200, 155, 0) if dark else (160, 115, 0))
+                badge = small_font.render(get_text("pts_per_coin").format(coin_rules[diff]), True, (200, 155, 0) if dark else (160, 115, 0))
             else:
-                badge = small_font.render("Keine Coins", True, (120, 120, 120))
+                badge = small_font.render(get_text("no_coins_badge"), True, (120, 120, 120))
             base_surface.blit(badge, (card_rect.right - badge.get_width() - 14,
                                       card_y + card_h // 2 - badge.get_height() // 2))
 
         # Hover tooltip - direkt neben dem Cursor (Maus) bzw. neben der Karte (Tastatur)
         if hovered_diff:
-            draw_hover_tooltip(_diff_hover[hovered_diff], mouse_pos, max_width=600, accent_color=_diff_colors[hovered_diff], anchor_rect=hovered_diff_rect)
+            draw_hover_tooltip(get_diff_hover(hovered_diff), mouse_pos, max_width=600, accent_color=_diff_colors[hovered_diff], anchor_rect=hovered_diff_rect)
 
     # Start + Back buttons at bottom, side by side
     btn_y = HEIGHT - 54
@@ -4168,6 +4613,7 @@ in_more_menu = False
 in_classic_game = False   # True während JumpNDodge Classic (eingebettete Spiel.py-Logik) läuft
 in_controls_menu = False
 _ctrl_listening = None   # action being recorded
+_ctrl_scroll = 0         # vertical scroll offset (px) of the controls list
 in_settings_menu = False
 in_settings_more_menu = False
 in_experimental_menu = False
@@ -4730,7 +5176,7 @@ def open_language_select_from_settings():
 
 # Helper to reset menu flags
 def set_all_menu_flags(val=False):
-    global in_menu, game_running, showing_stats, in_shop, in_loadout, in_admin_login, in_admin_panel, in_more_menu, in_classic_game, in_settings_menu, in_experimental_menu, in_help, in_daily_rewards, in_loading, in_tutorial, in_language_select, in_achievements_screen, in_profile_select, in_profile_name_input
+    global in_menu, game_running, showing_stats, in_shop, in_loadout, in_admin_login, in_admin_panel, in_more_menu, in_classic_game, in_settings_menu, in_experimental_menu, in_help, in_daily_rewards, in_loading, in_tutorial, in_language_select, in_achievements_screen, in_profile_select, in_profile_name_input, in_profile_hub
     in_menu = val
     game_running = False
     showing_stats = False
@@ -4750,6 +5196,7 @@ def set_all_menu_flags(val=False):
     in_achievements_screen = False
     in_profile_select = False
     in_profile_name_input = False
+    in_profile_hub = False
 
 # =============================
 # Profile Screens
@@ -4883,6 +5330,18 @@ def draw_profile_select():
             base_surface.blit(coins_s,  (rect.x + 14, rect.y + 56))
             base_surface.blit(rounds_s, (rect.x + 14, rect.y + 80))
 
+            # Avatar-Vorschau (nur Farbe, keine Kosmetik) - liest die GESPEICHERTEN
+            # Settings DIESES Profils direkt aus pdata statt der aktuell aktiven globalen
+            # settings/cosmetics_state, da hier auch fremde (nicht geladene) Profile
+            # angezeigt werden. Bewusst ohne Kosmetik: draw_player_cosmetics() kennt nur
+            # die aktuell aktive globale cosmetics_state, könnte hier also nur die
+            # Kosmetik des eigenen/aktiven Profils zeigen - für andere Karten wäre das
+            # falsch, deshalb lieber nur der zuverlässig korrekte Farbblock.
+            _pcolor_name = pdata.get("settings", {}).get("player_color", "blue")
+            _pcolor = PLAYER_COLORS.get(_pcolor_name, BLUE)
+            _avatar_rect = pygame.Rect(rect.right - 46, rect.y + 40, 32, 32)
+            draw_avatar(base_surface, _avatar_rect, color=_pcolor, cosmetics=False)
+
             # Delete button (small X top-right of card)
             del_rect = pygame.Rect(rect.right - 28, rect.y + 6, 22, 22)
             del_hov = del_rect.collidepoint(mp)
@@ -4908,8 +5367,9 @@ def draw_profile_select():
             cb_label = tab_font.render(get_text("auto_start_profile"), True, get_text_color())
             base_surface.blit(cb_label, (cb_rect.right + 6, cb_rect.centery - cb_label.get_height() // 2))
 
-    # Hinweis, dass sich die Auto-Start-Auswahl jederzeit in den Einstellungen
-    # unter "Profile" ändern lässt - derselbe Screen wird von dort aus geöffnet.
+    # Hinweis zur Checkbox - OHNE den veralteten "Einstellungen -> Profile"-Verweis (der Pfad
+    # existiert nicht mehr, Profil-Wechsel läuft jetzt über den Profil-Hub im Hauptmenü, nicht
+    # mehr über die Einstellungen). Die Checkbox ist eh direkt hier auf der Karte bedienbar.
     hint_surf = small_font.render(get_text("auto_start_hint"), True, get_text_color())
     base_surface.blit(hint_surf, (WIDTH // 2 - hint_surf.get_width() // 2, last_row_bottom + 16))
 
@@ -4941,11 +5401,11 @@ def draw_more_menu():
     start_y = 140
     gap = 58
     if _check_admin_keyfile():
-        btn_texts  = [get_text('stats'), get_text('admin'), get_text('classic_mode'), get_text('help'), get_text('back')]
-        btn_colors = [(100, 150, 200), (200, 100, 100), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('admin'), get_text('classic_mode'), get_text('help'), get_text('back')]
+        btn_colors = [(200, 100, 100), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
     else:
-        btn_texts  = [get_text('stats'), get_text('classic_mode'), get_text('help'), get_text('back')]
-        btn_colors = [(100, 150, 200), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('classic_mode'), get_text('help'), get_text('back')]
+        btn_colors = [(120, 170, 120), (200, 150, 100), (150, 150, 150)]
     
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
@@ -4972,6 +5432,84 @@ def draw_more_menu():
     footer_text = small_font.render(get_text("back_to_main"), True, (100, 100, 100))
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
     pygame.display.flip()
+
+
+def draw_profile_hub():
+    """Profil-Hub: Avatar-Vorschau + Farbwahl (5 Töne, keine Trails - siehe draw_avatar)
+    und Sprungbretter zu Kosmetik-Inventar/Statistik/Profil-Wechsel (bestehende Screens,
+    unverändert). Ersetzt die früheren getrennten Zugänge im Mehr-Menü (Stats) und in
+    den Einstellungen (Profile-Button)."""
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+
+    title = font.render(get_text('profile_hub_title'), True, get_text_color())
+    title_shadow = font.render(get_text('profile_hub_title'), True, (100, 100, 120))
+    base_surface.blit(title_shadow, (WIDTH // 2 - title.get_width() // 2 + 2, 22))
+    base_surface.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
+
+    # Coin-Anzeige
+    coin_bg = pygame.Rect(15, 15, 200, 35)
+    pygame.draw.rect(base_surface, get_panel_color(), coin_bg, border_radius=18)
+    pygame.draw.rect(base_surface, (200, 200, 200), coin_bg, width=2, border_radius=18)
+    coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins', 0)}", True, get_text_color())
+    base_surface.blit(coin_text, (25, 22))
+
+    # Avatar-Vorschau (Block in Wunschfarbe + ausgerüstete Kopfbedeckung/Augen/Nase/Mund).
+    # Größe bewusst identisch zum echten Gameplay-Spieler (50x50, siehe run_game()) -
+    # draw_player_cosmetics() positioniert Hüte/Augen/etc. mit absoluten Pixel-Offsets,
+    # die auf diese Größe abgestimmt sind, damit die Vorschau exakt wie im Spiel aussieht.
+    avatar_size = 50
+    avatar_rect = pygame.Rect(WIDTH // 2 - avatar_size // 2, 100, avatar_size, avatar_size)
+    avatar_shadow = pygame.Rect(avatar_rect.x + 4, avatar_rect.y + 4, avatar_size, avatar_size)
+    pygame.draw.rect(base_surface, (100, 100, 150), avatar_shadow, border_radius=10)
+    draw_avatar(base_surface, avatar_rect)
+
+    # Profilname
+    name_surf = menu_font.render(current_profile_name or "-", True, get_text_color())
+    base_surface.blit(name_surf, (WIDTH // 2 - name_surf.get_width() // 2, avatar_rect.bottom + 8))
+
+    # Farb-Swatches
+    swatch_names = ["blue", "darkgreen", "lightblue", "pink", "orange", "yellow"]
+    swatch_size = 40
+    swatch_gap = 14
+    total_w = len(swatch_names) * swatch_size + (len(swatch_names) - 1) * swatch_gap
+    sx0 = WIDTH // 2 - total_w // 2
+    sy = avatar_rect.bottom + 44
+    swatch_rects = []
+    current_color_name = settings.get("player_color", "blue")
+    for i, cname in enumerate(swatch_names):
+        srect = pygame.Rect(sx0 + i * (swatch_size + swatch_gap), sy, swatch_size, swatch_size)
+        swatch_rects.append(srect)
+        pygame.draw.rect(base_surface, PLAYER_COLORS[cname], srect, border_radius=8)
+        if cname == current_color_name:
+            pygame.draw.rect(base_surface, (255, 255, 255) if dark else (0, 0, 0), srect, width=3, border_radius=8)
+        elif srect.collidepoint(mouse_pos):
+            pygame.draw.rect(base_surface, (200, 200, 200), srect, width=2, border_radius=8)
+
+    # Buttons: Kosmetik ändern, Statistik, Profil wechseln, Zurück
+    start_x = WIDTH // 2 - 180
+    start_y = sy + swatch_size + 30
+    gap = 56
+    btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('back')]
+    btn_colors = [(100, 150, 200), (200, 150, 100), (150, 150, 150)]
+    btn_rects = []
+    _hub_nav_total = len(swatch_names) + len(btn_texts)
+    for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
+        rect = pygame.Rect(start_x, start_y + i * gap, 360, 44)
+        btn_rects.append(rect)
+        is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("profile_hub", len(swatch_names) + i, _hub_nav_total)
+        if is_hovered:
+            pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
+            pygame.draw.rect(base_surface, (150, 180, 220), rect, width=3, border_radius=12)
+        else:
+            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
+            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
+        text_surf = menu_font.render(text, True, get_text_color())
+        base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2, rect.centery - text_surf.get_height() // 2))
+
+    pygame.display.flip()
+    return swatch_rects, swatch_names, btn_rects
 
 
 _ach_scroll = 0
@@ -5168,8 +5706,10 @@ def _draw_ach_detail_popup(code):
         base_surface.blit(coin_s, (px + pw // 2 - coin_s.get_width() // 2, py + ph - 28))
 
 
+_ctrl_active_tab = 0  # 0=Standard, 1=2-Player, 2=Menü-Navigation
+
 def draw_controls_menu():
-    global _ctrl_listening
+    global _ctrl_listening, _ctrl_scroll
     mouse_pos = get_mouse_pos_logical()
     dark = is_dark_mode()
     fill_bg(rings=True)
@@ -5180,30 +5720,76 @@ def draw_controls_menu():
     base_surface.blit(overlay, (0, 0))
 
     # Title
-    title_s = font.render("Steuerung anpassen", True, (255, 255, 255))
-    shadow_s = font.render("Steuerung anpassen", True, (80, 80, 80))
+    title_s = font.render(get_text("controls_title"), True, (255, 255, 255))
+    shadow_s = font.render(get_text("controls_title"), True, (80, 80, 80))
     base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
     base_surface.blit(title_s,  (WIDTH // 2 - title_s.get_width() // 2,     20))
 
-    hint = small_font.render(
-        "Klicke eine Taste zum Entfernen  ·  [+] zum Hinzufügen",
-        True, (180, 180, 200))
+    hint = small_font.render(get_text("controls_hint_legend"), True, (180, 180, 200))
     base_surface.blit(hint, (WIDTH // 2 - hint.get_width() // 2, 72))
 
+    # ── Tabs: Standard / 2-Player / Menü-Navigation - jede Aktion lebt nur in EINEM Tab,
+    # 2P-Tasten waren vorher in derselben flachen Liste wie Standard-Tasten vermischt. ──
+    _ctrl_tab_defs = [
+        (get_text("controls_tab_standard"), _STANDARD_ACTIONS),
+        (get_text("controls_tab_2p"), _2P_ACTIONS),
+        (get_text("controls_tab_menu"), _MENU_NAV_ACTIONS),
+    ]
+    _tab_w, _tab_h, _tab_gap = 160, 34, 8
+    _tabs_total_w = len(_ctrl_tab_defs) * _tab_w + (len(_ctrl_tab_defs) - 1) * _tab_gap
+    _tabs_x0 = WIDTH // 2 - _tabs_total_w // 2
+    _tabs_y = 96
+    _ctrl_tab_rects = []
+    for _ti, (_tlabel, _tactions) in enumerate(_ctrl_tab_defs):
+        _trect = pygame.Rect(_tabs_x0 + _ti * (_tab_w + _tab_gap), _tabs_y, _tab_w, _tab_h)
+        _ctrl_tab_rects.append(_trect)
+        _tactive = (_ti == _ctrl_active_tab)
+        _thov = _trect.collidepoint(mouse_pos)
+        _tbg = (70, 120, 200) if _tactive else (get_button_hover_color() if _thov else get_button_color())
+        pygame.draw.rect(base_surface, _tbg, _trect, border_radius=8)
+        pygame.draw.rect(base_surface, (150, 180, 220) if _tactive else (150, 150, 150), _trect, width=2, border_radius=8)
+        _tlbl_s = small_font.render(_tlabel, True, (255, 255, 255) if _tactive else get_text_color())
+        base_surface.blit(_tlbl_s, (_trect.centerx - _tlbl_s.get_width() // 2, _trect.centery - _tlbl_s.get_height() // 2))
+
     kb = get_keybindings()
-    actions = list(_DEFAULT_KB.keys())
+    menu_nav_extras = get_menu_nav_extra_keys()
+    actions = _ctrl_tab_defs[_ctrl_active_tab][1]
+    is_menu_nav_tab = (_ctrl_active_tab == 2)
+
+    # Konflikt-Erkennung: welche Tasten sind bei mehr als einer Action gebunden? (nur für
+    # normale Gameplay-Keybindings - die Menü-Navigation lebt in einem eigenen Speicher
+    # und Pfeiltasten/WASD dort sollen nicht als "Konflikt" mit Jump/2P markiert werden)
+    _key_use_count = {}
+    if not is_menu_nav_tab:
+        for _a, _keys in kb.items():
+            for _k in _keys:
+                _key_use_count[_k] = _key_use_count.get(_k, 0) + 1
 
     table_w   = min(760, WIDTH - 60)
     table_x   = WIDTH // 2 - table_w // 2
     row_h     = 54
-    rows_y0   = 105
+    rows_y0   = 142
     divider_c = (70, 72, 90) if dark else (190, 192, 205)
+
+    # ── Scroll-Viewport: Liste kann länger sein als der Platz zwischen
+    # Header und den unteren Buttons, daher wird hier geclippt/gescrollt ──
+    viewport_top    = rows_y0
+    viewport_bottom = HEIGHT - 80
+    viewport_h      = max(row_h, viewport_bottom - viewport_top)
+    content_h       = len(actions) * row_h
+    max_scroll      = max(0, content_h - viewport_h)
+    _ctrl_scroll    = max(0, min(_ctrl_scroll, max_scroll))
+
+    prev_clip = base_surface.get_clip()
+    base_surface.set_clip(pygame.Rect(0, viewport_top, WIDTH, viewport_h))
 
     _ctrl_key_rects = []
     _ctrl_add_rects = []
 
     for i, action in enumerate(actions):
-        ry = rows_y0 + i * row_h
+        ry = rows_y0 + i * row_h - _ctrl_scroll
+        if ry + row_h < viewport_top or ry > viewport_bottom:
+            continue  # außerhalb des sichtbaren Bereichs -> nicht zeichnen/klickbar
         is_listening = (_ctrl_listening == action)
 
         # Row highlight when listening
@@ -5221,11 +5807,17 @@ def draw_controls_menu():
 
         # ── Action label (left side) ──
         lbl_color = (240, 200, 30) if is_listening else (255, 255, 255) if dark else (20, 20, 30)
-        lbl = menu_font.render(_ACTION_LABELS[action], True, lbl_color)
+        lbl = menu_font.render(get_action_label(action), True, lbl_color)
         base_surface.blit(lbl, (table_x + 14, row_cy - lbl.get_height() // 2))
 
-        # ── Key buttons (right-aligned) ──
-        keys_list = kb.get(action, [])
+        # ── Key buttons (right-aligned) ── Menü-Navigation: feste Standard-Tasten (nicht
+        # entfernbar, siehe _MENU_NAV_DEFAULT_TUPLES) + eigene Extra-Tasten (entfernbar).
+        if is_menu_nav_tab:
+            default_keys = list(_MENU_NAV_DEFAULT_TUPLES.get(action, ()))
+            keys_list = list(menu_nav_extras.get(action, []))
+        else:
+            default_keys = []
+            keys_list = kb.get(action, [])
         btn_h = 36
         right_edge = table_x + table_w - 10
 
@@ -5243,7 +5835,7 @@ def draw_controls_menu():
 
         if is_listening:
             # Pulsing "Taste drücken..." badge
-            ws = menu_font.render("Taste drücken...", True, (240, 200, 30))
+            ws = menu_font.render(get_text("press_a_key"), True, (240, 200, 30))
             ww = ws.get_width() + 24
             wrect = pygame.Rect(cursor_x - ww, row_cy - btn_h // 2, ww, btn_h)
             pygame.draw.rect(base_surface, (70, 55, 10), wrect, border_radius=8)
@@ -5258,14 +5850,18 @@ def draw_controls_menu():
             for kcode in reversed(keys_list):
                 arrow_dir = _ARROW_DIRS.get(kcode)
                 kname     = key_display_name(kcode)
+                is_conflict = _key_use_count.get(kcode, 0) > 1
                 bw        = 54 if arrow_dir else max(54, menu_font.size(kname)[0] + 22)
                 brect     = pygame.Rect(cursor_x - bw, row_cy - btn_h // 2, bw, btn_h)
                 hov       = brect.collidepoint(mouse_pos)
-                btn_bg     = (160, 40, 40)  if hov else (55, 58, 80)  if dark else (195, 198, 215)
-                btn_border = (220, 80, 80)  if hov else (100, 105, 135) if dark else (150, 155, 178)
-                sym_color  = (255, 180, 180) if hov else (230, 230, 240) if dark else (20, 20, 30)
+                btn_bg     = (160, 40, 40)   if hov else (90, 65, 15)  if is_conflict else (55, 58, 80)  if dark else (195, 198, 215)
+                btn_border = (220, 80, 80)   if hov else (235, 165, 40) if is_conflict else (100, 105, 135) if dark else (150, 155, 178)
+                sym_color  = (255, 180, 180) if hov else (255, 210, 140) if is_conflict else (230, 230, 240) if dark else (20, 20, 30)
                 pygame.draw.rect(base_surface, btn_bg,     brect, border_radius=7)
                 pygame.draw.rect(base_surface, btn_border, brect, width=2, border_radius=7)
+                if is_conflict and not hov:
+                    warn = small_font.render("⚠", True, (255, 200, 60))
+                    base_surface.blit(warn, (brect.right - warn.get_width() - 1, brect.top - warn.get_height() + 4))
                 cx, cy2 = brect.centerx, brect.centery
                 s = 9
                 if arrow_dir == "left":
@@ -5287,17 +5883,56 @@ def draw_controls_menu():
                 _ctrl_key_rects.append((action, kcode, brect))
                 cursor_x -= bw + 6
 
-    # Bottom border line above buttons
-    bottom_line_y = rows_y0 + len(actions) * row_h + 2
-    pygame.draw.line(base_surface, divider_c,
-                     (table_x, bottom_line_y), (table_x + table_w, bottom_line_y), 1)
+            # Feste Standard-Tasten der Menü-Navigation - gedämpfte Optik ohne Hover/
+            # Konflikt-Feedback, absichtlich NICHT in _ctrl_key_rects (Klick = kein Effekt).
+            for kcode in reversed(default_keys):
+                arrow_dir = _ARROW_DIRS.get(kcode)
+                kname     = key_display_name(kcode)
+                bw        = 54 if arrow_dir else max(54, menu_font.size(kname)[0] + 22)
+                brect     = pygame.Rect(cursor_x - bw, row_cy - btn_h // 2, bw, btn_h)
+                btn_bg, btn_border, sym_color = ((45, 47, 60), (90, 92, 110), (170, 170, 185)) \
+                    if dark else ((225, 225, 235), (190, 190, 200), (90, 90, 100))
+                pygame.draw.rect(base_surface, btn_bg,     brect, border_radius=7)
+                pygame.draw.rect(base_surface, btn_border, brect, width=2, border_radius=7)
+                cx, cy2 = brect.centerx, brect.centery
+                s = 9
+                if arrow_dir == "left":
+                    pts = [(cx+s, cy2-s), (cx-s, cy2), (cx+s, cy2+s)]
+                elif arrow_dir == "right":
+                    pts = [(cx-s, cy2-s), (cx+s, cy2), (cx-s, cy2+s)]
+                elif arrow_dir == "up":
+                    pts = [(cx-s, cy2+s), (cx, cy2-s), (cx+s, cy2+s)]
+                elif arrow_dir == "down":
+                    pts = [(cx-s, cy2-s), (cx, cy2+s), (cx+s, cy2-s)]
+                else:
+                    pts = None
+                if pts:
+                    pygame.draw.polygon(base_surface, sym_color, pts)
+                else:
+                    ks = menu_font.render(kname, True, sym_color)
+                    base_surface.blit(ks, (brect.centerx - ks.get_width() // 2,
+                                           brect.centery - ks.get_height() // 2))
+                cursor_x -= bw + 6
+
+    base_surface.set_clip(prev_clip)
+
+    # Scroll-Hinweis + einfache Scrollbar, nur wenn überhaupt gescrollt werden kann
+    if max_scroll > 0:
+        sb_track = pygame.Rect(table_x + table_w + 10, viewport_top, 6, viewport_h)
+        pygame.draw.rect(base_surface, divider_c, sb_track, border_radius=3)
+        sb_h = max(24, int(viewport_h * viewport_h / content_h))
+        sb_y = viewport_top + int((viewport_h - sb_h) * (_ctrl_scroll / max_scroll))
+        pygame.draw.rect(base_surface, (140, 145, 170) if dark else (110, 115, 140),
+                         pygame.Rect(sb_track.x, sb_y, sb_track.w, sb_h), border_radius=3)
+        scroll_hint = small_font.render(get_text("controls_scroll_hint"), True, (150, 150, 170) if dark else (110, 110, 130))
+        base_surface.blit(scroll_hint, (WIDTH // 2 - scroll_hint.get_width() // 2, viewport_bottom + 4))
 
     # Bottom buttons
     btn_y = HEIGHT - 58
     reset_rect = pygame.Rect(WIDTH // 2 - 222, btn_y, 214, 44)
     back_rect  = pygame.Rect(WIDTH // 2 + 8,   btn_y, 214, 44)
     for bi, (rect, label, accent, use_small) in enumerate([
-        (reset_rect, "Standard wiederherstellen", (180, 120, 0), True),
+        (reset_rect, get_text("reset_defaults"), (180, 120, 0), True),
         (back_rect,  get_text("back"),             (70, 120, 200), False),
     ]):
         hov = rect.collidepoint(mouse_pos) or nav_is_focused("controls_menu", len(actions) + bi, len(actions) + 2)
@@ -5312,7 +5947,7 @@ def draw_controls_menu():
                                rect.centery - ls.get_height() // 2))
 
     pygame.display.flip()
-    return _ctrl_key_rects, _ctrl_add_rects, reset_rect, back_rect
+    return _ctrl_key_rects, _ctrl_add_rects, reset_rect, back_rect, _ctrl_tab_rects
 
 
 def draw_settings_menu():
@@ -5346,28 +5981,28 @@ def draw_settings_menu():
     # Markierung bei 100% (frac = 0.5/1.5 = 1/3)
     mark_x = int(track_rect.x + (1.0 / 3.0) * slider_w)
     pygame.draw.circle(base_surface, (100, 200, 120), (mark_x, slider_y), 4)
-    rec_txt = small_font.render("Empfohlen", True, (100, 200, 120))
+    rec_txt = small_font.render(get_text("recommended_label"), True, (100, 200, 120))
     base_surface.blit(rec_txt, (mark_x - rec_txt.get_width() // 2, slider_y + 13))
     pygame.draw.circle(base_surface, (80, 140, 220), (handle_x, slider_y), 10)
     pygame.draw.circle(base_surface, (200, 220, 255), (handle_x, slider_y), 10, 2)
-    lbl = menu_font.render("GUI Gr\u00f6\u00dfe:", True, get_text_color())
+    lbl = menu_font.render(get_text("gui_size_label"), True, get_text_color())
     base_surface.blit(lbl, (slider_cx - slider_w // 2 - lbl.get_width() - 10, slider_y - lbl.get_height() // 2))
     val_txt = menu_font.render(f"{int(gui_scale * 100)}%", True, get_text_color())
     base_surface.blit(val_txt, (slider_cx + slider_w // 2 + 10, slider_y - val_txt.get_height() // 2))
 
     # Hintergrund-Toggles (Sterne / Ringe / Animiert / Mono / Boden)
     _bg_toggle_defs = [
-        ("bg_stars",          "Sterne"),
-        ("bg_rings_enabled",  "Ringe"),
-        ("bg_animated",       "Animiert"),
-        ("mono_bg",           "Mono"),
-        ("show_floor_line",   "Boden"),
+        ("bg_stars",          get_text("bg_stars_toggle")),
+        ("bg_rings_enabled",  get_text("bg_rings_toggle")),
+        ("bg_animated",       get_text("bg_animated_toggle")),
+        ("mono_bg",           get_text("bg_mono_toggle")),
+        ("show_floor_line",   get_text("bg_floor_toggle")),
     ]
     _toggle_total_w = 5 * 80 + 4 * 8
     _toggle_x0 = WIDTH // 2 - _toggle_total_w // 2
     _toggle_y = 158
-    _stgs_nav_total = len(_bg_toggle_defs) + 7  # 5 Toggles + 7 Buttons (Slider bleibt Maus-only)
-    bg_lbl = menu_font.render("Hintergrund:", True, get_text_color())
+    _stgs_nav_total = len(_bg_toggle_defs) + 6  # 5 Toggles + 6 Buttons (Slider bleibt Maus-only)
+    bg_lbl = menu_font.render(get_text("background_label"), True, get_text_color())
     base_surface.blit(bg_lbl, (_toggle_x0 - bg_lbl.get_width() - 10, _toggle_y - bg_lbl.get_height() // 2 + 13))
     for ti, (skey, slabel) in enumerate(_bg_toggle_defs):
         default = False if skey == "mono_bg" else True
@@ -5388,9 +6023,9 @@ def draw_settings_menu():
     start_y = 193
     gap = 60
     dark_mode_text = get_text('light_mode') if is_dark_mode() else get_text('dark_mode')
-    btn_texts = [get_text('language'), dark_mode_text, get_text('sound'), get_text('profiles'), "Steuerung", "Mehr", get_text('back')]
+    btn_texts = [get_text('language'), dark_mode_text, get_text('sound'), get_text('controls_menu_btn'), get_text('more'), get_text('back')]
     dark_mode_color = (0, 150, 0) if is_dark_mode() else (150, 100, 200)
-    btn_colors = [(100, 200, 100), dark_mode_color, (100, 150, 200), (80, 140, 210), (80, 180, 200), (200, 150, 80), (150, 150, 150)]
+    btn_colors = [(100, 200, 100), dark_mode_color, (100, 150, 200), (80, 180, 200), (200, 150, 80), (150, 150, 150)]
 
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
@@ -5627,14 +6262,10 @@ def draw_settings_sound_menu():
 
 
 # Kleine Umleitungsfunktionen zur Wiederverwendung bestehender Abläufe
-def set_more_to_stats():
-    """Wechselt vom More-Menü zum Statistiken-Bildschirm.
-
-    Schließt das More-Menü und öffnet die Statistiken.
-    Spielt einen Menü-Klick-Sound ab.
-    """
-    global in_more_menu, showing_stats, in_menu
-    in_more_menu = False
+def open_stats_from_profile_hub():
+    """Wechselt vom Profil-Hub zum Statistiken-Bildschirm. Spielt einen Menü-Klick-Sound ab."""
+    global in_profile_hub, showing_stats
+    in_profile_hub = False
     showing_stats = True
     play_sound(menu_click_sound)
 
@@ -6072,7 +6703,7 @@ def draw_help_menu():
         base_surface.blit(txt, (40, y0))
         y0 += 26
 
-    hint = small_font.render('↑/↓: Scroll   ESC/M: Zurück', True, get_text_color())
+    hint = small_font.render(get_text("scroll_back_hint"), True, get_text_color())
     base_surface.blit(hint, (WIDTH//2 - hint.get_width()//2, HEIGHT - 40))
     pygame.display.flip()
 # =============================
@@ -6157,7 +6788,7 @@ def draw_statistics():
         showing_stats: Kann bei Fehlern zurückgesetzt werden
         in_menu: Kann bei Fehlern aktiviert werden
     """
-    global stat_tab_rects, showing_stats, in_menu, modded_sub_tab, current_stat_tab
+    global stat_tab_rects, showing_stats, in_profile_hub, modded_sub_tab, current_stat_tab
     try:
         # Hintergrund mit Theme-abhängiger Farbe füllen
         fill_bg(rings=True)
@@ -6297,8 +6928,8 @@ def draw_statistics():
             pygame.draw.rect(base_surface, _lc, pygame.Rect(_lx, _ly + 18, 36, 28), border_radius=5)
             pygame.draw.arc(base_surface, _lc, pygame.Rect(_lx + 6, _ly, 24, 26), 0, pi, 4)
             pygame.draw.circle(base_surface, (80, 80, 100), (cx, _ly + 31), 5)
-            dis1 = menu_font.render("Erfolge sind momentan deaktiviert.", True, get_text_color())
-            dis2 = small_font.render("Kommt in einer zukünftigen Version.", True, (140, 140, 160))
+            dis1 = menu_font.render(get_text("achievements_disabled_notice"), True, get_text_color())
+            dis2 = small_font.render(get_text("future_version_notice"), True, (140, 140, 160))
             base_surface.blit(dis1, (cx - dis1.get_width() // 2, cy - 10))
             base_surface.blit(dis2, (cx - dis2.get_width() // 2, cy + 26))
         # (old achievements code kept below for future re-enable)
@@ -6514,8 +7145,8 @@ def draw_statistics():
                 pygame.draw.rect(base_surface, _lc, pygame.Rect(_lx, _ly + 18, 36, 28), border_radius=5)
                 pygame.draw.arc(base_surface, _lc, pygame.Rect(_lx+6, _ly, 24, 26), 0, pi, 4)
                 pygame.draw.circle(base_surface, (80,80,100), (cx, _ly+31), 5)
-                dis1 = menu_font.render("Erfolge sind momentan deaktiviert.", True, get_text_color())
-                dis2 = small_font.render("Kommt in einer zukünftigen Version.", True, (140,140,160))
+                dis1 = menu_font.render(get_text("achievements_disabled_notice"), True, get_text_color())
+                dis2 = small_font.render(get_text("future_version_notice"), True, (140,140,160))
                 base_surface.blit(dis1, (cx - dis1.get_width()//2, cy - 10))
                 base_surface.blit(dis2, (cx - dis2.get_width()//2, cy + 26))
 
@@ -6595,8 +7226,8 @@ def draw_statistics():
     except Exception as e:
         # Fehlerbehandlung: Bei Problemen zurück zum Hauptmenü
         print("[Fehler] draw_statistics():", e)
-        showing_stats = False  # Statistiken-Bildschirm verlassen
-        in_menu = True         # Hauptmenü aktivieren
+        showing_stats = False    # Statistiken-Bildschirm verlassen
+        in_profile_hub = True    # Zurück zum Profil-Hub aktivieren
 
 
 # =============================
@@ -6982,7 +7613,7 @@ def draw_results_overlay(items):
     close_hov = close_rect.collidepoint(get_mouse_pos_logical())
     pygame.draw.rect(base_surface, get_button_hover_color() if close_hov else get_button_color(), close_rect, border_radius=10)
     pygame.draw.rect(base_surface, (150, 150, 150), close_rect, width=2, border_radius=10)
-    close_hint = small_font.render("ENTER / Klick: Schließen", True, get_text_color())
+    close_hint = small_font.render(get_text("enter_click_close_hint"), True, get_text_color())
     base_surface.blit(close_hint, (close_rect.centerx - close_hint.get_width()//2, close_rect.centery - close_hint.get_height()//2))
 
 def start_single_spin():
@@ -7184,11 +7815,21 @@ def to_power_loadout():
     play_sound(menu_click_sound, "menu_click_volume")
 
 
+_cosmetic_inventory_return_screen = "in_loadout_menu"  # welcher Screen-Flag beim Zurück-Klick aktiviert wird
+
+def _cosmetic_inventory_back():
+    """Verlässt das Kosmetik-Inventar zu dem Screen, von dem aus es geöffnet wurde
+    (Loadout-Hub oder Profil-Hub, siehe _cosmetic_inventory_return_screen)."""
+    global in_cosmetic_inventory
+    in_cosmetic_inventory = False
+    globals()[_cosmetic_inventory_return_screen] = True
+
 def to_cosmetic_inventory():
-    global in_loadout_menu, in_cosmetic_inventory
+    global in_loadout_menu, in_cosmetic_inventory, _cosmetic_inventory_return_screen
     in_loadout_menu = False
     in_cosmetic_inventory = True
-    play_sound(menu_click_sound)
+    _cosmetic_inventory_return_screen = "in_loadout_menu"
+
 
 
 def draw_loadout_menu():
@@ -7532,7 +8173,7 @@ def draw_cosmetic_inventory():
 
 
 def cosmetic_inventory_loop():
-    global in_cosmetic_inventory, in_loadout_menu, cosmetics_state, cosmetic_tab, face_subcategory
+    global in_cosmetic_inventory, in_loadout_menu, in_profile_hub, cosmetics_state, cosmetic_tab, face_subcategory
     while in_cosmetic_inventory:
         back_rect = draw_cosmetic_inventory()
 
@@ -7558,8 +8199,7 @@ def cosmetic_inventory_loop():
                 sys.exit()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_m or is_back_key(event.key):
-                    in_cosmetic_inventory = False
-                    in_loadout_menu = True
+                    _cosmetic_inventory_back()
                 else:
                     d = nav_direction(event.key)
                     if d in ("left", "right"):
@@ -7576,8 +8216,7 @@ def cosmetic_inventory_loop():
                             cosmetic = _ci_items[_fi][1]
                             equip_toggle_cosmetic(cosmetic_tab, cosmetic, _ci_active)
                         elif _fi == len(_ci_items):
-                            in_cosmetic_inventory = False
-                            in_loadout_menu = True
+                            _cosmetic_inventory_back()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 # Check tab clicks
@@ -7603,8 +8242,7 @@ def cosmetic_inventory_loop():
                         continue
                 # Check back button
                 if back_rect.collidepoint((mx, my)):
-                    in_cosmetic_inventory = False
-                    in_loadout_menu = True
+                    _cosmetic_inventory_back()
                     break
                 # Check owned items and their equip/unequip buttons by reconstructing positions used in draw_cosmetic_inventory
                 _is_face_tab = COSMETIC_TAB_CATEGORIES[cosmetic_tab] == "face"
@@ -7910,11 +8548,24 @@ def draw_cosmetic_shop():
         pygame.draw.rect(base_surface, get_panel_color(), pygame.Rect(pv_x, pv_y, pv_w, pv_h), border_radius=12)
         pygame.draw.rect(base_surface, prc["border"], pygame.Rect(pv_x, pv_y, pv_w, pv_h), width=2, border_radius=12)
 
-        # Grosses Icon links
+        # Grosses Icon links - für Kopfbedeckung/Augen/Nase/Mund wird der ECHTE Avatar
+        # (eigene Farbe + aktuell ausgerüstetes Zeug + dieses Item probeweise in seinem
+        # Slot, siehe cosmetics_overrides) gezeigt statt eines generischen Vektor-Icons,
+        # damit die Vorschau exakt so aussieht wie im Spiel selbst. Trails bleiben beim
+        # Icon, da ein bewegter Partikel-Trail auf einem statischen Bild keinen Sinn ergibt.
         icx2, icy2 = pv_x + 46, pv_y + pv_h // 2
-        pygame.draw.circle(base_surface, tuple(min(255, ch + 30) for ch in prc["bg"]), (icx2, icy2), 32)
-        pygame.draw.circle(base_surface, prc["border"], (icx2, icy2), 32, width=2)
-        draw_cosmetic_icon(base_surface, hovered_key, icx2, icy2, big=True)
+        pslot = _COSMETIC_CATEGORY_TO_SLOT.get(pmeta.get("category"))
+        if pslot:
+            _preview_overrides = dict(cosmetics_state)
+            _preview_overrides[pslot] = hovered_key
+            _pv_avatar_rect = pygame.Rect(icx2 - 25, icy2 - 25, 50, 50)
+            _pv_avatar_shadow = pygame.Rect(_pv_avatar_rect.x + 3, _pv_avatar_rect.y + 3, 50, 50)
+            pygame.draw.rect(base_surface, (100, 100, 150), _pv_avatar_shadow, border_radius=8)
+            draw_avatar(base_surface, _pv_avatar_rect, cosmetics_overrides=_preview_overrides)
+        else:
+            pygame.draw.circle(base_surface, tuple(min(255, ch + 30) for ch in prc["bg"]), (icx2, icy2), 32)
+            pygame.draw.circle(base_surface, prc["border"], (icx2, icy2), 32, width=2)
+            draw_cosmetic_icon(base_surface, hovered_key, icx2, icy2, big=True)
 
         # Name + Rarity + Typ
         tx = pv_x + 96
@@ -7972,7 +8623,7 @@ def buy_fire_trail():
     cosmetics_state["owned"].append("fire_trail")
     save_section("stats", stats)
     save_section("cosmetics", cosmetics_state)
-    push_overlay(f"{get_text('fire_trail')} acquired!", GOLD)
+    push_overlay(get_text("item_acquired").format(get_text('fire_trail')), GOLD)
 
 def cosmetic_shop_loop():
     global in_cosmetic_shop, in_shop_menu, cosmetic_shop_scroll, cosmetic_shop_tab, shop_face_subcategory, cosmetic_shop_showing_sale
@@ -8459,7 +9110,7 @@ def draw_loadout():
             y0 += 24
 
         # Schließen-Hinweis
-        hint = small_font.render('ENTER/Klick/ESC/M: Schließen', True, get_text_color())
+        hint = small_font.render(get_text("enter_click_esc_close_hint"), True, get_text_color())
         base_surface.blit(hint, (panel.centerx - hint.get_width()//2, panel.bottom - 40))
 
     pygame.display.flip()
@@ -8609,7 +9260,7 @@ def draw_admin_login():
     txt = small_font.render(masked, True, get_text_color())
     base_surface.blit(txt, (box.x + 10, box.y + 8))
 
-    hint = small_font.render("ENTER: Login  |  ESC/M: Menü", True, get_text_color())
+    hint = small_font.render(get_text("enter_login_menu_hint"), True, get_text_color())
     base_surface.blit(hint, (100, 240))
 
     if admin_msg:
@@ -8700,7 +9351,7 @@ def draw_admin_panel():
         txt = small_font.render(get_power_name(power_name), True, get_text_color())
         base_surface.blit(txt, (rect.x + 8, rect.y + 6))
 
-    hint = small_font.render("ENTER: Bestätigen  |  ESC/M: Menü", True, get_text_color())
+    hint = small_font.render(get_text("enter_confirm_menu_hint"), True, get_text_color())
     base_surface.blit(hint, (100, HEIGHT-40))
 
     pygame.display.flip()
@@ -9032,6 +9683,7 @@ in_loadout = False
 in_profile_select = False
 in_profile_name_input = False
 in_mods_menu = False
+in_profile_hub = False
 
 # Mod-menu UI state
 _mods_scroll = 0
@@ -9211,6 +9863,7 @@ class RuntimePowers:
         self.shield = "Shield" in self.equipped
         self.auto_dodge = "Auto Dodge" in self.equipped
         self.phoenix = "Phoenix" in self.equipped
+        self.magnet = "Magnet" in self.equipped
         # cooldown tracking (ms)
         self.timers = {name: 0 for name in self.equipped}
         # effect timers (ms)
@@ -9441,6 +10094,204 @@ def _run_pause_menu(frozen=None):
 
 
 # Main game loop per run
+
+def draw_player_cosmetics(surface, rect, overrides=None):
+    """Zeichnet die ausgerüstete Kopfbedeckung/Augen/Nase/Mund relativ zu 'rect' auf
+    'surface'. Extrahiert aus run_game()'s Player-Zeichnung, damit dieselbe Optik auch
+    für die Avatar-Vorschau (Profil-Hub, Game-Over-Screen) genutzt werden kann - dort
+    ist 'rect' kein echter Gameplay-Spieler, sondern nur ein Vorschau-Rechteck.
+    'overrides' (optional dict mit denselben equipped_*-Keys wie cosmetics_state) erlaubt
+    eine HYPOTHETISCHE Vorschau (z.B. Shop-Hover: 'wie würde ich mit diesem Item aussehen',
+    ohne es tatsächlich auszurüsten) - Standard ist das echte, aktuell ausgerüstete Setup."""
+    c = overrides if overrides is not None else cosmetics_state
+    equipped_headwear = c.get("equipped_headwear")
+    equipped_eyes = c.get("equipped_eyes")
+    equipped_nose = c.get("equipped_nose")
+    equipped_mouth = c.get("equipped_mouth")
+    if equipped_headwear == "yellow_crown":
+        # Draw a simple crown above the player
+        crown_x = rect.centerx - 10
+        crown_y = rect.top - 5
+        pygame.draw.polygon(surface, (255, 215, 0), [
+            (crown_x, crown_y),
+            (crown_x + 5, crown_y - 8),
+            (crown_x + 10, crown_y),
+            (crown_x + 15, crown_y - 8),
+            (crown_x + 20, crown_y)
+        ])
+    elif equipped_headwear == "top_hat":
+        # Zylinder: Krempe + Hutkörper + roter Streifen
+        hat_x = rect.centerx
+        hat_top = rect.top
+        pygame.draw.rect(surface, (25, 25, 30), (hat_x - 15, hat_top - 6, 30, 6))
+        pygame.draw.rect(surface, (25, 25, 30), (hat_x - 10, hat_top - 24, 20, 20))
+        pygame.draw.rect(surface, (150, 20, 20), (hat_x - 10, hat_top - 9, 20, 4))
+    elif equipped_headwear == "devil_horns":
+        # Zwei rote Hörner über dem Spieler
+        hx = rect.centerx
+        hy = rect.top
+        pygame.draw.polygon(surface, (210, 30, 30), [(hx - 6, hy + 4), (hx - 16, hy - 14), (hx - 4, hy - 2)])
+        pygame.draw.polygon(surface, (210, 30, 30), [(hx + 6, hy + 4), (hx + 16, hy - 14), (hx + 4, hy - 2)])
+    elif equipped_headwear == "halo":
+        # Goldgelber, runder, leicht schwebender Ring über dem Kopf
+        halo_x = rect.centerx
+        halo_y = rect.top - 18
+        pygame.draw.ellipse(surface, (255, 200, 20), (halo_x - 24, halo_y - 12, 48, 24), width=6)
+    elif equipped_headwear == "propeller_hat":
+        # Grosse Mütze mit rotierendem Propeller-Kreuz obendrauf
+        ph_x = rect.centerx
+        ph_top = rect.top
+        pygame.draw.polygon(surface, (230, 70, 60), [
+            (ph_x - 24, ph_top + 8), (ph_x + 24, ph_top + 8),
+            (ph_x + 15, ph_top - 18), (ph_x - 15, ph_top - 18)
+        ])
+        pygame.draw.rect(surface, (230, 70, 60), (ph_x - 24, ph_top + 2, 48, 8), border_radius=3)
+        _prop_angle = (pygame.time.get_ticks() / 60.0) % 360
+        _prop_rad = math.radians(_prop_angle)
+        _prop_dx = int(26 * math.cos(_prop_rad))
+        _prop_dy = int(6 * math.sin(_prop_rad))
+        pygame.draw.line(surface, (60, 60, 65),
+                          (ph_x - _prop_dx, ph_top - 34 - _prop_dy), (ph_x + _prop_dx, ph_top - 34 + _prop_dy), 4)
+        pygame.draw.line(surface, (60, 60, 65), (ph_x, ph_top - 44), (ph_x, ph_top - 18), 4)
+        pygame.draw.circle(surface, (255, 210, 40), (ph_x, ph_top - 34), 6)
+    elif equipped_headwear == "ninja_headband":
+        # Breites schwarzes Stirnband mit rotem Knoten und fliegenden Enden
+        nb_x = rect.centerx
+        nb_y = rect.top + 6
+        pygame.draw.rect(surface, (25, 25, 30), (nb_x - 26, nb_y - 8, 52, 16))
+        pygame.draw.polygon(surface, (190, 20, 20), [
+            (nb_x + 20, nb_y + 8), (nb_x + 42, nb_y + 26), (nb_x + 22, nb_y + 24)
+        ])
+        pygame.draw.polygon(surface, (190, 20, 20), [
+            (nb_x + 24, nb_y + 6), (nb_x + 46, nb_y + 18), (nb_x + 26, nb_y + 20)
+        ])
+        pygame.draw.circle(surface, (190, 20, 20), (nb_x, nb_y), 5)
+
+    if equipped_eyes == "pixel_eyes":
+        # Blockige Pixel-Augen auf dem Spieler (bewusst nicht realistisch)
+        ex = rect.centerx
+        ey = rect.centery - 8
+        pygame.draw.rect(surface, (255, 255, 255), (ex - 14, ey - 5, 9, 9))
+        pygame.draw.rect(surface, (255, 255, 255), (ex + 5, ey - 5, 9, 9))
+        pygame.draw.rect(surface, (20, 20, 25), (ex - 11, ey - 2, 4, 4))
+        pygame.draw.rect(surface, (20, 20, 25), (ex + 8, ey - 2, 4, 4))
+    elif equipped_eyes == "sunglasses":
+        # Sonnenbrille mit dickem Rahmen, dunklen Gläsern, Glanzstreifen und Bügeln
+        ex = rect.centerx
+        ey = rect.centery - 8
+        pygame.draw.circle(surface, (20, 20, 25), (ex - 9, ey), 10)
+        pygame.draw.circle(surface, (20, 20, 25), (ex + 9, ey), 10)
+        pygame.draw.circle(surface, (35, 35, 40), (ex - 9, ey), 7)
+        pygame.draw.circle(surface, (35, 35, 40), (ex + 9, ey), 7)
+        pygame.draw.line(surface, (150, 180, 210), (ex - 13, ey - 3), (ex - 6, ey + 3), 2)
+        pygame.draw.line(surface, (150, 180, 210), (ex + 5, ey - 3), (ex + 12, ey + 3), 2)
+        pygame.draw.rect(surface, (20, 20, 25), (ex - 4, ey - 2, 8, 4))
+        pygame.draw.line(surface, (20, 20, 25), (ex - 19, ey - 2), (ex - 22, ey - 6), 2)
+        pygame.draw.line(surface, (20, 20, 25), (ex + 19, ey - 2), (ex + 22, ey - 6), 2)
+    elif equipped_eyes == "3d_glasses":
+        # Klassische 3D-Brille mit rotem und blauem Glas
+        ex = rect.centerx
+        ey = rect.centery - 8
+        pygame.draw.rect(surface, (200, 30, 30), (ex - 16, ey - 7, 13, 11))
+        pygame.draw.rect(surface, (40, 120, 220), (ex + 3, ey - 7, 13, 11))
+        pygame.draw.rect(surface, (20, 20, 25), (ex - 4, ey - 2, 8, 3))
+    elif equipped_eyes == "robot_visor":
+        # Durchgehendes, leuchtend blaues Visier über beiden Augen
+        ex = rect.centerx
+        ey = rect.centery - 8
+        pygame.draw.rect(surface, (30, 30, 35), (ex - 17, ey - 7, 34, 15), border_radius=6)
+        pygame.draw.rect(surface, (80, 220, 255), (ex - 13, ey - 3, 26, 7), border_radius=3)
+
+    if equipped_nose == "clown_nose":
+        # Runde rote Clown-Nase mittig im Gesicht
+        nx = rect.centerx
+        ny = rect.centery
+        pygame.draw.circle(surface, (230, 30, 30), (nx, ny), 6)
+        pygame.draw.circle(surface, (150, 10, 10), (nx, ny), 6, width=1)
+    elif equipped_nose == "pig_nose":
+        # Rosa Rüsselscheibe mit zwei ovalen Nüstern
+        nx = rect.centerx
+        ny = rect.centery
+        pygame.draw.ellipse(surface, (240, 150, 170), (nx - 9, ny - 6, 18, 13))
+        pygame.draw.ellipse(surface, (190, 100, 120), (nx - 9, ny - 6, 18, 13), width=1)
+        pygame.draw.ellipse(surface, (190, 100, 120), (nx - 5, ny - 2, 4, 5))
+        pygame.draw.ellipse(surface, (190, 100, 120), (nx + 1, ny - 2, 4, 5))
+
+    if equipped_mouth == "big_grin":
+        # Wemmbu Smile: pixelig/blockig im Minecraft-Stil (eckige U-Klammer, dicke Wände)
+        mx = rect.centerx
+        my = rect.centery + 10
+        _wpx = 2
+        _wpat = [
+            "1..........1",
+            "1..........1",
+            "1..........1",
+            "1..........1",
+            "1..........1",
+            "111111111111",
+        ]
+        for _wr, _wrow in enumerate(_wpat):
+            for _wc, _wch in enumerate(_wrow):
+                if _wch == "1":
+                    pygame.draw.rect(surface, (10, 10, 15),
+                                     (mx - 13 * _wpx // 2 + _wc * _wpx, my - 3 * _wpx + _wr * _wpx, _wpx, _wpx))
+    elif equipped_mouth == "vampire_fangs":
+        # Zwei spitze weisse Reisszähne unter einem dunklen Lächeln-Strich
+        mx = rect.centerx
+        my = rect.centery + 10
+        pygame.draw.line(surface, (10, 10, 15), (mx - 8, my), (mx + 8, my), 2)
+        pygame.draw.polygon(surface, (255, 255, 250), [(mx - 6, my), (mx - 2, my), (mx - 4, my + 7)])
+        pygame.draw.polygon(surface, (255, 255, 250), [(mx + 2, my), (mx + 6, my), (mx + 4, my + 7)])
+    elif equipped_mouth == "nerd_teeth":
+        # Zwei breite, quadratische Hasenzähne mit Mittelspalt
+        mx = rect.centerx
+        my = rect.centery + 10
+        pygame.draw.line(surface, (10, 10, 15), (mx - 10, my), (mx + 10, my), 2)
+        pygame.draw.rect(surface, (255, 255, 250), (mx - 9, my, 8, 11), border_radius=2)
+        pygame.draw.rect(surface, (255, 255, 250), (mx + 1, my, 8, 11), border_radius=2)
+        pygame.draw.rect(surface, (200, 200, 195), (mx - 9, my, 8, 11), width=1, border_radius=2)
+        pygame.draw.rect(surface, (200, 200, 195), (mx + 1, my, 8, 11), width=1, border_radius=2)
+    elif equipped_mouth == "bird_beak":
+        # Spitzer, gelber Vogelschnabel über dem Mund (Ober- und Unterschnabel)
+        mx = rect.centerx
+        my = rect.centery + 10
+        pygame.draw.polygon(surface, (240, 170, 30), [(mx - 12, my - 3), (mx + 13, my), (mx - 10, my + 4)])
+        pygame.draw.polygon(surface, (200, 140, 15), [(mx - 12, my + 2), (mx + 9, my + 4), (mx - 10, my + 9)])
+        pygame.draw.line(surface, (150, 100, 5), (mx - 11, my + 1), (mx + 8, my + 3), 1)
+
+
+PLAYER_COLORS = {
+    # Bewusst KEINE Farben, die schon für Gameplay-Elemente stehen (RED = normale
+    # Hindernisse, GREEN = 1-UP-Powerups, PURPLE-artig = Top-Hindernisse) - sonst
+    # verschmilzt der eigene Avatar optisch mit Hindernissen/Pickups. Ausnahme: das alte
+    # Standard-Dunkelblau ist weiterhin dabei (und Default), das kollidiert mit nichts.
+    "blue":       BLUE,            # Standard
+    "darkgreen":  (20, 100, 40),
+    "lightblue":  (80, 180, 255),
+    "pink":       (255, 105, 180),
+    "orange":     (255, 120, 0),   # gleiche Farbe wie Spieler 2 im 2-Player-Modus
+    "yellow":     GOLD,
+}
+
+def get_player_color():
+    """Gibt die vom Nutzer gewählte Avatar-/Spielerfarbe zurück (Settings, pro Profil). Dunkelblau ist der Standard."""
+    return PLAYER_COLORS.get(settings.get("player_color", "blue"), BLUE)
+
+def draw_avatar(surface, rect, color=None, cosmetics=True, cosmetics_overrides=None):
+    """Zeichnet den Avatar: farbiger Block (wie der echte Spieler) + alle ausgerüsteten
+    Nicht-Trail-Kosmetik-Items (Kopfbedeckung/Augen/Nase/Mund) - Trails ergeben auf einem
+    statischen Avatar keinen Sinn und werden bewusst nicht gezeichnet. Wiederverwendet für
+    Profil-Hub-Vorschau und Game-Over-Screen (dort in echter Spielergröße 50x50, damit
+    Hüte/Augen/etc. exakt wie im Gameplay aussehen - draw_player_cosmetics() positioniert
+    sie mit dafür fest abgestimmten Pixel-Offsets). cosmetics=False für sehr kleine
+    Vorschauen (z.B. das Mini-Icon im Hauptmenü), wo Hüte etc. sonst über den verfügbaren
+    Platz hinaus in benachbarte UI-Elemente ragen würden. cosmetics_overrides siehe
+    draw_player_cosmetics() - für hypothetische "so würde es aussehen"-Vorschauen
+    (Cosmetic-Shop-Hover), ohne tatsächlich etwas auszurüsten."""
+    pygame.draw.rect(surface, color if color is not None else get_player_color(), rect, border_radius=8)
+    if cosmetics:
+        draw_player_cosmetics(surface, rect, overrides=cosmetics_overrides)
+
 
 def run_game():
     global stats, flash_timer, modded_scores, modded_stats, game_running, in_menu
@@ -9691,7 +10542,40 @@ def run_game():
 
     while True:
         sync_window_size()
+
+        # Normalerweise setzt kein Code-Pfad game_running=False, ohne direkt danach
+        # aus run_game() zurückzukehren (siehe Pause-Menü "Zurück zum Menü"). Wird es
+        # trotzdem False vorgefunden, kam das von aussen (Dev-Konsole, z.B. "run menu"
+        # während einer laufenden Runde) - dann sauber verlassen statt weiterzuspielen.
+        if not game_running:
+            stop_music()
+            return
+
         dt = clock.tick(60)
+
+        # --- Dev-Konsole: In-Runde-Aktionen anwenden (score/lives/etc. sind lokale
+        # Variablen dieser Funktion, deshalb muss run_game() sie selbst anwenden -
+        # siehe _dev_cmd_round_action, das sie nur in _dev_round_actions einreiht) ---
+        for _dev_action, _dev_arg in _drain_dev_round_actions():
+            if _dev_action == "collect_1up":
+                _n = _dev_arg or 1
+                lives += _n
+                oneups_collected += _n
+                stats["total_1ups"] = stats.get("total_1ups", 0) + _n
+                print(f"[DEV] collect_1up({_n}) angewendet: lives={lives}, oneups_collected={oneups_collected}")
+            elif _dev_action == "add_score":
+                score += _dev_arg or 0
+                print(f"[DEV] add_score({_dev_arg}) angewendet: score={score}")
+            elif _dev_action == "add_lives":
+                lives += _dev_arg or 0
+                print(f"[DEV] add_lives({_dev_arg}) angewendet: lives={lives}")
+            elif _dev_action == "set_lives":
+                if _dev_arg is not None:
+                    lives = _dev_arg
+                print(f"[DEV] set_lives({_dev_arg}) angewendet: lives={lives}")
+            elif _dev_action == "god_mode":
+                hit_invuln = 999999999 if _dev_arg else 0
+                print(f"[DEV] god_mode({'on' if _dev_arg else 'off'}) angewendet: hit_invuln={hit_invuln}")
 
         # --- Mod on_update hook ---
         _mod_sync_in()
@@ -10047,6 +10931,13 @@ def run_game():
 
         for p in powerups[:]:
             p.x -= current_speed
+            if rp.magnet:
+                dx, dy = player.centerx - p.centerx, player.centery - p.centery
+                dist = (dx * dx + dy * dy) ** 0.5
+                if 0 < dist < 200:
+                    pull = 7 * (1 - dist / 200)
+                    p.x += int(dx / dist * pull)
+                    p.y += int(dy / dist * pull)
             if p.right < 0:
                 powerups.remove(p)
 
@@ -10259,165 +11150,13 @@ def run_game():
         player_shadow = pygame.Rect(player.x + 3, player.y + 3, player.width, player.height)
         if _show_player:
             pygame.draw.rect(base_surface, (100, 100, 150), player_shadow, border_radius=8)
-            pygame.draw.rect(base_surface, BLUE, player, border_radius=8)
+            pygame.draw.rect(base_surface, get_player_color(), player, border_radius=8)
 
-        # Draw equipped player cosmetics - Kopfbedeckung, Augen, Nase und Mund haben
-        # je einen eigenen Slot und werden daher unabhängig voneinander gezeichnet
-        # (gleichzeitig z.B. Zylinder + Pixel-Augen + Clown-Nase + Breites Grinsen möglich).
-        equipped_headwear = cosmetics_state.get("equipped_headwear")
-        equipped_eyes = cosmetics_state.get("equipped_eyes")
-        equipped_nose = cosmetics_state.get("equipped_nose")
-        equipped_mouth = cosmetics_state.get("equipped_mouth")
-        if equipped_headwear == "yellow_crown":
-            # Draw a simple crown above the player
-            crown_x = player.centerx - 10
-            crown_y = player.top - 5
-            pygame.draw.polygon(base_surface, (255, 215, 0), [
-                (crown_x, crown_y),
-                (crown_x + 5, crown_y - 8),
-                (crown_x + 10, crown_y),
-                (crown_x + 15, crown_y - 8),
-                (crown_x + 20, crown_y)
-            ])
-        elif equipped_headwear == "top_hat":
-            # Zylinder: Krempe + Hutkörper + roter Streifen
-            hat_x = player.centerx
-            hat_top = player.top
-            pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 15, hat_top - 6, 30, 6))
-            pygame.draw.rect(base_surface, (25, 25, 30), (hat_x - 10, hat_top - 24, 20, 20))
-            pygame.draw.rect(base_surface, (150, 20, 20), (hat_x - 10, hat_top - 9, 20, 4))
-        elif equipped_headwear == "devil_horns":
-            # Zwei rote Hörner über dem Spieler
-            hx = player.centerx
-            hy = player.top
-            pygame.draw.polygon(base_surface, (210, 30, 30), [(hx - 6, hy + 4), (hx - 16, hy - 14), (hx - 4, hy - 2)])
-            pygame.draw.polygon(base_surface, (210, 30, 30), [(hx + 6, hy + 4), (hx + 16, hy - 14), (hx + 4, hy - 2)])
-        elif equipped_headwear == "halo":
-            # Goldgelber, runder, leicht schwebender Ring über dem Kopf
-            halo_x = player.centerx
-            halo_y = player.top - 18
-            pygame.draw.ellipse(base_surface, (255, 200, 20), (halo_x - 24, halo_y - 12, 48, 24), width=6)
-        elif equipped_headwear == "propeller_hat":
-            # Grosse Mütze mit rotierendem Propeller-Kreuz obendrauf
-            ph_x = player.centerx
-            ph_top = player.top
-            pygame.draw.polygon(base_surface, (230, 70, 60), [
-                (ph_x - 24, ph_top + 8), (ph_x + 24, ph_top + 8),
-                (ph_x + 15, ph_top - 18), (ph_x - 15, ph_top - 18)
-            ])
-            pygame.draw.rect(base_surface, (230, 70, 60), (ph_x - 24, ph_top + 2, 48, 8), border_radius=3)
-            _prop_angle = (pygame.time.get_ticks() / 60.0) % 360
-            _prop_rad = math.radians(_prop_angle)
-            _prop_dx = int(26 * math.cos(_prop_rad))
-            _prop_dy = int(6 * math.sin(_prop_rad))
-            pygame.draw.line(base_surface, (60, 60, 65),
-                              (ph_x - _prop_dx, ph_top - 34 - _prop_dy), (ph_x + _prop_dx, ph_top - 34 + _prop_dy), 4)
-            pygame.draw.line(base_surface, (60, 60, 65), (ph_x, ph_top - 44), (ph_x, ph_top - 18), 4)
-            pygame.draw.circle(base_surface, (255, 210, 40), (ph_x, ph_top - 34), 6)
-        elif equipped_headwear == "ninja_headband":
-            # Breites schwarzes Stirnband mit rotem Knoten und fliegenden Enden
-            nb_x = player.centerx
-            nb_y = player.top + 6
-            pygame.draw.rect(base_surface, (25, 25, 30), (nb_x - 26, nb_y - 8, 52, 16))
-            pygame.draw.polygon(base_surface, (190, 20, 20), [
-                (nb_x + 20, nb_y + 8), (nb_x + 42, nb_y + 26), (nb_x + 22, nb_y + 24)
-            ])
-            pygame.draw.polygon(base_surface, (190, 20, 20), [
-                (nb_x + 24, nb_y + 6), (nb_x + 46, nb_y + 18), (nb_x + 26, nb_y + 20)
-            ])
-            pygame.draw.circle(base_surface, (190, 20, 20), (nb_x, nb_y), 5)
-
-        if equipped_eyes == "pixel_eyes":
-            # Blockige Pixel-Augen auf dem Spieler (bewusst nicht realistisch)
-            ex = player.centerx
-            ey = player.centery - 8
-            pygame.draw.rect(base_surface, (255, 255, 255), (ex - 14, ey - 5, 9, 9))
-            pygame.draw.rect(base_surface, (255, 255, 255), (ex + 5, ey - 5, 9, 9))
-            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 11, ey - 2, 4, 4))
-            pygame.draw.rect(base_surface, (20, 20, 25), (ex + 8, ey - 2, 4, 4))
-        elif equipped_eyes == "sunglasses":
-            # Sonnenbrille mit dickem Rahmen, dunklen Gläsern, Glanzstreifen und Bügeln
-            ex = player.centerx
-            ey = player.centery - 8
-            pygame.draw.circle(base_surface, (20, 20, 25), (ex - 9, ey), 10)
-            pygame.draw.circle(base_surface, (20, 20, 25), (ex + 9, ey), 10)
-            pygame.draw.circle(base_surface, (35, 35, 40), (ex - 9, ey), 7)
-            pygame.draw.circle(base_surface, (35, 35, 40), (ex + 9, ey), 7)
-            pygame.draw.line(base_surface, (150, 180, 210), (ex - 13, ey - 3), (ex - 6, ey + 3), 2)
-            pygame.draw.line(base_surface, (150, 180, 210), (ex + 5, ey - 3), (ex + 12, ey + 3), 2)
-            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 4, ey - 2, 8, 4))
-            pygame.draw.line(base_surface, (20, 20, 25), (ex - 19, ey - 2), (ex - 22, ey - 6), 2)
-            pygame.draw.line(base_surface, (20, 20, 25), (ex + 19, ey - 2), (ex + 22, ey - 6), 2)
-        elif equipped_eyes == "3d_glasses":
-            # Klassische 3D-Brille mit rotem und blauem Glas
-            ex = player.centerx
-            ey = player.centery - 8
-            pygame.draw.rect(base_surface, (200, 30, 30), (ex - 16, ey - 7, 13, 11))
-            pygame.draw.rect(base_surface, (40, 120, 220), (ex + 3, ey - 7, 13, 11))
-            pygame.draw.rect(base_surface, (20, 20, 25), (ex - 4, ey - 2, 8, 3))
-        elif equipped_eyes == "robot_visor":
-            # Durchgehendes, leuchtend blaues Visier über beiden Augen
-            ex = player.centerx
-            ey = player.centery - 8
-            pygame.draw.rect(base_surface, (30, 30, 35), (ex - 17, ey - 7, 34, 15), border_radius=6)
-            pygame.draw.rect(base_surface, (80, 220, 255), (ex - 13, ey - 3, 26, 7), border_radius=3)
-
-        if equipped_nose == "clown_nose":
-            # Runde rote Clown-Nase mittig im Gesicht
-            nx = player.centerx
-            ny = player.centery
-            pygame.draw.circle(base_surface, (230, 30, 30), (nx, ny), 6)
-            pygame.draw.circle(base_surface, (150, 10, 10), (nx, ny), 6, width=1)
-        elif equipped_nose == "pig_nose":
-            # Rosa Rüsselscheibe mit zwei ovalen Nüstern
-            nx = player.centerx
-            ny = player.centery
-            pygame.draw.ellipse(base_surface, (240, 150, 170), (nx - 9, ny - 6, 18, 13))
-            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx - 9, ny - 6, 18, 13), width=1)
-            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx - 5, ny - 2, 4, 5))
-            pygame.draw.ellipse(base_surface, (190, 100, 120), (nx + 1, ny - 2, 4, 5))
-
-        if equipped_mouth == "big_grin":
-            # Wemmbu Smile: pixelig/blockig im Minecraft-Stil (eckige U-Klammer, dicke Wände)
-            mx = player.centerx
-            my = player.centery + 10
-            _wpx = 2
-            _wpat = [
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "1..........1",
-                "111111111111",
-            ]
-            for _wr, _wrow in enumerate(_wpat):
-                for _wc, _wch in enumerate(_wrow):
-                    if _wch == "1":
-                        pygame.draw.rect(base_surface, (10, 10, 15),
-                                         (mx - 13 * _wpx // 2 + _wc * _wpx, my - 3 * _wpx + _wr * _wpx, _wpx, _wpx))
-        elif equipped_mouth == "vampire_fangs":
-            # Zwei spitze weisse Reisszähne unter einem dunklen Lächeln-Strich
-            mx = player.centerx
-            my = player.centery + 10
-            pygame.draw.line(base_surface, (10, 10, 15), (mx - 8, my), (mx + 8, my), 2)
-            pygame.draw.polygon(base_surface, (255, 255, 250), [(mx - 6, my), (mx - 2, my), (mx - 4, my + 7)])
-            pygame.draw.polygon(base_surface, (255, 255, 250), [(mx + 2, my), (mx + 6, my), (mx + 4, my + 7)])
-        elif equipped_mouth == "nerd_teeth":
-            # Zwei breite, quadratische Hasenzähne mit Mittelspalt
-            mx = player.centerx
-            my = player.centery + 10
-            pygame.draw.line(base_surface, (10, 10, 15), (mx - 10, my), (mx + 10, my), 2)
-            pygame.draw.rect(base_surface, (255, 255, 250), (mx - 9, my, 8, 11), border_radius=2)
-            pygame.draw.rect(base_surface, (255, 255, 250), (mx + 1, my, 8, 11), border_radius=2)
-            pygame.draw.rect(base_surface, (200, 200, 195), (mx - 9, my, 8, 11), width=1, border_radius=2)
-            pygame.draw.rect(base_surface, (200, 200, 195), (mx + 1, my, 8, 11), width=1, border_radius=2)
-        elif equipped_mouth == "bird_beak":
-            # Spitzer, gelber Vogelschnabel über dem Mund (Ober- und Unterschnabel)
-            mx = player.centerx
-            my = player.centery + 10
-            pygame.draw.polygon(base_surface, (240, 170, 30), [(mx - 12, my - 3), (mx + 13, my), (mx - 10, my + 4)])
-            pygame.draw.polygon(base_surface, (200, 140, 15), [(mx - 12, my + 2), (mx + 9, my + 4), (mx - 10, my + 9)])
-            pygame.draw.line(base_surface, (150, 100, 5), (mx - 11, my + 1), (mx + 8, my + 3), 1)
+        # Ausgerüstete Kopfbedeckung/Augen/Nase/Mund zeichnen (Kopfbedeckung, Augen, Nase
+        # und Mund haben je einen eigenen Slot, daher gleichzeitig z.B. Zylinder +
+        # Pixel-Augen + Clown-Nase + Breites Grinsen möglich) - siehe draw_player_cosmetics(),
+        # dieselbe Funktion zeichnet auch die Avatar-Vorschau im Profil-Hub/Game-Over-Screen.
+        draw_player_cosmetics(base_surface, player)
 
         # Obstacles mit Schatten
         for obs in obstacles:
@@ -10905,6 +11644,14 @@ def run_game_2p():
 
     while True:
         sync_window_size()
+
+        # Siehe run_game(): game_running wird normalerweise nie extern False gesetzt,
+        # ohne dass der jeweilige Code-Pfad sofort selbst zurückkehrt - falls doch,
+        # kam das von aussen (Dev-Konsole) und die Runde wird sauber verlassen.
+        if not game_running:
+            stop_music()
+            return
+
         dt = clock.tick(60)
         fill_bg(rings=True)
 
@@ -10924,17 +11671,17 @@ def run_game_2p():
 
         keys = pygame.key.get_pressed()
 
-        # ---- P1: SPACE / W = Sprung, A/D = Bewegung ----
+        # ---- P1: rebindbare Steuerung (Standard: SPACE/W = Sprung, A/D = Bewegung) ----
         if alive1:
-            p1_jump = keys[pygame.K_SPACE] or keys[pygame.K_w]
+            p1_jump = any_action_pressed(keys, "p1_jump")
             if p1_jump and not up1_was:
                 if not jump1:
                     vy1 = -20
                     jump1 = True
                     stats["total_jumps"] = stats.get("total_jumps", 0) + 1
             up1_was = p1_jump
-            if keys[pygame.K_a]: p1.x -= move_speed
-            if keys[pygame.K_d]: p1.x += move_speed
+            if any_action_pressed(keys, "p1_left"):  p1.x -= move_speed
+            if any_action_pressed(keys, "p1_right"): p1.x += move_speed
             p1.left  = max(0, p1.left)
             p1.right = min(WIDTH, p1.right)
             vy1 += gravity
@@ -10946,17 +11693,17 @@ def run_game_2p():
                     jump1 = False
                     up1_was = False
 
-        # ---- P2: UP = Sprung, LEFT/RIGHT = Bewegung ----
+        # ---- P2: rebindbare Steuerung (Standard: Pfeiltasten) ----
         if alive2:
-            p2_jump = keys[pygame.K_UP]
+            p2_jump = any_action_pressed(keys, "p2_jump")
             if p2_jump and not up2_was:
                 if not jump2:
                     vy2 = -20
                     jump2 = True
                     stats["total_jumps"] = stats.get("total_jumps", 0) + 1
             up2_was = p2_jump
-            if keys[pygame.K_LEFT]:  p2.x -= move_speed
-            if keys[pygame.K_RIGHT]: p2.x += move_speed
+            if any_action_pressed(keys, "p2_left"):  p2.x -= move_speed
+            if any_action_pressed(keys, "p2_right"): p2.x += move_speed
             p2.left  = max(0, p2.left)
             p2.right = min(WIDTH, p2.right)
             vy2 += gravity
@@ -11198,16 +11945,16 @@ def run_game_2p():
 
         # HUD — Score + Zeit + Modus (zentriert oben)
         elapsed_s  = int(time.time() - round_start)
-        mode_tag   = "VS" if vs_mode else "Co-op"
-        score_surf = menu_font.render(f"Score: {score}", True, get_text_color())
-        info_surf  = small_font.render(f"{mode_tag}  ·  {elapsed_s}s  ·  {difficulty}", True, (140, 60, 200))
+        mode_tag   = get_text("vs_mode_label") if vs_mode else get_text("coop_mode_label")
+        score_surf = menu_font.render(f"{get_text('score')}: {score}", True, get_text_color())
+        info_surf  = small_font.render(f"{mode_tag}  ·  {elapsed_s}s  ·  {get_difficulty_name(difficulty)}", True, (140, 60, 200))
         base_surface.blit(score_surf, (WIDTH // 2 - score_surf.get_width() // 2, 10))
         base_surface.blit(info_surf,  (WIDTH // 2 - info_surf.get_width()  // 2,
                                        10 + score_surf.get_height() + 2))
 
-        # Steuerungs-Hinweis (unten mitte, halbtransparent)
-        hint = small_font.render("P1: WASD/Space  ·  P2: Pfeiltasten  ·  ESC: Menü",
-                                 True, (90, 90, 110))
+        # Nav-Hinweis (unten mitte, halbtransparent) — Tastenbelegung selbst steht
+        # jetzt in Einstellungen > Steuerung und ist dort änderbar.
+        hint = small_font.render(get_text("esc_menu_hint"), True, (90, 90, 110))
         base_surface.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 18))
 
         # "ELIMINATED"-Banner für tote Spieler
@@ -11280,9 +12027,9 @@ def show_game_over_2p(score, winner, survived_seconds):
         base_surface.blit(sc_surf, (cx - sc_surf.get_width() // 2, HEIGHT // 2 - 75))
 
         # Modus-Info
-        mode_str = "VS Mode" if two_player_submode == "vs" else "Co-op Mode"
+        mode_str = get_text("vs_mode_label") if two_player_submode == "vs" else get_text("coop_mode_label")
         diff_str = difficulties[difficulty_index]
-        sub_surf = small_font.render(f"{mode_str}  ·  {diff_str}", True, (140, 60, 200))
+        sub_surf = small_font.render(f"{mode_str}  ·  {get_difficulty_name(diff_str)}", True, (140, 60, 200))
         base_surface.blit(sub_surf, (cx - sub_surf.get_width() // 2, HEIGHT // 2 - 45))
 
         # Buttons: Menü   Rematch
@@ -11303,10 +12050,6 @@ def show_game_over_2p(score, winner, survived_seconds):
             ls = menu_font.render(label, True, txt_col)
             base_surface.blit(ls, (rect.centerx - ls.get_width() // 2,
                                    rect.centery - ls.get_height() // 2))
-
-        # Steuerungshinweis
-        hint = small_font.render("P1: WASD / Space   ·   P2: Pfeiltasten", True, (100, 100, 120))
-        base_surface.blit(hint, (cx - hint.get_width() // 2, HEIGHT - 28))
 
         pygame.display.flip()
 
@@ -11360,12 +12103,19 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         fill_bg(rings=True)
         cx = WIDTH // 2
 
+        # Avatar + Profilname (Block in Wunschfarbe + ausgerüstete Kosmetik, siehe draw_avatar)
+        _go_avatar_size = 50
+        _go_avatar_rect = pygame.Rect(cx - _go_avatar_size // 2, HEIGHT // 2 - 265, _go_avatar_size, _go_avatar_size)
+        draw_avatar(base_surface, _go_avatar_rect)
+        _go_name_surf = small_font.render(current_profile_name or "-", True, get_text_color())
+        base_surface.blit(_go_name_surf, (cx - _go_name_surf.get_width() // 2, _go_avatar_rect.bottom + 4))
+
         # Title
         over_s = font.render(get_text("game_over"), True, get_text_color())
         base_surface.blit(over_s, (cx - over_s.get_width() // 2, HEIGHT // 2 - 170))
 
         # Score + Zeit nebeneinander
-        score_label = menu_font.render(f"Score:  {score_display}", True, get_text_color())
+        score_label = menu_font.render(f"{get_text('score')}:  {score_display}", True, get_text_color())
         time_label  = menu_font.render(f"{survived_seconds}s", True, (140, 180, 220))
         total_w = score_label.get_width() + 20 + time_label.get_width()
         base_surface.blit(score_label, (cx - total_w // 2, HEIGHT // 2 - 100))
@@ -11445,6 +12195,307 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
                     in_menu = True
                     game_running = False
                     return
+
+
+# =============================
+# Dev Console (nur im Source-Run - die kompilierte .exe hat kein Konsolenfenster,
+# siehe --windows-console-mode=disable im Windows-Build)
+# =============================
+# Erlaubt beim Testen, in der Konsole (NICHT im Spielfenster!) Befehle wie
+# "run shop" oder "run collect_1up 3" einzutippen, um direkt zu Screens zu
+# springen oder Spielzustand zu ändern, ohne sich manuell durchzuklicken.
+# Jede Aktion loggt in die Konsole, was sie getan hat.
+
+_dev_command_queue = queue.Queue()
+_dev_round_actions = []  # (action, parsed_arg) - wird von run_game() pro Frame geleert und angewendet
+
+# Die Konsole schaltet sich automatisch frei, wenn key.txt (Projekt-Root, per
+# .gitignore nie committet) lokal vorhanden und lesbar ist - der Key selbst muss
+# dafür NICHT eingetippt werden (er ist ~100 Zeichen lang, unpraktisch zum Abtippen/
+# Einfügen ohne Zwischenablage). Wer die Datei nicht hat, hat auch keinen Zugriff -
+# kein Fallback-Key im Code.
+try:
+    with open(os.path.join(BASE_DIR, "key.txt"), "r", encoding="utf-8") as _f:
+        _dev_console_key = _f.read().strip() or None
+except Exception:
+    _dev_console_key = None
+_dev_console_unlocked = _dev_console_key is not None
+
+
+def _dev_console_reader():
+    """Läuft in einem Daemon-Thread, liest blockierend von stdin und legt jede
+    Zeile in die Queue. Die eigentliche Verarbeitung passiert im Haupt-Thread
+    (siehe _process_dev_commands, aufgerufen von sync_window_size), damit
+    Spielzustand nie aus einem anderen Thread heraus verändert wird."""
+    while True:
+        try:
+            line = input()
+        except (EOFError, OSError, ValueError):
+            return  # Keine Konsole angehängt (z.B. kompilierte exe) -> Thread beendet sich still
+        except Exception:
+            return
+        if line.strip():
+            _dev_command_queue.put(line.strip())
+
+
+_ALL_SCREEN_FLAGS = [
+    "in_menu", "game_running", "showing_stats", "in_shop", "in_loadout", "in_profile_select",
+    "in_profile_name_input", "in_mods_menu", "in_more_menu", "in_classic_game", "in_controls_menu",
+    "in_settings_menu", "in_settings_more_menu", "in_experimental_menu", "in_settings_sound_menu",
+    "in_help", "in_daily_rewards", "in_shop_menu", "in_cosmetic_shop", "in_loadout_menu",
+    "in_cosmetic_inventory", "in_loading", "in_difficulty_select", "in_tutorial", "in_language_select",
+    "in_admin_login", "in_admin_panel", "in_achievements_screen", "in_profile_hub",
+]
+
+
+def _dev_goto(flag_name, extra=None):
+    """Setzt alle Screen-Flags zurück und aktiviert nur das/die Ziel-Flag(s) - so
+    landet man nie in zwei gleichzeitig 'aktiven' Screens, egal von wo aus der
+    Befehl kam (jeder Menü-Screen hat seine eigene while-Schleife, siehe fill_bg)."""
+    g = globals()
+    for name in _ALL_SCREEN_FLAGS:
+        g[name] = False
+    g[flag_name] = True
+    if extra:
+        for k, v in extra.items():
+            g[k] = v
+    print(f"[DEV] -> {flag_name}" + (f" {extra}" if extra else ""))
+
+
+def _dev_cmd_nav(target):
+    def handler(args):
+        _dev_goto(target)
+    return handler
+
+def _dev_cmd_game(args):
+    _dev_goto("game_running", {"current_game_mode": "standard"})
+
+def _dev_cmd_game2p(args):
+    _dev_goto("game_running", {"current_game_mode": "2player"})
+
+
+def _dev_parse_int(args, index=0, default=None):
+    try:
+        return int(args[index])
+    except (IndexError, ValueError):
+        return default
+
+
+def _dev_cmd_add_coins(args):
+    n = _dev_parse_int(args, default=100)
+    stats["coins"] = stats.get("coins", 0) + n
+    save_section("stats", stats)
+    print(f"[DEV] add_coins({n}): coins={stats['coins']}")
+
+def _dev_cmd_set_coins(args):
+    n = _dev_parse_int(args, default=0)
+    stats["coins"] = n
+    save_section("stats", stats)
+    print(f"[DEV] set_coins({n}): coins={stats['coins']}")
+
+def _dev_cmd_unlock_all_powers(args):
+    owned = powers_state.setdefault("owned", [])
+    added = [p for p in POWERS_LIST if p not in owned]
+    owned.extend(added)
+    save_section("powers", powers_state)
+    print(f"[DEV] unlock_all_powers: {len(added)} neu freigeschaltet ({len(owned)} gesamt)")
+
+def _dev_cmd_unlock_all_cosmetics(args):
+    owned = cosmetics_state.setdefault("owned", [])
+    added = [k for k in COSMETICS_DB if k not in owned]
+    owned.extend(added)
+    save_section("cosmetics", cosmetics_state)
+    print(f"[DEV] unlock_all_cosmetics: {len(added)} neu freigeschaltet ({len(owned)} gesamt)")
+
+def _dev_cmd_give_power(args):
+    if not args:
+        print(f"[DEV] give_power braucht einen Namen, z.B.: run give_power Double Jump. Verfügbar: {POWERS_LIST}")
+        return
+    name = " ".join(args)
+    matches = [p for p in POWERS_LIST if p.lower() == name.lower()]
+    if not matches:
+        print(f"[DEV] Unbekannte Power: {name!r}. Verfügbar: {POWERS_LIST}")
+        return
+    owned = powers_state.setdefault("owned", [])
+    if matches[0] in owned:
+        print(f"[DEV] give_power({matches[0]}): bereits besessen")
+        return
+    owned.append(matches[0])
+    save_section("powers", powers_state)
+    print(f"[DEV] give_power({matches[0]}): hinzugefügt")
+
+def _dev_cmd_set_difficulty(args):
+    global difficulty_index
+    if not args:
+        print(f"[DEV] set_difficulty braucht einen Namen: {difficulties}")
+        return
+    name = args[0]
+    matches = [d for d in difficulties if d.lower() == name.lower()]
+    if not matches:
+        print(f"[DEV] Unbekannte Schwierigkeit: {name!r}. Verfügbar: {difficulties}")
+        return
+    difficulty_index = difficulties.index(matches[0])
+    settings["difficulty"] = difficulties[difficulty_index]
+    save_section("settings", settings)
+    update_button_texts()
+    print(f"[DEV] set_difficulty({matches[0]})")
+
+def _dev_cmd_set_lang(args):
+    global language_index
+    if not args:
+        print(f"[DEV] set_lang braucht einen Namen: {languages}")
+        return
+    name = args[0]
+    matches = [l for l in languages if l.lower() == name.lower()]
+    if not matches:
+        print(f"[DEV] Unbekannte Sprache: {name!r}. Verfügbar: {languages}")
+        return
+    language_index = languages.index(matches[0])
+    settings["language"] = languages[language_index]
+    save_section("settings", settings)
+    update_button_texts()
+    print(f"[DEV] set_lang({matches[0]})")
+
+def _dev_cmd_set_player_color(args):
+    if not args or args[0].lower() not in PLAYER_COLORS:
+        print(f"[DEV] set_player_color braucht eine Farbe: {list(PLAYER_COLORS.keys())}")
+        return
+    settings["player_color"] = args[0].lower()
+    save_section("settings", settings)
+    print(f"[DEV] set_player_color({args[0].lower()})")
+
+
+def _dev_cmd_round_action(action_name, arg_parser=None):
+    """Baut einen Handler, der eine In-Runde-Aktion nur einreiht (angewendet wird
+    sie erst von run_game() selbst, da score/lives/etc. dessen lokale Variablen
+    sind und von hier aus nicht direkt erreichbar sind)."""
+    def handler(args):
+        if not game_running:
+            print(f"[DEV] '{action_name}' braucht eine laufende Runde (aktuell nicht im Spiel)")
+            return
+        if current_game_mode == "2player":
+            print(f"[DEV] '{action_name}' wird aktuell nur im Singleplayer unterstützt")
+            return
+        parsed = arg_parser(args) if arg_parser else None
+        _dev_round_actions.append((action_name, parsed))
+        print(f"[DEV] {action_name} eingereiht, wird im nächsten Frame angewendet...")
+    return handler
+
+
+DEV_COMMANDS = {
+    # Navigation - springt direkt zu einem Screen
+    "menu":               (_dev_cmd_nav("in_menu"), "Zurück zum Hauptmenü"),
+    "shop":               (_dev_cmd_nav("in_shop_menu"), "Shop-Hub öffnen"),
+    "shop_roll":          (_dev_cmd_nav("in_shop"), "Power-Roll-Shop öffnen"),
+    "shop_cosmetic":      (_dev_cmd_nav("in_cosmetic_shop"), "Kosmetik-Shop öffnen"),
+    "loadout":            (_dev_cmd_nav("in_loadout_menu"), "Loadout-Hub öffnen"),
+    "loadout_powers":     (_dev_cmd_nav("in_loadout"), "Power-Loadout öffnen"),
+    "cosmetic_inventory": (_dev_cmd_nav("in_cosmetic_inventory"), "Kosmetik-Inventar öffnen"),
+    "settings":           (_dev_cmd_nav("in_settings_menu"), "Einstellungen öffnen"),
+    "controls":           (_dev_cmd_nav("in_controls_menu"), "Steuerung-Screen öffnen"),
+    "more":               (_dev_cmd_nav("in_more_menu"), "Mehr-Menü öffnen"),
+    "profile_hub":        (_dev_cmd_nav("in_profile_hub"), "Profil-Hub öffnen (Avatar/Stats/Profile)"),
+    "stats":              (_dev_cmd_nav("showing_stats"), "Statistik-Screen öffnen"),
+    "difficulty":         (_dev_cmd_nav("in_difficulty_select"), "Schwierigkeitsauswahl öffnen"),
+    "daily_rewards":      (_dev_cmd_nav("in_daily_rewards"), "Daily Rewards öffnen"),
+    "admin_login":        (_dev_cmd_nav("in_admin_login"), "Admin-Login öffnen"),
+    "admin_panel":        (_dev_cmd_nav("in_admin_panel"), "Admin-Panel öffnen (Login übersprungen)"),
+    "mods":               (_dev_cmd_nav("in_mods_menu"), "Mods-Menü öffnen"),
+    "help":               (_dev_cmd_nav("in_help"), "Hilfe-Screen öffnen"),
+    "tutorial":           (_dev_cmd_nav("in_tutorial"), "Tutorial öffnen"),
+    "achievements":       (_dev_cmd_nav("in_achievements_screen"), "Achievements-Screen öffnen (im Spiel normal nicht erreichbar)"),
+    "language_select":    (_dev_cmd_nav("in_language_select"), "Sprachauswahl öffnen"),
+    "game":               (_dev_cmd_game, "Direkt eine Standard-Runde starten"),
+    "game2p":             (_dev_cmd_game2p, "Direkt eine 2-Spieler-Runde starten"),
+
+    # Globaler Zustand (Coins, Powers, Cosmetics, Schwierigkeit, Sprache)
+    "add_coins":            (_dev_cmd_add_coins, "Coins hinzufügen, z.B.: run add_coins 500"),
+    "set_coins":            (_dev_cmd_set_coins, "Coins setzen, z.B.: run set_coins 0"),
+    "unlock_all_powers":    (_dev_cmd_unlock_all_powers, "Alle Powers freischalten"),
+    "unlock_all_cosmetics": (_dev_cmd_unlock_all_cosmetics, "Alle Kosmetik-Items freischalten"),
+    "give_power":           (_dev_cmd_give_power, "Eine bestimmte Power geben, z.B.: run give_power Double Jump"),
+    "set_difficulty":       (_dev_cmd_set_difficulty, "Schwierigkeit setzen, z.B.: run set_difficulty Hardcore"),
+    "set_lang":             (_dev_cmd_set_lang, "Sprache setzen, z.B.: run set_lang English"),
+    "set_player_color":     (_dev_cmd_set_player_color, "Avatar-/Spielerfarbe setzen, z.B.: run set_player_color red"),
+
+    # In-Runde (braucht laufendes Spiel, aktuell nur Singleplayer-Standardmodus)
+    "collect_1up": (_dev_cmd_round_action("collect_1up", lambda a: _dev_parse_int(a, default=1)),
+                     "1-UP(s) einsammeln, z.B.: run collect_1up 3"),
+    "add_score":   (_dev_cmd_round_action("add_score", lambda a: _dev_parse_int(a, default=10)),
+                     "Score erhöhen, z.B.: run add_score 100"),
+    "add_lives":   (_dev_cmd_round_action("add_lives", lambda a: _dev_parse_int(a, default=1)),
+                     "Leben hinzufügen, z.B.: run add_lives 1"),
+    "set_lives":   (_dev_cmd_round_action("set_lives", lambda a: _dev_parse_int(a, default=0)),
+                     "Leben setzen, z.B.: run set_lives 0 (Runde endet beim nächsten Treffer)"),
+    "god_mode":    (_dev_cmd_round_action("god_mode", lambda a: (a[0].lower() != "off") if a else True),
+                     "Unverwundbarkeit an/aus, z.B.: run god_mode / run god_mode off"),
+}
+
+
+def _dev_cmd_help(args):
+    print("[DEV] Verfügbare Befehle (Aufruf: run <befehl> [args]):")
+    for name in sorted(DEV_COMMANDS):
+        _, desc = DEV_COMMANDS[name]
+        print(f"  {name:<22} {desc}")
+
+def _dev_cmd_state(args):
+    active = [f for f in _ALL_SCREEN_FLAGS if globals().get(f)]
+    print(f"[DEV] Aktive Screen-Flags: {active}")
+    print(f"[DEV] mode={current_game_mode!r}  language={languages[language_index]!r}  "
+          f"difficulty={difficulties[difficulty_index]!r}  coins={stats.get('coins', 0)}")
+
+DEV_COMMANDS["help"]  = (_dev_cmd_help, "Diese Liste anzeigen")
+DEV_COMMANDS["list"]  = (_dev_cmd_help, "Alias für help")
+DEV_COMMANDS["state"] = (_dev_cmd_state, "Aktuellen Zustand anzeigen")
+
+
+def _dispatch_dev_command(line):
+    if not _dev_console_unlocked:
+        print("[DEV] Konsole deaktiviert (key.txt nicht gefunden).")
+        return
+
+    parts = line.split()
+    if not parts:
+        return
+    if parts[0] != "run":
+        print(f"[DEV] Unbekannte Eingabe (Befehle starten mit 'run', z.B. 'run help'): {line!r}")
+        return
+    if len(parts) < 2:
+        print("[DEV] 'run' braucht einen Befehlsnamen, z.B.: run help")
+        return
+    cmd, args = parts[1], parts[2:]
+    entry = DEV_COMMANDS.get(cmd)
+    if entry is None:
+        print(f"[DEV] Unbekannter Befehl: {cmd!r}. 'run help' für die Liste.")
+        return
+    handler, _desc = entry
+    try:
+        handler(args)
+    except Exception as e:
+        print(f"[DEV] Fehler beim Ausführen von '{cmd}': {e}")
+
+
+def _process_dev_commands():
+    """Von sync_window_size() jeden Frame aufgerufen - leert die Queue vom Reader-Thread."""
+    while True:
+        try:
+            line = _dev_command_queue.get_nowait()
+        except queue.Empty:
+            return
+        _dispatch_dev_command(line)
+
+
+def _drain_dev_round_actions():
+    actions = _dev_round_actions[:]
+    _dev_round_actions.clear()
+    return actions
+
+
+threading.Thread(target=_dev_console_reader, daemon=True).start()
+if _dev_console_unlocked:
+    print("[DEV] Konsole aktiv (key.txt gefunden) - 'run help' fuer alle Befehle.")
+else:
+    print("[DEV] Dev-Konsole deaktiviert (key.txt nicht gefunden).")
 
 
 # =============================
@@ -11630,6 +12681,7 @@ while True:
         _menu_has_mods = len(mod_system.mods) > 0
         daily_reward_rect = pygame.Rect(WIDTH - 200, 15, 180, 40)
         _mods_btn_check = pygame.Rect(20, HEIGHT - 56, 130, 36)
+        _profile_hub_btn_rect = _get_profile_hub_btn_rect()
         _menu_rects = [b.rect for b in buttons]
         _menu_acts  = [b.callback for b in buttons]
         if _menu_has_mods:
@@ -11637,6 +12689,8 @@ while True:
             _menu_acts.append(open_mods_menu)
         _menu_rects.append(daily_reward_rect)
         _menu_acts.append(open_daily_rewards_menu)
+        _menu_rects.append(_profile_hub_btn_rect)
+        _menu_acts.append(open_profile_hub)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -11663,6 +12717,9 @@ while True:
                 if _menu_has_mods:
                     if _mods_btn_check.collidepoint(mouse_pos):
                         open_mods_menu()
+                # Profil-Button
+                if _profile_hub_btn_rect.collidepoint(mouse_pos):
+                    open_profile_hub()
         draw_menu()
         clock.tick(60)
 
@@ -11965,14 +13022,65 @@ while True:
         draw_difficulty_select()
         clock.tick(60)
 
+    elif in_profile_hub:
+        swatch_rects, swatch_names, hub_btn_rects = draw_profile_hub()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_to_main_from_profile_hub()
+                else:
+                    _hub_rects = swatch_rects + hub_btn_rects
+                    d = nav_direction(event.key)
+                    if d:
+                        cur = nav_get_focus("profile_hub", len(_hub_rects))
+                        nav_set_focus("profile_hub", nav_move(_hub_rects, cur, d))
+                    elif is_nav_confirm(event.key):
+                        _hi = nav_get_focus("profile_hub", len(_hub_rects))
+                        if _hi is not None and _hi < len(swatch_names):
+                            settings["player_color"] = swatch_names[_hi]
+                            save_section("settings", settings)
+                            play_sound(click_sound)
+                        elif _hi is not None:
+                            _bidx2 = _hi - len(swatch_names)
+                            if _bidx2 == 0:
+                                open_stats_from_profile_hub()
+                            elif _bidx2 == 1:
+                                open_profile_select_from_hub()
+                            elif _bidx2 == 2:
+                                back_to_main_from_profile_hub()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = get_mouse_pos_logical()
+                _clicked_swatch = False
+                for srect, cname in zip(swatch_rects, swatch_names):
+                    if srect.collidepoint((mx, my)):
+                        settings["player_color"] = cname
+                        save_section("settings", settings)
+                        play_sound(click_sound)
+                        _clicked_swatch = True
+                        break
+                if _clicked_swatch:
+                    continue
+                for idx, rect in enumerate(hub_btn_rects):
+                    if rect.collidepoint((mx, my)):
+                        if idx == 0:
+                            open_stats_from_profile_hub()
+                        elif idx == 1:
+                            open_profile_select_from_hub()
+                        elif idx == 2:
+                            back_to_main_from_profile_hub()
+                        break
+        clock.tick(60)
+
     elif in_more_menu:
         start_x = WIDTH//2 - 180
         start_y = 140
         gap = 58
         if _check_admin_keyfile():
-            _more_actions = ["stats", "admin", "classic", "help", "back"]
+            _more_actions = ["admin", "classic", "help", "back"]
         else:
-            _more_actions = ["stats", "classic", "help", "back"]
+            _more_actions = ["classic", "help", "back"]
         _more_rects = [pygame.Rect(start_x, start_y + idx*gap, 360, 48) for idx in range(len(_more_actions))]
 
         for event in pygame.event.get():
@@ -12000,9 +13108,7 @@ while True:
                     play_sound(click_back_sound)
                 else:
                     play_sound(menu_click_sound)
-                if _more_action == "stats":
-                    set_more_to_stats()
-                elif _more_action == "admin":
+                if _more_action == "admin":
                     set_more_to_admin()
                 elif _more_action == "classic":
                     open_classic_game()
@@ -12136,7 +13242,7 @@ while True:
         _sm2_start_x = WIDTH//2 - 180
         _sm2_start_y = 193
         _sm2_gap = 60
-        _sm2_btn_rects = [pygame.Rect(_sm2_start_x, _sm2_start_y + idx*_sm2_gap, 360, 48) for idx in range(7)]
+        _sm2_btn_rects = [pygame.Rect(_sm2_start_x, _sm2_start_y + idx*_sm2_gap, 360, 48) for idx in range(6)]
         _sm2_rects = _sm2_toggle_rects + _sm2_btn_rects
         _n_toggles = len(_sm2_toggle_rects)
 
@@ -12179,9 +13285,9 @@ while True:
                     play_sound(click_sound)
                 else:
                     _bidx = _sm2_idx - _n_toggles
-                    if _bidx == 6:
+                    if _bidx == 5:
                         play_sound(click_back_sound)
-                    elif _bidx in [4, 5]:
+                    elif _bidx in [3, 4]:
                         play_sound(menu_click_sound)
                     else:
                         play_sound(click_sound)
@@ -12193,14 +13299,11 @@ while True:
                         open_settings_sound_menu()
                     elif _bidx == 3:
                         in_settings_menu = False
-                        in_profile_select = True
+                        in_controls_menu = True
                     elif _bidx == 4:
                         in_settings_menu = False
-                        in_controls_menu = True
-                    elif _bidx == 5:
-                        in_settings_menu = False
                         in_settings_more_menu = True
-                    elif _bidx == 6:
+                    elif _bidx == 5:
                         back_to_main_from_settings()
             if event.type == pygame.MOUSEBUTTONUP:
                 _gui_scale_dragging = False
@@ -12217,8 +13320,49 @@ while True:
         clock.tick(60)
 
     elif in_controls_menu:
-        _ctrl_key_rects, _ctrl_add_rects, _ctrl_reset_rect, _ctrl_back_rect = draw_controls_menu()
+        _ctrl_key_rects, _ctrl_add_rects, _ctrl_reset_rect, _ctrl_back_rect, _ctrl_tab_rects = draw_controls_menu()
+        _ctrl_tab_actions = [_STANDARD_ACTIONS, _2P_ACTIONS, _MENU_NAV_ACTIONS]
         _ctrl_nav_rects = [r for _a, r in _ctrl_add_rects] + [_ctrl_reset_rect, _ctrl_back_rect]
+
+        def _ctrl_bind_key(action, key):
+            """Bindet 'key' an 'action' - Menü-Navigations-Aktionen landen in den
+            (frei entfernbaren) Extra-Tasten, alle anderen in den normalen Keybindings."""
+            if action in _MENU_NAV_ACTIONS:
+                extras = get_menu_nav_extra_keys()
+                if key not in extras[action]:
+                    extras[action].append(key)
+                save_menu_nav_extra_keys(extras)
+            else:
+                kb = get_keybindings()
+                if key not in kb[action]:
+                    kb[action].append(key)
+                save_keybindings(kb)
+
+        def _ctrl_unbind_key(action, key):
+            """Entfernt 'key' von 'action', falls entfernbar (feste Menü-Navigations-
+            Standardtasten sind nie in _ctrl_key_rects, kommen hier also nie an)."""
+            if action in _MENU_NAV_ACTIONS:
+                extras = get_menu_nav_extra_keys()
+                if key in extras[action]:
+                    extras[action].remove(key)
+                    save_menu_nav_extra_keys(extras)
+            else:
+                kb = get_keybindings()
+                if key in kb[action]:
+                    kb[action].remove(key)
+                    save_keybindings(kb)
+
+        def _ctrl_reset_active_tab():
+            """Reset betrifft nur den gerade sichtbaren Tab, damit ein Klick auf 'Standard
+            wiederherstellen' im 2P-Tab nicht versehentlich eigene Standard-Bindings killt."""
+            if _ctrl_active_tab == 2:
+                save_menu_nav_extra_keys({a: [] for a in _MENU_NAV_ACTIONS})
+            else:
+                kb = get_keybindings()
+                for a in _ctrl_tab_actions[_ctrl_active_tab]:
+                    kb[a] = list(_DEFAULT_KB[a])
+                save_keybindings(kb)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -12228,14 +13372,10 @@ while True:
                     if event.key in (pygame.K_ESCAPE, pygame.K_CAPSLOCK):
                         _ctrl_listening = None
                     else:
-                        kb = get_keybindings()
-                        # Remove this key from any other action first
-                        for other_action, other_keys in kb.items():
-                            if other_action != _ctrl_listening and event.key in other_keys:
-                                other_keys.remove(event.key)
-                        if event.key not in kb[_ctrl_listening]:
-                            kb[_ctrl_listening].append(event.key)
-                        save_keybindings(kb)
+                        # Mehrere Actions dürfen jetzt dieselbe Taste haben —
+                        # keine automatische Entfernung mehr. Konflikte werden
+                        # stattdessen in draw_controls_menu() farblich markiert.
+                        _ctrl_bind_key(_ctrl_listening, event.key)
                         _ctrl_listening = None
                 elif event.key == pygame.K_m or is_back_key(event.key):
                     in_controls_menu = False
@@ -12251,24 +13391,32 @@ while True:
                             _ctrl_listening = _ctrl_add_rects[_idx][0]
                             play_sound(menu_click_sound)
                         elif _idx == len(_ctrl_add_rects):
-                            save_keybindings(dict(_DEFAULT_KB))
+                            _ctrl_reset_active_tab()
                             play_sound(click_sound)
                         elif _idx == len(_ctrl_add_rects) + 1:
                             in_controls_menu = False
                             in_settings_menu = True
                             play_sound(click_back_sound)
+            if event.type == pygame.MOUSEWHEEL:
+                _ctrl_scroll -= event.y * 40
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
                 clicked = False
-                for action, kcode, badge_rect in _ctrl_key_rects:
-                    if badge_rect.collidepoint((mx, my)):
-                        kb = get_keybindings()
-                        if kcode in kb[action]:
-                            kb[action].remove(kcode)
-                            save_keybindings(kb)
-                        play_sound(click_sound)
+                for _ti, _trect in enumerate(_ctrl_tab_rects):
+                    if _trect.collidepoint((mx, my)):
+                        if _ti != _ctrl_active_tab:
+                            _ctrl_active_tab = _ti
+                            _ctrl_scroll = 0
+                            play_sound(click_sound)
                         clicked = True
                         break
+                if not clicked:
+                    for action, kcode, badge_rect in _ctrl_key_rects:
+                        if badge_rect.collidepoint((mx, my)):
+                            _ctrl_unbind_key(action, kcode)
+                            play_sound(click_sound)
+                            clicked = True
+                            break
                 if not clicked:
                     for action, plus_rect in _ctrl_add_rects:
                         if plus_rect.collidepoint((mx, my)):
@@ -12278,7 +13426,7 @@ while True:
                             break
                 if not clicked:
                     if _ctrl_reset_rect.collidepoint((mx, my)):
-                        save_keybindings(dict(_DEFAULT_KB))
+                        _ctrl_reset_active_tab()
                         play_sound(click_sound)
                     elif _ctrl_back_rect.collidepoint((mx, my)):
                         in_controls_menu = False
@@ -12442,7 +13590,7 @@ while True:
                         if index == -1:
                             play_sound(click_back_sound)
                             showing_stats = False
-                            in_menu = True
+                            in_profile_hub = True
                         elif isinstance(index, tuple):
                             # Sub-tab click inside Modded tab: (main_tab, sub_tab)
                             play_sound(click_sound)
@@ -12458,7 +13606,7 @@ while True:
                 if event.key == pygame.K_TAB:
                     switch_stat_tab()
                 elif event.key == pygame.K_m or is_back_key(event.key):
-                    in_menu = True
+                    in_profile_hub = True
                     showing_stats = False
                 else:
                     d = nav_direction(event.key)

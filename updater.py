@@ -25,9 +25,21 @@ PROTECTED_DIRS = {"data/sound"}
 PROTECTED_DIRS_LOWER = {p.lower() for p in PROTECTED_DIRS}
 # ============================================
 
+# Log-Datei neben der exe/version.txt, damit man bei Problemen (z.B. "Update landet im
+# falschen Ordner") tatsächlich nachvollziehen kann, was der Updater erkannt/getan hat -
+# vorher gingen alle log()-Meldungen nur an stdout, das bei einer windowed/onefile-exe
+# ohne Konsole für den Nutzer unsichtbar ist.
+LOG_FILE = "updater_log.txt"
+
 
 def log(msg):
-    print(f"[UPDATER] {msg}", flush=True)
+    line = f"[UPDATER] {msg}"
+    print(line, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass  # Logging darf den Updater niemals zum Absturz bringen
 
 
 def build_ssl_context():
@@ -159,6 +171,29 @@ def download(url, dest):
         shutil.copyfileobj(resp, f)
 
 
+def _safe_copy(src, dst):
+    """Kopiert eine einzelne Datei, bricht aber nicht das ganze Update ab, falls sie
+    gerade gesperrt ist. Hintergrund: Der Windows-Build kopiert JumpNDodge.dist/ UND
+    updater.dist/ (zwei eigenständige Nuitka-Standalone-Builds mit jeweils eigenem
+    Laufzeit-DLL-Satz) in denselben flachen Release-Ordner - bei gleicher Python-/
+    Nuitka-Version im Build sind darunter oft identisch benannte Dateien. UPDATER_SELF_NAMES
+    schützt nur updater.exe selbst vor Überschreiben, nicht aber dessen mitkopierte
+    Laufzeit-DLLs, die der GERADE LAUFENDE updater.exe-Prozess offen hält - Windows lässt
+    ein Überschreiben davon nicht zu (PermissionError/WinError 32).
+    Ohne dieses Abfangen bricht apply_update() an genau dieser Stelle mit einer Exception
+    ab, BEVOR main() hinterher version.txt schreibt - dadurch bleibt version.txt auf dem
+    alten Stand und der Updater lädt bei jedem Start das komplette Update erneut herunter.
+    Gibt True zurück wenn kopiert, False wenn (mit Log-Warnung) übersprungen."""
+    try:
+        shutil.copy2(src, dst)
+        return True
+    except (PermissionError, OSError) as e:
+        log(f"WARNUNG: Konnte {os.path.basename(dst)} nicht überschreiben (vermutlich "
+            f"gerade in Benutzung, z.B. eine Laufzeit-Datei von updater.exe selbst) -> "
+            f"übersprungen: {e}")
+        return False
+
+
 def merge_copy(src_dir, dst_dir, rel_path=""):
     """Kopiert src_dir nach dst_dir, überschreibt nur was in src_dir existiert -
     Dateien, die nur in dst_dir liegen (z.B. eigene Save-Daten), bleiben unangetastet.
@@ -180,7 +215,7 @@ def merge_copy(src_dir, dst_dir, rel_path=""):
             if protected and os.path.exists(d):
                 log(f"Überspringe (geschützt, bereits vorhanden): {child_rel}")
                 continue
-            shutil.copy2(s, d)
+            _safe_copy(s, d)
 
 
 def find_content_root(extract_dir):
@@ -192,7 +227,10 @@ def find_content_root(extract_dir):
     data/, ...) würden dann nie aktualisiert, obwohl der Updater 'Erfolg' meldet.
     Deshalb: falls der extrahierte Ordner genau einen Eintrag enthält und das ein
     Ordner ist, gilt dessen Inhalt als eigentlicher Update-Root."""
-    entries = os.listdir(extract_dir)
+    # Versteckte Junk-Einträge (z.B. macOS .DS_Store), die manche Zip-Tools mit reinpacken,
+    # ignorieren wir bei der "genau 1 Eintrag"-Prüfung - sonst würde ein Wrapping-Ordner
+    # wegen so einer Nebendatei fälschlich NICHT erkannt und einen Ordner zu tief kopiert.
+    entries = [e for e in os.listdir(extract_dir) if e not in (".DS_Store", "Thumbs.db")]
     if len(entries) == 1:
         single_path = os.path.join(extract_dir, entries[0])
         if os.path.isdir(single_path):
@@ -216,8 +254,8 @@ def apply_update(extracted_root, app_dir):
             merge_copy(src, dst, item)
             log(f"Ordner aktualisiert: {item}")
         else:
-            shutil.copy2(src, dst)
-            log(f"Datei aktualisiert: {item}")
+            if _safe_copy(src, dst):
+                log(f"Datei aktualisiert: {item}")
     log("Update-Dateien erfolgreich übernommen")
 
 
@@ -233,6 +271,23 @@ def launch_app(app_dir):
         log(f"FEHLER: Konnte {APP_EXE} nicht starten: {e}")
 
 
+def _looks_like_app_dir(path):
+    """Prüft, ob 'path' plausibel der echte JumpNDodge-Ordner ist (enthält die
+    Spiel-Executable oder version.txt). Wird benutzt, um einen falsch erkannten
+    Ordner (z.B. einen Eltern- oder Unterordner statt des echten App-Ordners -
+    genau das beschriebene Symptom, dass Update-Dateien im falschen Ordner landen)
+    VOR dem Schreiben zu erkennen, statt das Update blind in irgendeinen
+    Kandidaten-Pfad zu kopieren."""
+    try:
+        if os.path.isfile(os.path.join(path, APP_EXE)):
+            return True
+        if os.path.isfile(os.path.join(path, VERSION_FILE)):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _get_app_dir():
     """Ermittelt das echte App-Verzeichnis, auch als Nuitka-Onefile-Build.
 
@@ -240,12 +295,42 @@ def _get_app_dir():
     bestimmte Startmethoden) nicht zuverlässig auf den echten exe-Ordner.
     __compiled__.containing_dir (von Nuitka bereitgestellt) und sys.executable
     sind bei kompilierten Builds robuster.
+
+    Bugfix: Bisher wurde einfach der ERSTE passende Kandidat (Nuitka >
+    PyInstaller > sys.argv[0]) ungeprüft übernommen. Je nach Build-/Start-
+    Konstellation (z.B. wenn __compiled__.containing_dir aus irgendeinem Grund
+    nicht exakt den Ordner liefert, in dem Updater.exe tatsächlich neben
+    JumpNDodge liegt) konnte das dazu führen, dass app_dir auf einen Eltern-
+    oder Unterordner zeigte - der Updater hat dann "erfolgreich" ins Leere
+    (bzw. den falschen Ordner) aktualisiert, ohne dass das auffiel. Jetzt werden
+    ALLE Kandidaten gesammelt und der erste genommen, der auch wirklich wie der
+    App-Ordner aussieht (_looks_like_app_dir); nur wenn keiner passt, wird der
+    beste verfügbare Kandidat mit einer deutlichen Warnung verwendet.
     """
+    candidates = []
     if '__compiled__' in globals():
-        return __compiled__.containing_dir
+        candidates.append(__compiled__.containing_dir)
     if getattr(sys, 'frozen', False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(sys.argv[0]))
+        candidates.append(os.path.dirname(os.path.abspath(sys.executable)))
+    exe_path = getattr(sys, 'executable', None)
+    if exe_path and os.path.basename(exe_path).lower().startswith(('jumpndodge', 'updater')):
+        cand = os.path.dirname(os.path.abspath(exe_path))
+        if cand not in candidates:
+            candidates.append(cand)
+    argv0_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    if argv0_dir not in candidates:
+        candidates.append(argv0_dir)
+
+    for c in candidates:
+        if c and _looks_like_app_dir(c):
+            return c
+
+    best = candidates[0] if candidates else os.getcwd()
+    log(f"WARNUNG: Konnte App-Ordner nicht eindeutig bestätigen (keiner der "
+        f"Kandidaten {candidates} enthält {APP_EXE} oder {VERSION_FILE}) -> "
+        f"verwende trotzdem: {best}. Prüfe updater_log.txt, falls Dateien "
+        f"wieder im falschen Ordner landen.")
+    return best
 
 
 def main():

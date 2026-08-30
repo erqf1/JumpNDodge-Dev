@@ -1,5 +1,16 @@
 ﻿# Changelog
 
+## v1.3.5 - 2026-08-31
+
+ 
+new profile system with customizable avatars, new profile hub, new magnet power, reworked controls menu, cosmetic shop avatar preview, fixed window resizing during rounds, fixed updater re-download loop, A BUNCH OF translation fixes, misc bug fixes,
+
+
+## v1.4.0 - TBD
+
+new profile system with customizable avatars, new profile hub, new magnet power, reworked controls menu, cosmetic shop avatar preview, fixed window resizing during rounds, fixed updater re-download loop, A BUNCH OF translation fixes, misc bug fixes,
+
+
 ## v1.3.01 - 2026-08-22
 
 new linux updater patch 
