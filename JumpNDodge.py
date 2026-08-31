@@ -572,10 +572,24 @@ def submit_score_online(mode, difficulty, score):
     _online_request_async("POST", "/api/submit", payload)
 
 
-def fetch_leaderboard(mode, difficulty, limit=50, on_done=None):
-    """Holt die Rangliste für einen (Modus, Schwierigkeit)-Bucket asynchron."""
+def fetch_leaderboard(mode, difficulty, limit=50, names=None, on_done=None):
+    """Holt die Rangliste für einen (Modus, Schwierigkeit)-Bucket asynchron.
+    names (optional): nur diese Spielernamen zurückgeben (Freunde-Filter) -
+    Rang wird dann relativ zu dieser Teilliste vergeben, nicht global."""
     path = f"/api/leaderboard?mode={urllib.parse.quote(mode)}&difficulty={urllib.parse.quote(difficulty)}&limit={limit}"
+    if names:
+        path += f"&names={urllib.parse.quote(','.join(names))}"
     _online_request_async("GET", path, on_done=on_done)
+
+
+def fetch_my_rank(mode, difficulty, on_done=None):
+    """Holt den eigenen Rang in einem (Modus, Schwierigkeit)-Bucket asynchron -
+    auch ausserhalb der Top-N aus fetch_leaderboard(), fürs Rang-Dock."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "mode": mode, "difficulty": difficulty}
+    _online_request_async("POST", "/api/my_rank", payload, on_done=on_done)
 
 
 def search_players_online(query, on_done=None):
@@ -1008,6 +1022,8 @@ current_profile_name = None
 _profile_save_lock = False
 online_token = None  # geheimer Pro-Profil-Token fürs Online-Leaderboard, siehe ensure_online_token()
 redeemed_codes_local = []  # lokale Kopie der schon eingelösten Redeem-Codes (Grossbuchstaben), siehe redeem_code_loop()
+friends_local = []  # Namen, die dieses Profil als "Freund" markiert hat - rein lokal/client-seitig,
+                    # da es keine Server-Validierung braucht (reine Anzeige-Präferenz, kein Anti-Cheat-Thema)
 
 def _load_profiles_file():
     _ensure_gamedata_loaded()
@@ -1039,13 +1055,14 @@ def save_current_profile():
             "cosmetics": cosmetics_state,
             "online_token": online_token,
             "redeemed_codes": redeemed_codes_local,
+            "friends": friends_local,
         }
         _save_profiles_file(pdata)
     finally:
         _profile_save_lock = False
 
 def load_profile(name):
-    global current_profile_name, stats, achievements, saved_scores, online_token, redeemed_codes_local
+    global current_profile_name, stats, achievements, saved_scores, online_token, redeemed_codes_local, friends_local
     global settings, powers_state, cosmetics_state, language_index, sound_enabled
     pdata = _load_profiles_file()
     p = pdata.get("profiles", {}).get(name)
@@ -1061,6 +1078,7 @@ def load_profile(name):
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
     online_token    = p.get("online_token")
     redeemed_codes_local = list(p.get("redeemed_codes", []))
+    friends_local = list(p.get("friends", []))
     _migrate_cosmetics_equipped_player(cosmetics_state)
     powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
@@ -1087,7 +1105,7 @@ def load_profile(name):
 
 def create_profile(name):
     global current_profile_name, stats, achievements, saved_scores, best_times
-    global settings, powers_state, cosmetics_state, online_token, redeemed_codes_local
+    global settings, powers_state, cosmetics_state, online_token, redeemed_codes_local, friends_local
     current_profile_name = name
     stats           = dict(default_stats)
     achievements    = dict(default_achievements)
@@ -1098,6 +1116,7 @@ def create_profile(name):
     cosmetics_state = dict(default_cosmetics)
     online_token    = None  # wird bei Bedarf von ensure_online_token() erzeugt
     redeemed_codes_local = []
+    friends_local = []
     _gamedata_cache.update({
         "stats": stats, "achievements": achievements, "highscores": saved_scores,
         "best_times": best_times, "settings": settings, "powers": powers_state, "cosmetics": cosmetics_state,
@@ -1779,7 +1798,8 @@ texts = {
         "generic_error_msg": "Etwas ist schiefgelaufen - Server nicht erreichbar oder Update ausstehend",
         "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
         "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
-        "paste_btn": "Einfügen",
+        "paste_btn": "Einfügen", "add_friend_btn": "+ Freund", "remove_friend_btn": "- Freund",
+        "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprünge gesamt", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins gesamt verdient",
         "shop": "Shop", "loadout": "Inventar", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1870,7 +1890,8 @@ texts = {
         "generic_error_msg": "Something went wrong - server unreachable or update pending",
         "redeem_code_btn": "Redeem Code", "redeem_code_success": "Code redeemed!",
         "code_invalid_msg": "Invalid code", "code_already_redeemed_msg": "Code already redeemed",
-        "paste_btn": "Paste",
+        "paste_btn": "Paste", "add_friend_btn": "+ Friend", "remove_friend_btn": "- Friend",
+        "friends_tab": "Friends", "all_tab_lb": "All", "no_friends_yet": "No friends added yet",
         "total_jumps": "Total Jumps", "total_deaths": "Game Overs", "avg_score": "Avg. Score", "total_coins_earned": "Total Coins Earned",
         "shop": "Shop", "loadout": "Inventory", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1962,7 +1983,8 @@ texts = {
         "generic_error_msg": "Что-то пошло не так - сервер недоступен или ждёт обновления",
         "redeem_code_btn": "Активировать код", "redeem_code_success": "Код активирован!",
         "code_invalid_msg": "Неверный код", "code_already_redeemed_msg": "Код уже использован",
-        "paste_btn": "Вставить",
+        "paste_btn": "Вставить", "add_friend_btn": "+ Друг", "remove_friend_btn": "- Друг",
+        "friends_tab": "Друзья", "all_tab_lb": "Все", "no_friends_yet": "Пока нет друзей",
         "total_jumps": "Прыжков всего", "total_deaths": "Поражений", "avg_score": "Ø очки", "total_coins_earned": "Всего монет заработано",
         "shop": "Магазин", "loadout": "Инвентарь", "coins": "Монеты",
         "power_roll": "Power Roll",
@@ -2054,7 +2076,8 @@ texts = {
         "generic_error_msg": "Bir şeyler ters gitti - sunucuya ulaşılamıyor veya güncelleme bekleniyor",
         "redeem_code_btn": "Kod Kullan", "redeem_code_success": "Kod kullanıldı!",
         "code_invalid_msg": "Geçersiz kod", "code_already_redeemed_msg": "Kod zaten kullanıldı",
-        "paste_btn": "Yapıştır",
+        "paste_btn": "Yapıştır", "add_friend_btn": "+ Arkadaş", "remove_friend_btn": "- Arkadaş",
+        "friends_tab": "Arkadaşlar", "all_tab_lb": "Tümü", "no_friends_yet": "Henüz arkadaş eklenmedi",
         "total_jumps": "Toplam Zıplama", "total_deaths": "Kaybedilen Oyunlar", "avg_score": "Ø Skor", "total_coins_earned": "Toplam Kazanılan Coin",
         "shop": "Mağaza", "loadout": "Envanter", "coins": "Paralar",
         "power_roll": "Power Roll",
@@ -2146,7 +2169,8 @@ texts = {
         "generic_error_msg": "Etwas ist schiefgelaufen - Server nicht erreichbar oder Update ausstehend",
         "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
         "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
-        "paste_btn": "Einfügen",
+        "paste_btn": "Einfügen", "add_friend_btn": "+ Freund", "remove_friend_btn": "- Freund",
+        "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprüng total", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins total verdiänt",
         "shop": "Lade", "loadout": "Inventar", "coins": "Münze",
         "power_roll": "Power Roll",
@@ -5959,12 +5983,19 @@ def _lb_start_fetch():
     Modus, siehe Kommentar bei _lb_difficulty_idx). _lb_request_id verhindert,
     dass eine veraltete Antwort eine inzwischen neu gewählte Schwierigkeit
     überschreibt."""
-    global _lb_loading, _lb_request_id, _lb_entries
-    _lb_loading = True
+    global _lb_loading, _lb_request_id, _lb_entries, _lb_my_rank
     _lb_request_id += 1
+    _lb_my_rank = None
     my_id = _lb_request_id
     mode = "standard"
     difficulty = difficulties[_lb_difficulty_idx]
+
+    if _lb_friends_only and not friends_local:
+        # Nichts zu holen - direkt Leerzustand zeigen statt unnötigem Request.
+        _lb_loading = False
+        _lb_entries = []
+        return
+    _lb_loading = True
 
     def _on_done(result):
         global _lb_loading, _lb_entries
@@ -5973,7 +6004,22 @@ def _lb_start_fetch():
         _lb_loading = False
         _lb_entries = result.get("entries", []) if (result and result.get("ok")) else []
 
-    fetch_leaderboard(mode, difficulty, on_done=_on_done)
+    def _on_rank_done(result):
+        global _lb_my_rank
+        if my_id != _lb_request_id:
+            return
+        if result and result.get("ok"):
+            _lb_my_rank = (result.get("rank"), result.get("score"))
+        else:
+            _lb_my_rank = (None, None)
+
+    names = None
+    if _lb_friends_only:
+        names = list(friends_local)
+        if current_profile_name and current_profile_name not in names:
+            names.append(current_profile_name)
+    fetch_leaderboard(mode, difficulty, names=names, on_done=_on_done)
+    fetch_my_rank(mode, difficulty, on_done=_on_rank_done)
 
 
 def draw_online_leaderboard():
@@ -6002,6 +6048,25 @@ def draw_online_leaderboard():
     search_lbl = small_font.render(get_text("search"), True, get_text_color())
     base_surface.blit(search_lbl, (search_rect.centerx - search_lbl.get_width() // 2, search_rect.centery - search_lbl.get_height() // 2))
 
+    # Alle/Freunde-Umschalter - filtert die Rangliste auf friends_local (siehe
+    # _lb_start_fetch()). Kein eigener Tab noetig, wenn (noch) keine Freunde
+    # markiert sind - Klick zeigt dann einfach den Leerzustand.
+    all_tab_rect = pygame.Rect(60, 65, 100, 36)
+    friends_tab_rect = pygame.Rect(166, 65, 100, 36)
+    for rect, active, label in [
+        (all_tab_rect, not _lb_friends_only, get_text("all_tab_lb")),
+        (friends_tab_rect, _lb_friends_only, get_text("friends_tab")),
+    ]:
+        hov = rect.collidepoint(mouse_pos)
+        if active:
+            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=10)
+            pygame.draw.rect(base_surface, (100, 160, 255), rect, width=2, border_radius=10)
+        else:
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), rect, border_radius=10)
+            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=1, border_radius=10)
+        tab_s = small_font.render(label, True, get_text_color())
+        base_surface.blit(tab_s, (rect.centerx - tab_s.get_width() // 2, rect.centery - tab_s.get_height() // 2))
+
     # Schwierigkeits-Umschalter - rein zum Durchblättern der Rangliste, unabhängig
     # von der echten Spieleinstellung difficulty_index. Nur Standard-Modus, siehe
     # Kommentar bei _lb_difficulty_idx.
@@ -6028,13 +6093,14 @@ def draw_online_leaderboard():
     base_surface.blit(small_font.render(get_text("powers_used_label"), True, (140, 140, 160)), (420, header_y))
 
     content_top = 136
-    fade_bottom = HEIGHT - 45
+    fade_bottom = HEIGHT - 90  # Platz fürs Rang-Dock am unteren Rand lassen
 
     if _lb_loading or _lb_entries is None:
         loading_s = small_font.render(get_text("loading"), True, get_text_color())
         base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 30))
     elif not _lb_entries:
-        empty_s = small_font.render(get_text("no_entries_yet"), True, get_text_color())
+        empty_key = "no_friends_yet" if (_lb_friends_only and not friends_local) else "no_entries_yet"
+        empty_s = small_font.render(get_text(empty_key), True, get_text_color())
         base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 30))
     else:
         y = content_top
@@ -6078,17 +6144,35 @@ def draw_online_leaderboard():
 
             y += row_h
 
+    # Rang-Dock: eigener Rang in diesem Bucket, angepinnt am unteren Rand -
+    # immer sichtbar, auch wenn man ausserhalb der oben angezeigten Top-50 ist.
+    dock_rect = pygame.Rect(60, HEIGHT - 72, WIDTH - 120, 52)
+    dock_hov = current_profile_name is not None and dock_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, get_button_hover_color() if dock_hov else get_panel_color(), dock_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), dock_rect, width=2, border_radius=10)
+
+    if _lb_my_rank is None:
+        dock_txt = get_text("loading")
+    else:
+        my_rank, my_score = _lb_my_rank
+        if my_rank is None:
+            dock_txt = f"{current_profile_name or '-'}: {get_text('no_entries_yet')}"
+        else:
+            dock_txt = f"#{my_rank}  {current_profile_name or '-'}: {my_score:,}".replace(",", ".")
+    dock_s = small_font.render(dock_txt, True, get_text_color())
+    base_surface.blit(dock_s, (dock_rect.x + 16, dock_rect.centery - dock_s.get_height() // 2))
+
     pygame.display.flip()
-    return back_rect, search_rect, diff_left, diff_right
+    return back_rect, search_rect, diff_left, diff_right, dock_rect, all_tab_rect, friends_tab_rect
 
 
 def online_leaderboard_loop():
-    global in_online_leaderboard, _lb_difficulty_idx
+    global in_online_leaderboard, _lb_difficulty_idx, _lb_friends_only
     clock = pygame.time.Clock()
     _lb_start_fetch()
-    _last_key = _lb_difficulty_idx
+    _last_key = (_lb_difficulty_idx, _lb_friends_only)
     while in_online_leaderboard:
-        back_rect, search_rect, diff_left, diff_right = draw_online_leaderboard()
+        back_rect, search_rect, diff_left, diff_right, dock_rect, all_tab_rect, friends_tab_rect = draw_online_leaderboard()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -6101,19 +6185,28 @@ def online_leaderboard_loop():
                     back_to_hub_from_online_leaderboard()
                 elif search_rect.collidepoint(pos):
                     open_player_search_from_leaderboard()
+                elif all_tab_rect.collidepoint(pos):
+                    _lb_friends_only = False
+                    play_sound(click_sound)
+                elif friends_tab_rect.collidepoint(pos):
+                    _lb_friends_only = True
+                    play_sound(click_sound)
                 elif diff_left.collidepoint(pos):
                     _lb_difficulty_idx = (_lb_difficulty_idx - 1) % len(difficulties)
                     play_sound(click_sound)
                 elif diff_right.collidepoint(pos):
                     _lb_difficulty_idx = (_lb_difficulty_idx + 1) % len(difficulties)
                     play_sound(click_sound)
+                elif dock_rect.collidepoint(pos) and current_profile_name:
+                    open_public_profile(current_profile_name, "in_online_leaderboard")
                 else:
                     for rect, name in _lb_row_rects:
                         if rect.collidepoint(pos):
                             open_public_profile(name, "in_online_leaderboard")
                             break
-        if _lb_difficulty_idx != _last_key and in_online_leaderboard:
-            _last_key = _lb_difficulty_idx
+        new_key = (_lb_difficulty_idx, _lb_friends_only)
+        if new_key != _last_key and in_online_leaderboard:
+            _last_key = new_key
             _lb_start_fetch()
         clock.tick(60)
 
@@ -6277,15 +6370,29 @@ def draw_public_profile():
         loading_s = font.render(get_text("loading"), True, get_text_color())
         base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
         pygame.display.flip()
-        return back_rect
+        return back_rect, None
 
     if _public_profile_data is False:
         msg_s = font.render(get_text("player_not_found"), True, get_text_color())
         base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT // 2 - msg_s.get_height() // 2))
         pygame.display.flip()
-        return back_rect
+        return back_rect, None
 
     player = _public_profile_data.get("player", {})
+
+    # Freund hinzufügen/entfernen - nicht beim eigenen Profil
+    friend_rect = None
+    viewed_name = player.get("name")
+    if viewed_name and viewed_name != current_profile_name:
+        is_friend = viewed_name in friends_local
+        friend_rect = pygame.Rect(20, 15, 130, 35)
+        hov_friend = friend_rect.collidepoint(mouse_pos)
+        base_col = (200, 100, 100) if is_friend else (100, 180, 120)
+        hov_col = (220, 120, 120) if is_friend else (120, 200, 140)
+        pygame.draw.rect(base_surface, hov_col if hov_friend else base_col, friend_rect, border_radius=10)
+        pygame.draw.rect(base_surface, (180, 180, 180), friend_rect, width=2, border_radius=10)
+        friend_lbl = small_font.render(get_text("remove_friend_btn") if is_friend else get_text("add_friend_btn"), True, (255, 255, 255))
+        base_surface.blit(friend_lbl, (friend_rect.centerx - friend_lbl.get_width() // 2, friend_rect.centery - friend_lbl.get_height() // 2))
     avatar_color = PLAYER_COLORS.get(player.get("player_color") or "blue", PLAYER_COLORS.get("blue"))
 
     # Avatar mit weichem Farb-Glow dahinter (mehrere Kreise mit abnehmender Deckkraft)
@@ -6365,7 +6472,17 @@ def draw_public_profile():
     _draw_wrapped_text(", ".join(cosmetic_names) if cosmetic_names else "-", cosmetics_rect.x + 16, c_top, col_w - 32, small_font, get_text_color())
 
     pygame.display.flip()
-    return back_rect
+    return back_rect, friend_rect
+
+
+def _toggle_friend(name):
+    global friends_local
+    if name in friends_local:
+        friends_local.remove(name)
+    else:
+        friends_local.append(name)
+    save_current_profile()
+    play_sound(click_sound)
 
 
 def public_profile_loop():
@@ -6373,7 +6490,7 @@ def public_profile_loop():
     clock = pygame.time.Clock()
     _public_profile_start_fetch()
     while in_public_profile:
-        back_rect = draw_public_profile()
+        back_rect, friend_rect = draw_public_profile()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -6381,8 +6498,13 @@ def public_profile_loop():
                 if event.key == pygame.K_m or is_back_key(event.key):
                     back_from_public_profile()
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if back_rect.collidepoint(get_mouse_pos_logical()):
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
                     back_from_public_profile()
+                elif friend_rect is not None and friend_rect.collidepoint(pos):
+                    player = (_public_profile_data or {}).get("player", {})
+                    if player.get("name"):
+                        _toggle_friend(player["name"])
         clock.tick(60)
 
 
@@ -6732,7 +6854,7 @@ def draw_achievements_screen():
         ("🎯 Score",     ["score_10", "score_50", "score_100", "score_200", "score_500", "score_1000"]),
         ("🔁 Runden",    ["first_round", "five_rounds", "ten_rounds", "twenty_rounds", "fifty_rounds"]),
         ("🔥 Hardcore",  ["hardcore_start", "hardcore_survivor"]),
-        ("⚡ Unmöglich", ["impossible_start", "impossible_survivor"]),
+        ("Unmöglich", ["impossible_start", "impossible_survivor"]),
         ("💚 Pickups",   ["pickup_1up", "pickup_3x_1up", "pickup_10x_1up"]),
         ("💰 Coins",     ["coins_100", "coins_500", "coins_1000"]),
         ("🏆 Bonus",     ["no_damage_run", "speed_demon"]),
@@ -6794,7 +6916,7 @@ def draw_achievements_screen():
                     bg_col = (38, 38, 52) if dark else (220, 220, 228)
                     border_col = (65, 65, 88) if dark else (180, 180, 200)
                     text_col = (95, 95, 125) if dark else (140, 140, 160)
-                    prefix = "🔒 "
+                    prefix = ""
 
                 hov_row = (ach_rect.collidepoint(mouse_pos) or nav_is_focused("achievements", _ach_row_idx, _ach_nav_total)) and _ach_detail_code is None
                 if hov_row:
@@ -6866,7 +6988,7 @@ def _draw_ach_detail_popup(code):
     pygame.draw.rect(base_surface, border_col, pygame.Rect(px, py, pw, ph), width=2, border_radius=14)
 
     status_col = (80, 220, 120) if unlocked else (160, 100, 100)
-    status_txt = "✔ Freigeschaltet" if unlocked else "🔒 Gesperrt"
+    status_txt = "✔ Freigeschaltet" if unlocked else "Gesperrt"
     st_s = small_font.render(status_txt, True, status_col)
     base_surface.blit(st_s, (px + pw // 2 - st_s.get_width() // 2, py + 10))
 
@@ -10135,7 +10257,11 @@ def draw_loadout():
     if loadout_tab == 0:
         items = powers_state.get("owned", [])
     else:
-        items = POWERS_LIST
+        # Nach Seltenheit sortiert (aufsteigend) statt POWERS_DB-Definitionsreihenfolge -
+        # sonst landet ein später ergänztes Power (z.B. Magnet) einfach hinten, unabhängig
+        # von seiner Seltenheit, wie es vor diesem Fix der Fall war.
+        _power_rarity_order = {"Common": 0, "Rare": 1, "Epic": 2, "Legendary": 3, "Mythic": 4}
+        items = sorted(POWERS_LIST, key=lambda n: _power_rarity_order.get(POWERS_DB.get(n, {}).get("rarity"), 9))
 
     if not items:
         msg = small_font.render(get_text("no_owned"), True, DARK_GRAY)
@@ -10183,9 +10309,9 @@ def draw_loadout():
         translated_name = get_power_name(name)
         label = translated_name
         if loadout_tab == 1 and not owned:
-            label += f" 🔒 {get_text('locked')}"
+            label += f" - {get_text('locked')}"
         elif equipped:
-            label += f" ⚡ {get_text('equipped')}"
+            label += f" - {get_text('equipped')}"
 
         # Name
         name_text = small_font.render(label, True, get_text_color())
@@ -10296,7 +10422,7 @@ def draw_loadout():
         y0 += 24
 
         if equipped:
-            equip_text = small_font.render("⚡ " + get_text("equipped_tab"), True, (0, 100, 200))
+            equip_text = small_font.render(get_text("equipped_tab"), True, (0, 100, 200))
             base_surface.blit(equip_text, (panel.x + 20, y0))
             y0 += 24
 
@@ -10894,10 +11020,13 @@ _rename_busy = False
 # werden nicht ans Online-Leaderboard gemeldet (siehe submit_score_online()-
 # Aufrufstellen in run_game()) und haben hier bewusst keine eigene Ansicht.
 _lb_difficulty_idx = 0
+_lb_friends_only = False
 _lb_entries = None       # None = noch nie geladen, [] = geladen & leer, [...] = Einträge
 _lb_loading = False
 _lb_request_id = 0       # verhindert, dass eine veraltete Antwort eine neuere Auswahl überschreibt
 _lb_row_rects = []       # [(rect, name), ...] - vom letzten draw_online_leaderboard()-Aufruf
+_lb_my_rank = None       # (rank, score) fürs Dock unten - None solange nicht geladen,
+                         # (None, None) wenn geladen aber (noch) nicht in diesem Bucket gerankt
 
 _search_query = ""
 _search_results = None

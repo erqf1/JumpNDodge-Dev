@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.4.7 - 2026-08-31
+
+new friend system, fixed some text/ui in powers
+ 
+
+
 ## v1.4.5 - 2026-08-31
 
 new code redeem button 
