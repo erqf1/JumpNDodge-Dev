@@ -1,8 +1,12 @@
 """JumpNDodge Online-Leaderboard-Server.
 
 Minimaler Flask-Service: Profil-Snapshot + Highscore pro (Name, Modus,
-Schwierigkeit) speichern, Ranglisten/Suche/öffentliches Profil auslesen.
-Der Score selbst bleibt eine Client-Meldung (siehe Plan/README) - Token und
+Schwierigkeit) speichern, Ranglisten/Suche/öffentliches Profil auslesen,
+Verified-Keys einlösen, Namen ändern.
+
+Spieler werden intern über token_hash identifiziert, nicht über den Namen -
+der Name ist nur ein austauschbares Anzeigefeld (siehe /api/rename). Der
+Score selbst bleibt eine Client-Meldung (siehe Plan/README) - Token und
 Plausibilitätsgrenzen verhindern Namens-Diebstahl und grob unsinnige Werte,
 aber keinen Angreifer, der gezielt eigene Requests baut.
 """
@@ -24,8 +28,8 @@ RATE_LIMIT_SECONDS = 2
 _last_submit = {}
 
 
-def _hash_token(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+def _hash_secret(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _as_int_score(value):
@@ -36,6 +40,14 @@ def _as_int_score(value):
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
+
+
+def _is_verified(conn, token_hash):
+    row = conn.execute(
+        "SELECT 1 FROM verified_keys WHERE claimed_by_token_hash = ? AND status = 'claimed'",
+        (token_hash,),
+    ).fetchone()
+    return row is not None
 
 
 @app.post("/api/submit")
@@ -56,30 +68,38 @@ def submit_score():
     if not isinstance(powers_used, list):
         return jsonify(ok=False, error="bad_request"), 400
 
+    token_hash = _hash_secret(token)
+
     now = time.time()
-    if now - _last_submit.get(name, 0) < RATE_LIMIT_SECONDS:
+    if now - _last_submit.get(token_hash, 0) < RATE_LIMIT_SECONDS:
         return jsonify(ok=False, error="rate_limited"), 429
 
-    token_hash = _hash_token(token)
     conn = db.get_connection()
     try:
-        row = conn.execute(
-            "SELECT token_hash FROM players WHERE name = ?", (name,)
+        existing = conn.execute(
+            "SELECT name FROM players WHERE token_hash = ?", (token_hash,)
         ).fetchone()
-        if row is None:
+        if existing is None:
+            # Neue Identität - der Name muss frei sein und den Filter bestehen.
+            name_row = conn.execute(
+                "SELECT token_hash FROM players WHERE name = ?", (name,)
+            ).fetchone()
+            if name_row is not None:
+                return jsonify(ok=False, error="name_taken"), 403
             if not is_name_allowed(name):
                 return jsonify(ok=False, error="name_filtered"), 400
-        elif row["token_hash"] != token_hash:
-            return jsonify(ok=False, error="name_taken"), 403
+        else:
+            # Name kommt von der Identität (Token), nicht vom Client - Umbenennen
+            # läuft ausschliesslich über /api/rename, nicht nebenbei über submit.
+            name = existing["name"]
 
-        _last_submit[name] = now
+        _last_submit[token_hash] = now
 
         conn.execute("""
-            INSERT INTO players (name, token_hash, player_color, stats_json, owned_powers_json,
+            INSERT INTO players (token_hash, name, player_color, stats_json, owned_powers_json,
                                   equipped_powers_json, cosmetics_json, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(name) DO UPDATE SET
-                token_hash = excluded.token_hash,
+            ON CONFLICT(token_hash) DO UPDATE SET
                 player_color = excluded.player_color,
                 stats_json = excluded.stats_json,
                 owned_powers_json = excluded.owned_powers_json,
@@ -87,32 +107,121 @@ def submit_score():
                 cosmetics_json = excluded.cosmetics_json,
                 updated_at = excluded.updated_at
         """, (
-            name, token_hash, snapshot.get("player_color"),
+            token_hash, name, snapshot.get("player_color"),
             json.dumps(snapshot.get("stats") or {}),
             json.dumps(snapshot.get("owned_powers") or []),
             json.dumps(snapshot.get("equipped_powers") or []),
             json.dumps(snapshot.get("cosmetics") or {}),
         ))
 
-        existing = conn.execute(
-            "SELECT score FROM scores WHERE name = ? AND mode = ? AND difficulty = ?",
-            (name, mode, difficulty),
+        existing_score = conn.execute(
+            "SELECT score FROM scores WHERE token_hash = ? AND mode = ? AND difficulty = ?",
+            (token_hash, mode, difficulty),
         ).fetchone()
-        is_new_record = existing is None or score > existing["score"]
+        is_new_record = existing_score is None or score > existing_score["score"]
         if is_new_record:
             conn.execute("""
-                INSERT INTO scores (name, mode, difficulty, score, powers_used_json, submitted_at)
+                INSERT INTO scores (token_hash, mode, difficulty, score, powers_used_json, submitted_at)
                 VALUES (?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(name, mode, difficulty) DO UPDATE SET
+                ON CONFLICT(token_hash, mode, difficulty) DO UPDATE SET
                     score = excluded.score,
                     powers_used_json = excluded.powers_used_json,
                     submitted_at = excluded.submitted_at
-            """, (name, mode, difficulty, score, json.dumps(powers_used)))
+            """, (token_hash, mode, difficulty, score, json.dumps(powers_used)))
         conn.commit()
     finally:
         conn.close()
 
-    return jsonify(ok=True, new_record=is_new_record)
+    return jsonify(ok=True, new_record=is_new_record, name=name)
+
+
+@app.post("/api/redeem_key")
+def redeem_key():
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    key = (body.get("key") or "").strip()
+
+    if not token or not key:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    key_hash = _hash_secret(key)
+
+    conn = db.get_connection()
+    try:
+        player = conn.execute(
+            "SELECT token_hash FROM players WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if player is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        key_row = conn.execute(
+            "SELECT * FROM verified_keys WHERE key_hash = ?", (key_hash,)
+        ).fetchone()
+        if key_row is None:
+            return jsonify(ok=False, error="invalid_key"), 404
+        if key_row["status"] == "revoked":
+            return jsonify(ok=False, error="key_revoked"), 403
+
+        if key_row["status"] == "unused":
+            conn.execute(
+                "UPDATE verified_keys SET status='claimed', claimed_by_token_hash=?, claimed_at=datetime('now') "
+                "WHERE key_hash=?",
+                (token_hash, key_hash),
+            )
+            conn.commit()
+            return jsonify(ok=True, verified=True)
+
+        # status == 'claimed'
+        if key_row["claimed_by_token_hash"] == token_hash:
+            return jsonify(ok=True, verified=True)  # schon durch dich selbst eingelöst
+
+        # Ein ANDERER Token hat den Key schon - Weitergabe erkannt, Key für
+        # alle sperren (auch der Erst-Einlöser verliert seinen Verified-Status,
+        # da der ja abgeleitet wird aus status='claimed').
+        conn.execute("UPDATE verified_keys SET status='revoked' WHERE key_hash=?", (key_hash,))
+        conn.commit()
+        return jsonify(ok=False, error="key_shared_revoked"), 403
+    finally:
+        conn.close()
+
+
+@app.post("/api/rename")
+def rename_player():
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    new_name = (body.get("new_name") or "").strip()
+
+    if not token or not new_name:
+        return jsonify(ok=False, error="bad_request"), 400
+    if not is_name_allowed(new_name):
+        return jsonify(ok=False, error="name_filtered"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        player = conn.execute(
+            "SELECT name FROM players WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if player is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+        if player["name"] == new_name:
+            return jsonify(ok=True, name=new_name)
+
+        clash = conn.execute(
+            "SELECT token_hash FROM players WHERE name = ?", (new_name,)
+        ).fetchone()
+        if clash is not None:
+            return jsonify(ok=False, error="name_taken"), 403
+
+        conn.execute(
+            "UPDATE players SET name = ?, updated_at = datetime('now') WHERE token_hash = ?",
+            (new_name, token_hash),
+        )
+        conn.commit()
+        return jsonify(ok=True, name=new_name)
+    finally:
+        conn.close()
 
 
 @app.get("/api/leaderboard")
@@ -127,9 +236,15 @@ def leaderboard():
     conn = db.get_connection()
     try:
         rows = conn.execute("""
-            SELECT name, score, powers_used_json, submitted_at FROM scores
-            WHERE mode = ? AND difficulty = ?
-            ORDER BY score DESC, submitted_at ASC
+            SELECT p.name AS name, s.score AS score, s.powers_used_json AS powers_used_json,
+                   s.submitted_at AS submitted_at,
+                   EXISTS(
+                       SELECT 1 FROM verified_keys vk
+                       WHERE vk.claimed_by_token_hash = s.token_hash AND vk.status = 'claimed'
+                   ) AS verified
+            FROM scores s JOIN players p ON p.token_hash = s.token_hash
+            WHERE s.mode = ? AND s.difficulty = ?
+            ORDER BY s.score DESC, s.submitted_at ASC
             LIMIT ?
         """, (mode, difficulty, limit)).fetchall()
     finally:
@@ -142,6 +257,7 @@ def leaderboard():
             "score": r["score"],
             "powers_used": json.loads(r["powers_used_json"] or "[]"),
             "submitted_at": r["submitted_at"],
+            "verified": bool(r["verified"]),
         }
         for i, r in enumerate(rows)
     ])
@@ -154,13 +270,19 @@ def search_players():
         return jsonify(ok=True, results=[])
     conn = db.get_connection()
     try:
-        rows = conn.execute(
-            "SELECT name FROM players WHERE name LIKE ? ORDER BY name LIMIT 25",
-            (f"%{q}%",),
-        ).fetchall()
+        rows = conn.execute("""
+            SELECT name,
+                   EXISTS(
+                       SELECT 1 FROM verified_keys vk
+                       WHERE vk.claimed_by_token_hash = players.token_hash AND vk.status = 'claimed'
+                   ) AS verified
+            FROM players WHERE name LIKE ? ORDER BY name LIMIT 25
+        """, (f"%{q}%",)).fetchall()
     finally:
         conn.close()
-    return jsonify(ok=True, results=[r["name"] for r in rows])
+    return jsonify(ok=True, results=[
+        {"name": r["name"], "verified": bool(r["verified"])} for r in rows
+    ])
 
 
 @app.get("/api/players/<name>")
@@ -173,9 +295,10 @@ def get_player(name):
         if player is None:
             return jsonify(ok=False, error="not_found"), 404
         scores = conn.execute(
-            "SELECT mode, difficulty, score, powers_used_json FROM scores WHERE name = ?",
-            (name,),
+            "SELECT mode, difficulty, score, powers_used_json FROM scores WHERE token_hash = ?",
+            (player["token_hash"],),
         ).fetchall()
+        verified = _is_verified(conn, player["token_hash"])
     finally:
         conn.close()
 
@@ -187,6 +310,7 @@ def get_player(name):
         "equipped_powers": json.loads(player["equipped_powers_json"] or "[]"),
         "cosmetics": json.loads(player["cosmetics_json"] or "{}"),
         "updated_at": player["updated_at"],
+        "verified": verified,
         "scores": [
             {
                 "mode": s["mode"],
