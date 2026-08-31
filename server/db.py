@@ -89,6 +89,14 @@ def init_db():
                 claimed_at TEXT
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS redeemed_codes (
+                token_hash TEXT NOT NULL,
+                code TEXT NOT NULL,
+                redeemed_at TEXT,
+                PRIMARY KEY (token_hash, code)
+            )
+        """)
         conn.commit()
         _seed_verified_keys_if_empty(conn)
     finally:

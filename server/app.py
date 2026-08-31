@@ -17,6 +17,7 @@ import time
 
 from flask import Flask, jsonify, request
 
+import codes
 import db
 from filter import is_name_allowed, load_banned_words
 
@@ -174,6 +175,52 @@ def redeem_key():
         )
         conn.commit()
         return jsonify(ok=True, verified=True)
+    finally:
+        conn.close()
+
+
+@app.post("/api/redeem_code")
+def redeem_code():
+    """Allgemeiner Promo-Code (z.B. Gewinnspiel) gegen Coins - unabhängig von
+    den Verified-Keys. Coins werden NICHT serverseitig gutgeschrieben (der
+    Server ist keine Coin-Datenbank, das bleibt wie der Rest der Progression
+    client-seitig) - die Antwort sagt dem Client nur, wie viele Coins er sich
+    selbst gutschreiben darf, und merkt sich, dass dieser Spieler diesen Code
+    schon benutzt hat."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    code = (body.get("code") or "").strip().upper()
+
+    if not token or not code:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    available = codes.load_codes()
+    if code not in available:
+        return jsonify(ok=False, error="invalid_code"), 404
+    coins = available[code]
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        player = conn.execute(
+            "SELECT token_hash FROM players WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if player is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        already = conn.execute(
+            "SELECT 1 FROM redeemed_codes WHERE token_hash = ? AND code = ?",
+            (token_hash, code),
+        ).fetchone()
+        if already is not None:
+            return jsonify(ok=False, error="already_redeemed"), 403
+
+        conn.execute(
+            "INSERT INTO redeemed_codes (token_hash, code, redeemed_at) VALUES (?, ?, datetime('now'))",
+            (token_hash, code),
+        )
+        conn.commit()
+        return jsonify(ok=True, coins=coins)
     finally:
         conn.close()
 
