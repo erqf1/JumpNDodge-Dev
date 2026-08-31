@@ -1,6 +1,7 @@
 display_surface = None
 
 import pygame
+import pygame.scrap  # Zwischenablage-Zugriff (Paste-Button bei Redeem-Key/Code)
 import math
 import colorsys  # Für die Regenbogenspur (HSV -> RGB Farbrotation)
 import sys  # Systemfunktionen, z.B. für das Beenden des Programms
@@ -465,7 +466,10 @@ def _online_request(method, path, payload=None, timeout=5):
         return None
     url = ONLINE_SERVER_URL.rstrip("/") + path
     data = None
-    headers = {"Accept": "application/json"}
+    # Eigener User-Agent statt urllib-Standard ("Python-urllib/3.x") - der wird von
+    # Cloudflares Bot-Schutz vor dem Tunnel als Bot erkannt und geblockt (getestet:
+    # ohne diesen Header 403 Forbidden, mit irgendeinem echten User-Agent 200 OK).
+    headers = {"Accept": "application/json", "User-Agent": "JumpNDodge-Game-Client/1.0"}
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -585,6 +589,82 @@ def fetch_public_profile(name, on_done=None):
     eines Spielers asynchron."""
     path = f"/api/players/{urllib.parse.quote(name)}"
     _online_request_async("GET", path, on_done=on_done)
+
+
+def redeem_verified_key_online(key, on_done=None):
+    """Löst einen Verified-Key für das aktuelle Profil ein. Ergebnis kommt
+    asynchron über on_done(result) - result['ok'] + ggf. result['error']
+    ('invalid_key', 'key_revoked', 'key_shared_revoked', 'unknown_player')."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "key": key.strip()}
+    _online_request_async("POST", "/api/redeem_key", payload, on_done=on_done)
+
+
+def redeem_code_online(code, on_done=None):
+    """Löst einen allgemeinen Promo-Code (z.B. Gewinnspiel) für Coins ein -
+    unabhängig vom Verified-Key-System. Ergebnis kommt asynchron über
+    on_done(result); result['coins'] bei Erfolg, result['error'] sonst
+    ('invalid_code', 'already_redeemed', 'unknown_player')."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "code": code.strip()}
+    _online_request_async("POST", "/api/redeem_code", payload, on_done=on_done)
+
+
+def rename_profile_online(new_name, on_done=None):
+    """Ändert den Online-Anzeigenamen des aktuellen Profils (Server prüft
+    Namensfilter + Kollision). Bei Erfolg wird auch das LOKALE Profil
+    umbenannt (siehe on_done-Callback in der Aufrufstelle), damit lokaler und
+    Online-Name nie auseinanderlaufen."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "new_name": new_name.strip()}
+    _online_request_async("POST", "/api/rename", payload, on_done=on_done)
+
+
+def rename_current_profile_local(new_name):
+    """Benennt das aktuell aktive LOKALE Profil um (verschiebt den Eintrag im
+    _profiles-Dict auf den neuen Namen-Key). Wird nur nach erfolgreicher
+    Server-Antwort von /api/rename aufgerufen, damit lokaler und Online-Name
+    synchron bleiben."""
+    global current_profile_name
+    old_name = current_profile_name
+    if not old_name or old_name == new_name:
+        return
+    pdata = _load_profiles_file()
+    profiles = pdata.get("profiles", {})
+    entry = profiles.pop(old_name, None)
+    if entry is None:
+        return
+    entry["name"] = new_name
+    profiles[new_name] = entry
+    if pdata.get("active") == old_name:
+        pdata["active"] = new_name
+    if pdata.get("auto_start") == old_name:
+        pdata["auto_start"] = new_name
+    _save_profiles_file(pdata)
+    current_profile_name = new_name
+
+
+def check_local_verified_key_file():
+    """Prüft beim Profil-Eintritt (siehe _enter_profile()), ob data/verified_key.txt
+    existiert, und löst den darin stehenden Key automatisch im Hintergrund ein -
+    der 99-Zeichen-Key muss so nicht von Hand eingetippt werden, einfach die
+    Datei mit dem Key-Inhalt in den data/-Ordner legen."""
+    key_path = os.path.join(_DATA_DIR, "verified_key.txt")
+    try:
+        if not os.path.isfile(key_path):
+            return
+        with open(key_path, encoding="utf-8") as f:
+            key = f.read().strip()
+    except OSError:
+        return
+    if key:
+        redeem_verified_key_online(key)
 
 
 # =============================
@@ -927,6 +1007,7 @@ def save_modded_section(section, data):
 current_profile_name = None
 _profile_save_lock = False
 online_token = None  # geheimer Pro-Profil-Token fürs Online-Leaderboard, siehe ensure_online_token()
+redeemed_codes_local = []  # lokale Kopie der schon eingelösten Redeem-Codes (Grossbuchstaben), siehe redeem_code_loop()
 
 def _load_profiles_file():
     _ensure_gamedata_loaded()
@@ -957,13 +1038,14 @@ def save_current_profile():
             "powers": powers_state,
             "cosmetics": cosmetics_state,
             "online_token": online_token,
+            "redeemed_codes": redeemed_codes_local,
         }
         _save_profiles_file(pdata)
     finally:
         _profile_save_lock = False
 
 def load_profile(name):
-    global current_profile_name, stats, achievements, saved_scores, online_token
+    global current_profile_name, stats, achievements, saved_scores, online_token, redeemed_codes_local
     global settings, powers_state, cosmetics_state, language_index, sound_enabled
     pdata = _load_profiles_file()
     p = pdata.get("profiles", {}).get(name)
@@ -978,6 +1060,7 @@ def load_profile(name):
     powers_state    = {**default_powers,       **p.get("powers", {})}
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
     online_token    = p.get("online_token")
+    redeemed_codes_local = list(p.get("redeemed_codes", []))
     _migrate_cosmetics_equipped_player(cosmetics_state)
     powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
@@ -1004,7 +1087,7 @@ def load_profile(name):
 
 def create_profile(name):
     global current_profile_name, stats, achievements, saved_scores, best_times
-    global settings, powers_state, cosmetics_state, online_token
+    global settings, powers_state, cosmetics_state, online_token, redeemed_codes_local
     current_profile_name = name
     stats           = dict(default_stats)
     achievements    = dict(default_achievements)
@@ -1014,6 +1097,7 @@ def create_profile(name):
     powers_state    = dict(default_powers)
     cosmetics_state = dict(default_cosmetics)
     online_token    = None  # wird bei Bedarf von ensure_online_token() erzeugt
+    redeemed_codes_local = []
     _gamedata_cache.update({
         "stats": stats, "achievements": achievements, "highscores": saved_scores,
         "best_times": best_times, "settings": settings, "powers": powers_state, "cosmetics": cosmetics_state,
@@ -1685,6 +1769,17 @@ texts = {
         "online_leaderboard_btn": "Online-Rangliste", "search": "Suche", "no_entries_yet": "Noch keine Einträge",
         "player_search_title": "Spielersuche", "player_not_found": "Spieler nicht gefunden", "powers_used_label": "Verwendete Powers",
         "owned_powers_label": "Freigeschaltete Powers", "owned_cosmetics_label": "Freigeschaltete Cosmetics",
+        "diff_Leicht": "Leicht", "diff_Mittel": "Mittel", "diff_Schwer": "Schwer", "diff_Hardcore": "Hardcore",
+        "diff_Unmöglich": "Unmöglich", "diff_Albtraum": "Albtraum", "diff_Hölle": "Hölle", "diff_Dynamisch": "Dynamisch",
+        "redeem_key_btn": "Verified-Key einlösen", "rename_btn": "Namen ändern",
+        "redeem_key_success": "Key erfolgreich eingelöst!", "rename_success": "Name geändert!",
+        "key_invalid_msg": "Ungültiger Key", "key_revoked_msg": "Dieser Key wurde gesperrt",
+        "key_shared_msg": "Key wurde von jemandem geteilt - beide Nutzungen gesperrt",
+        "unknown_player_msg": "Bitte zuerst eine Standard-Runde spielen", "play_time_label": "Spielzeit",
+        "generic_error_msg": "Etwas ist schiefgelaufen - Server nicht erreichbar oder Update ausstehend",
+        "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
+        "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
+        "paste_btn": "Einfügen",
         "total_jumps": "Sprünge gesamt", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins gesamt verdient",
         "shop": "Shop", "loadout": "Inventar", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1765,6 +1860,17 @@ texts = {
         "online_leaderboard_btn": "Online Leaderboard", "search": "Search", "no_entries_yet": "No entries yet",
         "player_search_title": "Player Search", "player_not_found": "Player not found", "powers_used_label": "Powers used",
         "owned_powers_label": "Unlocked Powers", "owned_cosmetics_label": "Unlocked Cosmetics",
+        "diff_Leicht": "Easy", "diff_Mittel": "Medium", "diff_Schwer": "Hard", "diff_Hardcore": "Hardcore",
+        "diff_Unmöglich": "Impossible", "diff_Albtraum": "Nightmare", "diff_Hölle": "Hell", "diff_Dynamisch": "Dynamic",
+        "redeem_key_btn": "Redeem Verified Key", "rename_btn": "Change Name",
+        "redeem_key_success": "Key redeemed successfully!", "rename_success": "Name changed!",
+        "key_invalid_msg": "Invalid key", "key_revoked_msg": "This key has been revoked",
+        "key_shared_msg": "Key was shared with someone else - both uses revoked",
+        "unknown_player_msg": "Please play a Standard round first", "play_time_label": "Play time",
+        "generic_error_msg": "Something went wrong - server unreachable or update pending",
+        "redeem_code_btn": "Redeem Code", "redeem_code_success": "Code redeemed!",
+        "code_invalid_msg": "Invalid code", "code_already_redeemed_msg": "Code already redeemed",
+        "paste_btn": "Paste",
         "total_jumps": "Total Jumps", "total_deaths": "Game Overs", "avg_score": "Avg. Score", "total_coins_earned": "Total Coins Earned",
         "shop": "Shop", "loadout": "Inventory", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1846,6 +1952,17 @@ texts = {
         "online_leaderboard_btn": "Онлайн-рейтинг", "search": "Поиск", "no_entries_yet": "Пока нет записей",
         "player_search_title": "Поиск игрока", "player_not_found": "Игрок не найден", "powers_used_label": "Использованные способности",
         "owned_powers_label": "Разблокированные способности", "owned_cosmetics_label": "Разблокированная косметика",
+        "diff_Leicht": "Легко", "diff_Mittel": "Средне", "diff_Schwer": "Сложно", "diff_Hardcore": "Хардкор",
+        "diff_Unmöglich": "Невозможно", "diff_Albtraum": "Кошмар", "diff_Hölle": "Ад", "diff_Dynamisch": "Динамический",
+        "redeem_key_btn": "Активировать ключ", "rename_btn": "Изменить имя",
+        "redeem_key_success": "Ключ успешно активирован!", "rename_success": "Имя изменено!",
+        "key_invalid_msg": "Неверный ключ", "key_revoked_msg": "Этот ключ заблокирован",
+        "key_shared_msg": "Ключ был передан другому - обе активации заблокированы",
+        "unknown_player_msg": "Сначала сыграйте раунд в стандартном режиме", "play_time_label": "Время игры",
+        "generic_error_msg": "Что-то пошло не так - сервер недоступен или ждёт обновления",
+        "redeem_code_btn": "Активировать код", "redeem_code_success": "Код активирован!",
+        "code_invalid_msg": "Неверный код", "code_already_redeemed_msg": "Код уже использован",
+        "paste_btn": "Вставить",
         "total_jumps": "Прыжков всего", "total_deaths": "Поражений", "avg_score": "Ø очки", "total_coins_earned": "Всего монет заработано",
         "shop": "Магазин", "loadout": "Инвентарь", "coins": "Монеты",
         "power_roll": "Power Roll",
@@ -1927,6 +2044,17 @@ texts = {
         "online_leaderboard_btn": "Çevrimiçi Sıralama", "search": "Ara", "no_entries_yet": "Henüz kayıt yok",
         "player_search_title": "Oyuncu Ara", "player_not_found": "Oyuncu bulunamadı", "powers_used_label": "Kullanılan güçler",
         "owned_powers_label": "Açılan Güçler", "owned_cosmetics_label": "Açılan Kozmetikler",
+        "diff_Leicht": "Kolay", "diff_Mittel": "Orta", "diff_Schwer": "Zor", "diff_Hardcore": "Hardcore",
+        "diff_Unmöglich": "İmkansız", "diff_Albtraum": "Kâbus", "diff_Hölle": "Cehennem", "diff_Dynamisch": "Dinamik",
+        "redeem_key_btn": "Doğrulama Anahtarı Kullan", "rename_btn": "İsmi Değiştir",
+        "redeem_key_success": "Anahtar başarıyla kullanıldı!", "rename_success": "İsim değiştirildi!",
+        "key_invalid_msg": "Geçersiz anahtar", "key_revoked_msg": "Bu anahtar iptal edildi",
+        "key_shared_msg": "Anahtar başkasıyla paylaşıldı - her iki kullanım da iptal edildi",
+        "unknown_player_msg": "Önce bir Standart tur oyna", "play_time_label": "Oynama süresi",
+        "generic_error_msg": "Bir şeyler ters gitti - sunucuya ulaşılamıyor veya güncelleme bekleniyor",
+        "redeem_code_btn": "Kod Kullan", "redeem_code_success": "Kod kullanıldı!",
+        "code_invalid_msg": "Geçersiz kod", "code_already_redeemed_msg": "Kod zaten kullanıldı",
+        "paste_btn": "Yapıştır",
         "total_jumps": "Toplam Zıplama", "total_deaths": "Kaybedilen Oyunlar", "avg_score": "Ø Skor", "total_coins_earned": "Toplam Kazanılan Coin",
         "shop": "Mağaza", "loadout": "Envanter", "coins": "Paralar",
         "power_roll": "Power Roll",
@@ -2008,6 +2136,17 @@ texts = {
         "online_leaderboard_btn": "Online-Rangliste", "search": "Suche", "no_entries_yet": "Noch keine Einträge",
         "player_search_title": "Spielersuche", "player_not_found": "Spieler nicht gefunden", "powers_used_label": "Verwendete Powers",
         "owned_powers_label": "Freigeschaltete Powers", "owned_cosmetics_label": "Freigeschaltete Cosmetics",
+        "diff_Leicht": "Leicht", "diff_Mittel": "Mittel", "diff_Schwer": "Schwer", "diff_Hardcore": "Hardcore",
+        "diff_Unmöglich": "Unmöglich", "diff_Albtraum": "Albtraum", "diff_Hölle": "Hölle", "diff_Dynamisch": "Dynamisch",
+        "redeem_key_btn": "Verified-Key einlösen", "rename_btn": "Namen ändern",
+        "redeem_key_success": "Key erfolgreich eingelöst!", "rename_success": "Name geändert!",
+        "key_invalid_msg": "Ungültiger Key", "key_revoked_msg": "Dieser Key wurde gesperrt",
+        "key_shared_msg": "Key wurde von jemandem geteilt - beide Nutzungen gesperrt",
+        "unknown_player_msg": "Bitte zuerst eine Standard-Runde spielen", "play_time_label": "Spielzeit",
+        "generic_error_msg": "Etwas ist schiefgelaufen - Server nicht erreichbar oder Update ausstehend",
+        "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
+        "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
+        "paste_btn": "Einfügen",
         "total_jumps": "Sprüng total", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins total verdiänt",
         "shop": "Lade", "loadout": "Inventar", "coins": "Münze",
         "power_roll": "Power Roll",
@@ -3348,6 +3487,14 @@ def get_text(key):
     pack = texts.get(lang, texts["Deutsch"])  # Sprachpaket oder Deutsch als Fallback
     return pack.get(key, texts["Deutsch"].get(key, key))  # Text oder Schlüssel
 
+
+def get_difficulty_display_name(difficulty):
+    """Übersetzt einen internen Schwierigkeits-Namen (immer Deutsch, z.B. aus
+    'difficulties' oder von saved_scores/dem Online-Leaderboard) in die aktuelle
+    UI-Sprache. Die internen Namen selbst bleiben überall Deutsch (Speicherdaten,
+    Server-Keys) - das hier ist rein für die Anzeige."""
+    return get_text(f"diff_{difficulty}")
+
 def is_dark_mode():
     """Prüft, ob der Dark Mode aktiviert ist.
 
@@ -3451,6 +3598,13 @@ def get_power_name(power_name):
     # Ansonsten verwende die mehrsprachige Struktur
     current_lang = languages[language_index]
     return name_data.get(current_lang, name_data.get("English", power_name))
+
+
+def get_cosmetic_name(cosmetic_key):
+    """Gibt den lokalisierten Anzeigenamen eines Cosmetic-Items zurück (z.B.
+    'fire_trail' -> 'Feuerspur'), Fallback auf den internen Key."""
+    meta = COSMETICS_DB.get(cosmetic_key, {})
+    return meta.get("name", {}).get(languages[language_index], cosmetic_key)
 
 
 def get_achievement_name(code):
@@ -3615,6 +3769,26 @@ def open_public_profile(name, return_screen):
     _public_profile_data = None
     _public_profile_loading = False
     _public_profile_return_screen = return_screen
+
+def open_redeem_code_from_more():
+    # Kein eigener play_sound() hier - die Aufrufstelle im "Mehr"-Menü
+    # (in_more_menu-Dispatch) spielt für jede nicht-"back"-Aktion bereits
+    # menu_click_sound, ein zweiter Aufruf hier würde ihn doppelt abspielen.
+    global in_more_menu, in_redeem_code, _redeem_code_text, _redeem_code_msg, _redeem_code_busy
+    in_more_menu = False
+    in_redeem_code = True
+    _redeem_code_text = ""
+    _redeem_code_msg = ""
+    _redeem_code_busy = False
+
+def open_rename_profile_from_hub():
+    play_sound(menu_click_sound)
+    global in_profile_hub, in_rename_profile, _rename_text, _rename_msg, _rename_busy
+    in_profile_hub = False
+    in_rename_profile = True
+    _rename_text = ""
+    _rename_msg = ""
+    _rename_busy = False
 
 def back_from_public_profile():
     play_sound(click_back_sound)
@@ -5436,6 +5610,7 @@ _profile_from_settings = False
 def _enter_profile(name):
     global in_profile_select, in_menu, in_language_select, in_profile_name_input
     load_profile(name)
+    check_local_verified_key_file()
     set_all_menu_flags(False)
     if not stats.get("tutorial_seen", False):
         in_language_select = True
@@ -5631,11 +5806,11 @@ def draw_more_menu():
     start_y = 140
     gap = 58
     if _check_admin_keyfile():
-        btn_texts  = [get_text('admin'), get_text('classic_mode'), get_text('help'), get_text('back')]
-        btn_colors = [(200, 100, 100), (120, 170, 120), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('admin'), get_text('classic_mode'), get_text('help'), get_text('redeem_code_btn'), get_text('back')]
+        btn_colors = [(200, 100, 100), (120, 170, 120), (200, 150, 100), (80, 170, 220), (150, 150, 150)]
     else:
-        btn_texts  = [get_text('classic_mode'), get_text('help'), get_text('back')]
-        btn_colors = [(120, 170, 120), (200, 150, 100), (150, 150, 150)]
+        btn_texts  = [get_text('classic_mode'), get_text('help'), get_text('redeem_code_btn'), get_text('back')]
+        btn_colors = [(120, 170, 120), (200, 150, 100), (80, 170, 220), (150, 150, 150)]
     
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
@@ -5721,8 +5896,9 @@ def draw_profile_hub():
     start_x = WIDTH // 2 - 180
     start_y = sy + swatch_size + 30
     gap = 56
-    btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('online_leaderboard_btn'), get_text('back')]
-    btn_colors = [(100, 150, 200), (200, 150, 100), (100, 180, 160), (150, 150, 150)]
+    btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('online_leaderboard_btn'),
+                 get_text('rename_btn'), get_text('back')]
+    btn_colors = [(100, 150, 200), (200, 150, 100), (100, 180, 160), (170, 130, 200), (150, 150, 150)]
     btn_rects = []
     _hub_nav_total = len(swatch_names) + len(btn_texts)
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
@@ -5767,6 +5943,15 @@ def _draw_wrapped_text(text, x, y, max_w, font_obj, color, line_gap=4):
         base_surface.blit(line_s, (x, y))
         y += line_s.get_height() + line_gap
     return y
+
+
+def _draw_verified_badge(surface, cx, cy, radius=9):
+    """Zeichnet ein blaues Verified-Häkchen zentriert bei (cx, cy)."""
+    pygame.draw.circle(surface, (60, 150, 255), (cx, cy), radius)
+    p1 = (cx - radius * 0.5, cy + radius * 0.05)
+    p2 = (cx - radius * 0.1, cy + radius * 0.45)
+    p3 = (cx + radius * 0.55, cy - radius * 0.35)
+    pygame.draw.lines(surface, (255, 255, 255), False, [p1, p2, p3], max(2, radius // 4))
 
 
 def _lb_start_fetch():
@@ -5820,7 +6005,7 @@ def draw_online_leaderboard():
     # Schwierigkeits-Umschalter - rein zum Durchblättern der Rangliste, unabhängig
     # von der echten Spieleinstellung difficulty_index. Nur Standard-Modus, siehe
     # Kommentar bei _lb_difficulty_idx.
-    diff_label = difficulties[_lb_difficulty_idx]
+    diff_label = get_difficulty_display_name(difficulties[_lb_difficulty_idx])
     diff_rect = pygame.Rect(WIDTH // 2 - 95, 65, 190, 36)
     diff_left = pygame.Rect(diff_rect.x - 32, diff_rect.y, 26, 36)
     diff_right = pygame.Rect(diff_rect.right + 6, diff_rect.y, 26, 36)
@@ -5864,12 +6049,20 @@ def draw_online_leaderboard():
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
 
             rank = entry.get("rank", 0)
-            rank_col = (255, 210, 50) if rank <= 3 else get_text_color()
-            rank_s = small_font.render(f"#{rank}", True, rank_col)
-            base_surface.blit(rank_s, (row_rect.x + 12, row_rect.centery - rank_s.get_height() // 2))
+            medal_colors = {1: (255, 210, 60), 2: (200, 200, 210), 3: (205, 140, 80)}
+            if rank in medal_colors:
+                pygame.draw.circle(base_surface, medal_colors[rank], (row_rect.x + 20, row_rect.centery), 12)
+                pygame.draw.circle(base_surface, (0, 0, 0, 60), (row_rect.x + 20, row_rect.centery), 12, width=1)
+                rank_s = small_font.render(str(rank), True, (40, 30, 10))
+                base_surface.blit(rank_s, (row_rect.x + 20 - rank_s.get_width() // 2, row_rect.centery - rank_s.get_height() // 2))
+            else:
+                rank_s = small_font.render(f"#{rank}", True, get_text_color())
+                base_surface.blit(rank_s, (row_rect.x + 12, row_rect.centery - rank_s.get_height() // 2))
 
             name_s = small_font.render(entry.get("name", ""), True, get_text_color())
             base_surface.blit(name_s, (row_rect.x + 60, row_rect.centery - name_s.get_height() // 2))
+            if entry.get("verified"):
+                _draw_verified_badge(base_surface, row_rect.x + 68 + name_s.get_width(), row_rect.centery, radius=8)
 
             score_s = small_font.render(str(entry.get("score", 0)), True, get_text_color())
             base_surface.blit(score_s, (row_rect.x + 270, row_rect.centery - score_s.get_height() // 2))
@@ -5983,9 +6176,10 @@ def draw_player_search():
     elif _search_results:
         y = content_top
         row_h = 44
-        for name in _search_results:
+        for entry in _search_results:
             if y + row_h > fade_bottom:
                 break
+            name = entry.get("name", "")
             row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
             _search_row_rects.append((pygame.Rect(row_rect), name))
             hov = row_rect.collidepoint(mouse_pos)
@@ -5993,6 +6187,8 @@ def draw_player_search():
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
             name_s = menu_font.render(name, True, get_text_color())
             base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+            if entry.get("verified"):
+                _draw_verified_badge(base_surface, row_rect.x + 20 + name_s.get_width(), row_rect.centery, radius=9)
             y += row_h
 
     pygame.display.flip()
@@ -6011,7 +6207,7 @@ def player_search_loop():
                 if event.key == pygame.K_BACKSPACE:
                     _search_query = _search_query[:-1]
                     _search_trigger(_search_query)
-                elif is_back_key(event.key, allow_backspace=False) or event.key == pygame.K_m:
+                elif is_back_key(event.key, allow_backspace=False):
                     back_from_player_search()
                 elif event.key != pygame.K_RETURN:
                     ch = event.unicode
@@ -6046,6 +6242,25 @@ def _public_profile_start_fetch():
     fetch_public_profile(name, on_done=_on_done)
 
 
+def _format_playtime(seconds):
+    seconds = int(seconds or 0)
+    hours, rem = divmod(seconds, 3600)
+    minutes = rem // 60
+    return f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+
+
+def _draw_section_card(surface, rect, title, accent_color, dark):
+    """Karten-Panel mit farbigem Akzentbalken oben + Titel. Gibt die y-Position
+    zurück, ab der der Karteninhalt beginnen sollte."""
+    pygame.draw.rect(surface, get_panel_color(), rect, border_radius=14)
+    pygame.draw.rect(surface, (75, 75, 100) if dark else (215, 215, 230), rect, width=1, border_radius=14)
+    accent_rect = pygame.Rect(rect.x, rect.y, rect.w, 5)
+    pygame.draw.rect(surface, accent_color, accent_rect, border_top_left_radius=14, border_top_right_radius=14)
+    title_s = small_font.render(title, True, accent_color)
+    surface.blit(title_s, (rect.x + 16, rect.y + 15))
+    return rect.y + 15 + title_s.get_height() + 8
+
+
 def draw_public_profile():
     mouse_pos = get_mouse_pos_logical()
     fill_bg(rings=True)
@@ -6071,59 +6286,83 @@ def draw_public_profile():
         return back_rect
 
     player = _public_profile_data.get("player", {})
+    avatar_color = PLAYER_COLORS.get(player.get("player_color") or "blue", PLAYER_COLORS.get("blue"))
+
+    # Avatar mit weichem Farb-Glow dahinter (mehrere Kreise mit abnehmender Deckkraft)
+    avatar_size = 56
+    avatar_cx, avatar_cy = WIDTH // 2, 78
+    glow = pygame.Surface((220, 220), pygame.SRCALPHA)
+    for r, a in [(100, 22), (75, 30), (52, 40)]:
+        pygame.draw.circle(glow, (*avatar_color, a), (110, 110), r)
+    base_surface.blit(glow, (avatar_cx - 110, avatar_cy - 110))
+    avatar_rect = pygame.Rect(avatar_cx - avatar_size // 2, avatar_cy - avatar_size // 2, avatar_size, avatar_size)
+    avatar_shadow = pygame.Rect(avatar_rect.x + 4, avatar_rect.y + 4, avatar_size, avatar_size)
+    pygame.draw.rect(base_surface, (100, 100, 150), avatar_shadow, border_radius=12)
+    draw_avatar(base_surface, avatar_rect, color=avatar_color, cosmetics=True, cosmetics_overrides=player.get("cosmetics") or {})
 
     title_txt = player.get("name") or "-"
     title_s = font.render(title_txt, True, get_text_color())
     shadow_s = font.render(title_txt, True, (100, 100, 120))
-    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
-    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+    title_y = avatar_rect.bottom + 12
+    title_x = WIDTH // 2 - title_s.get_width() // 2
+    base_surface.blit(shadow_s, (title_x + 2, title_y + 2))
+    base_surface.blit(title_s, (title_x, title_y))
+    if player.get("verified"):
+        _draw_verified_badge(base_surface, title_x + title_s.get_width() + 18, title_y + title_s.get_height() // 2, radius=12)
 
-    avatar_size = 50
-    avatar_rect = pygame.Rect(WIDTH // 2 - avatar_size // 2, 65, avatar_size, avatar_size)
-    avatar_shadow = pygame.Rect(avatar_rect.x + 4, avatar_rect.y + 4, avatar_size, avatar_size)
-    pygame.draw.rect(base_surface, (100, 100, 150), avatar_shadow, border_radius=10)
-    avatar_color = PLAYER_COLORS.get(player.get("player_color") or "blue", PLAYER_COLORS.get("blue"))
-    draw_avatar(base_surface, avatar_rect, color=avatar_color, cosmetics=True, cosmetics_overrides=player.get("cosmetics") or {})
+    # 2x2 Karten-Grid: Stats / Powers oben, Highscores / Cosmetics unten
+    grid_top = title_y + title_s.get_height() + 22
+    gap = 20
+    col_w = (WIDTH - 2 * 40 - gap) // 2
+    row_h = (HEIGHT - grid_top - 30 - gap) // 2
+    left_x = 40
+    right_x = left_x + col_w + gap
+    row2_y = grid_top + row_h + gap
 
-    col_top = avatar_rect.bottom + 26
-    left_x = 50
-    right_x = WIDTH // 2 + 30
-    col_w = WIDTH // 2 - 70
-    hdr_col = (160, 160, 210) if dark else (80, 80, 140)
+    stats_rect = pygame.Rect(left_x, grid_top, col_w, row_h)
+    powers_rect = pygame.Rect(right_x, grid_top, col_w, row_h)
+    scores_rect = pygame.Rect(left_x, row2_y, col_w, row_h)
+    cosmetics_rect = pygame.Rect(right_x, row2_y, col_w, row_h)
 
     p_stats = player.get("stats") or {}
-    base_surface.blit(small_font.render(get_text("stats"), True, hdr_col), (left_x, col_top))
+    c_top = _draw_section_card(base_surface, stats_rect, get_text("stats"), (100, 170, 255), dark)
     stat_rows = [
-        (get_text("coins"), p_stats.get("coins", 0)),
+        (get_text("coins"), f"{p_stats.get('coins', 0):,}".replace(",", ".")),
         (get_text("rounds_played"), p_stats.get("total_rounds", 0)),
         (get_text("1ups_collected"), p_stats.get("total_1ups", 0)),
     ]
-    y = col_top + 26
+    y = c_top
     for label, value in stat_rows:
         row_s = small_font.render(f"{label}: {value}", True, get_text_color())
-        base_surface.blit(row_s, (left_x, y))
+        base_surface.blit(row_s, (stats_rect.x + 16, y))
         y += 24
+    playtime_s = small_font.render(f"{get_text('play_time_label')}: {_format_playtime(p_stats.get('total_time_played', 0))}", True, get_text_color())
+    base_surface.blit(playtime_s, (stats_rect.x + 16, y))
 
-    y += 10
-    base_surface.blit(small_font.render(get_text("table_highscore"), True, hdr_col), (left_x, y))
-    y += 26
-    for s in (player.get("scores") or [])[:8]:
-        row_txt = f"{s.get('difficulty', '-')}: {s.get('score', 0)}"
-        row_s = small_font.render(row_txt, True, get_text_color())
-        base_surface.blit(row_s, (left_x, y))
-        y += 22
-
-    ry = col_top
-    base_surface.blit(small_font.render(get_text("owned_powers_label"), True, hdr_col), (right_x, ry))
-    ry += 26
+    c_top = _draw_section_card(base_surface, powers_rect, get_text("owned_powers_label"), (255, 190, 80), dark)
     owned_powers = player.get("owned_powers") or []
-    ry = _draw_wrapped_text(", ".join(owned_powers) if owned_powers else "-", right_x, ry, col_w, small_font, get_text_color())
+    _draw_wrapped_text(", ".join(owned_powers) if owned_powers else "-", powers_rect.x + 16, c_top, col_w - 32, small_font, get_text_color())
 
-    ry += 16
-    base_surface.blit(small_font.render(get_text("owned_cosmetics_label"), True, hdr_col), (right_x, ry))
-    ry += 26
+    c_top = _draw_section_card(base_surface, scores_rect, get_text("stat_highscores"), (140, 220, 140), dark)
+    scores_by_diff = {
+        s.get("difficulty"): s.get("score", 0)
+        for s in (player.get("scores") or []) if s.get("mode") == "standard"
+    }
+    y = c_top
+    for diff in difficulties:
+        if y + 19 > scores_rect.bottom - 8:
+            break
+        score_val = scores_by_diff.get(diff)
+        score_txt = f"{score_val:,}".replace(",", ".") if score_val is not None else "-"
+        row_txt = f"{get_difficulty_display_name(diff)}: {score_txt}"
+        row_s = small_font.render(row_txt, True, get_text_color())
+        base_surface.blit(row_s, (scores_rect.x + 16, y))
+        y += 19
+
+    c_top = _draw_section_card(base_surface, cosmetics_rect, get_text("owned_cosmetics_label"), (220, 140, 220), dark)
     owned_cosmetics = (player.get("cosmetics") or {}).get("owned") or []
-    _draw_wrapped_text(", ".join(owned_cosmetics) if owned_cosmetics else "-", right_x, ry, col_w, small_font, get_text_color())
+    cosmetic_names = [get_cosmetic_name(c) for c in owned_cosmetics]
+    _draw_wrapped_text(", ".join(cosmetic_names) if cosmetic_names else "-", cosmetics_rect.x + 16, c_top, col_w - 32, small_font, get_text_color())
 
     pygame.display.flip()
     return back_rect
@@ -6144,6 +6383,323 @@ def public_profile_loop():
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if back_rect.collidepoint(get_mouse_pos_logical()):
                     back_from_public_profile()
+        clock.tick(60)
+
+
+def _get_clipboard_text():
+    """Liest Text aus der System-Zwischenablage, best-effort - gibt None
+    zurück, wenn nichts verfügbar ist (z.B. Zwischenablage leer/kein Text
+    drin, oder pygame.scrap auf dieser Plattform nicht verfügbar). pygame
+    unterstützt Ctrl+V nicht automatisch in Textfeldern, daher dieser Helfer
+    für die Paste-Buttons bei Redeem-Key/-Code."""
+    try:
+        if not pygame.scrap.get_init():
+            pygame.scrap.init()
+        raw = pygame.scrap.get(pygame.SCRAP_TEXT)
+        if not raw:
+            return None
+        text = raw.decode("utf-8", errors="ignore").split("\x00")[0]
+        return text.strip() or None
+    except Exception:
+        return None
+
+
+def _paste_into_field(max_len):
+    """Zwischenablage-Text für ein Eingabefeld, gefiltert auf druckbares ASCII
+    (gleiche Zeichenmenge wie beim normalen Eintippen) und auf max_len gekürzt.
+    Ersetzt den Feldinhalt komplett (nicht anhängen) - None falls nichts in
+    der Zwischenablage steht."""
+    clip = _get_clipboard_text()
+    if not clip:
+        return None
+    filtered = "".join(c for c in clip if 32 <= ord(c) <= 126)
+    return filtered[:max_len] if filtered else None
+
+
+def _fit_text_tail(text, font_obj, max_w):
+    """Gibt das Suffix von text zurück, das in max_w Pixel passt - für lange
+    Eingabefelder (99-Zeichen-Key), zeigt immer das Ende beim Cursor."""
+    for i in range(len(text)):
+        if font_obj.size(text[i:])[0] <= max_w:
+            return text[i:]
+    return text
+
+
+_redeem_code_pending = None  # (code, coins) von _on_done (Hintergrund-Thread)
+# gesetzt, im Main-Thread (redeem_code_loop()) angewendet - siehe Kommentar
+# bei _rename_pending_local_name, gleiche Race-Condition-Vorsicht. Nur für
+# normale Codes (Coins) - Verified-Keys brauchen keine lokale Buchführung.
+
+
+def _confirm_redeem_code():
+    """Ein Eingabefeld für beides: Verified-Keys sind immer exakt 99 Zeichen
+    (siehe VERIFIED_KEY_LENGTH in server/db.py), alles andere ist ein
+    normaler Redeem-Code - daran unterscheidet der Client, welchen der beiden
+    Endpunkte er anspricht, ohne dass der Spieler das explizit wählen muss."""
+    global _redeem_code_msg, _redeem_code_busy
+    text = _redeem_code_text.strip()
+    if not text:
+        _redeem_code_msg = get_text("code_invalid_msg")
+        return
+
+    if len(text) == 99:
+        _redeem_code_busy = True
+        _redeem_code_msg = ""
+
+        def _on_done_key(result):
+            global _redeem_code_msg, _redeem_code_busy
+            _redeem_code_busy = False
+            if result and result.get("ok"):
+                _redeem_code_msg = get_text("redeem_key_success")
+            else:
+                err = (result or {}).get("error")
+                _redeem_code_msg = {
+                    "invalid_key": get_text("key_invalid_msg"),
+                    "unknown_player": get_text("unknown_player_msg"),
+                }.get(err, get_text("generic_error_msg"))
+
+        redeem_verified_key_online(text, on_done=_on_done_key)
+        return
+
+    code = text.upper()
+    if code in redeemed_codes_local:
+        # Schon lokal als eingelöst bekannt - kein Serverping nötig, direkt
+        # dieselbe Meldung wie der Server bei einem Doppel-Versuch.
+        _redeem_code_msg = get_text("code_already_redeemed_msg")
+        return
+    _redeem_code_busy = True
+    _redeem_code_msg = ""
+
+    def _on_done_code(result):
+        global _redeem_code_msg, _redeem_code_busy, _redeem_code_pending
+        _redeem_code_busy = False
+        if result and result.get("ok"):
+            gained = result.get("coins", 0)
+            _redeem_code_pending = (code, gained)
+            _redeem_code_msg = f"{get_text('redeem_code_success')} (+{gained} {get_text('coins')})"
+        else:
+            err = (result or {}).get("error")
+            _redeem_code_msg = {
+                "invalid_code": get_text("code_invalid_msg"),
+                "already_redeemed": get_text("code_already_redeemed_msg"),
+                "unknown_player": get_text("unknown_player_msg"),
+            }.get(err, get_text("generic_error_msg"))
+
+    redeem_code_online(code, on_done=_on_done_code)
+
+
+def draw_redeem_code():
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+    pw, ph = 600, 260
+    px = WIDTH // 2 - pw // 2
+    py = HEIGHT // 2 - ph // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=18)
+    pygame.draw.rect(base_surface, (100, 160, 255) if not dark else (80, 120, 200), panel, width=3, border_radius=18)
+
+    title = menu_font.render(get_text("redeem_code_btn"), True, (80, 140, 255) if not dark else (120, 170, 255))
+    base_surface.blit(title, (px + pw // 2 - title.get_width() // 2, py + 24))
+
+    box = pygame.Rect(px + 30, py + 90, pw - 60, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), box, width=2, border_radius=10)
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    # _fit_text_tail statt direktem Render, da ein Verified-Key (99 Zeichen)
+    # sonst weit über den Kasten hinaus liefe - zeigt immer das Ende beim Cursor.
+    visible = _fit_text_tail(_redeem_code_text, small_font, box.w - 20)
+    inp = small_font.render(visible + cursor, True, get_text_color())
+    base_surface.blit(inp, (box.x + 10, box.centery - inp.get_height() // 2))
+
+    if _redeem_code_busy:
+        msg_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 150))
+    elif _redeem_code_msg:
+        col = (60, 190, 100) if (_redeem_code_msg.startswith(get_text("redeem_code_success")) or _redeem_code_msg == get_text("redeem_key_success")) else (220, 60, 60)
+        msg_s = small_font.render(_redeem_code_msg, True, col)
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 150))
+
+    paste_rect = pygame.Rect(px + 30, py + ph - 62, 170, 44)
+    confirm_rect = pygame.Rect(px + 215, py + ph - 62, 170, 44)
+    back_rect = pygame.Rect(px + 400, py + ph - 62, 170, 44)
+    mp = get_mouse_pos_logical()
+    hov_p = paste_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_p else get_button_color(), paste_rect, border_radius=12)
+    pl = small_font.render(get_text("paste_btn"), True, get_text_color())
+    base_surface.blit(pl, (paste_rect.centerx - pl.get_width() // 2, paste_rect.centery - pl.get_height() // 2))
+    hov_c = confirm_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
+    cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
+    base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
+    hov_b = back_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_b else get_button_color(), back_rect, border_radius=12)
+    bl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(bl, (back_rect.centerx - bl.get_width() // 2, back_rect.centery - bl.get_height() // 2))
+
+    pygame.display.flip()
+    return paste_rect, confirm_rect, back_rect
+
+
+def redeem_code_loop():
+    global in_redeem_code, in_more_menu, _redeem_code_text, _redeem_code_pending, redeemed_codes_local
+    clock = pygame.time.Clock()
+    while in_redeem_code:
+        paste_rect, confirm_rect, back_rect = draw_redeem_code()
+        if _redeem_code_pending is not None:
+            pending_code, pending_coins = _redeem_code_pending
+            stats["coins"] = stats.get("coins", 0) + pending_coins
+            save_section("stats", stats)
+            if pending_code not in redeemed_codes_local:
+                redeemed_codes_local.append(pending_code)
+                save_current_profile()
+            _redeem_code_pending = None
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _confirm_redeem_code()
+                elif event.key == pygame.K_BACKSPACE:
+                    _redeem_code_text = _redeem_code_text[:-1]
+                elif event.key == pygame.K_v and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    pasted = _paste_into_field(99)
+                    if pasted is not None:
+                        _redeem_code_text = pasted
+                elif is_back_key(event.key, allow_backspace=False):
+                    play_sound(click_back_sound)
+                    in_redeem_code = False
+                    in_more_menu = True
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_redeem_code_text) < 99:
+                        _redeem_code_text += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if paste_rect.collidepoint(pos):
+                    pasted = _paste_into_field(99)
+                    if pasted is not None:
+                        _redeem_code_text = pasted
+                    play_sound(click_sound)
+                elif confirm_rect.collidepoint(pos):
+                    _confirm_redeem_code()
+                elif back_rect.collidepoint(pos):
+                    play_sound(click_back_sound)
+                    in_redeem_code = False
+                    in_more_menu = True
+        clock.tick(60)
+
+
+_rename_pending_local_name = None  # von _on_done (Hintergrund-Thread) gesetzt,
+# vom Main-Thread in rename_profile_loop() angewendet - rename_current_profile_local()
+# schreibt die Save-Datei, das darf nicht aus einem Hintergrund-Thread passieren
+# (Race Condition mit anderen Speichervorgängen im Main-Thread).
+
+
+def _confirm_rename():
+    global _rename_msg, _rename_busy
+    new_name = _rename_text.strip()
+    if not new_name:
+        _rename_msg = get_text("name_empty")
+        return
+    if not is_name_allowed(new_name):
+        _rename_msg = get_text("name_filtered")
+        return
+    _rename_busy = True
+    _rename_msg = ""
+
+    def _on_done(result):
+        global _rename_msg, _rename_busy, _rename_pending_local_name
+        _rename_busy = False
+        if result and result.get("ok"):
+            _rename_pending_local_name = result.get("name", new_name)
+            _rename_msg = get_text("rename_success")
+        else:
+            err = (result or {}).get("error")
+            _rename_msg = {
+                "name_taken": get_text("name_taken"),
+                "name_filtered": get_text("name_filtered"),
+                "unknown_player": get_text("unknown_player_msg"),
+            }.get(err, get_text("generic_error_msg"))
+
+    rename_profile_online(new_name, on_done=_on_done)
+
+
+def draw_rename_profile():
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+    pw, ph = 520, 260
+    px = WIDTH // 2 - pw // 2
+    py = HEIGHT // 2 - ph // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=18)
+    pygame.draw.rect(base_surface, (100, 160, 255) if not dark else (80, 120, 200), panel, width=3, border_radius=18)
+
+    title = menu_font.render(get_text("rename_btn"), True, (80, 140, 255) if not dark else (120, 170, 255))
+    base_surface.blit(title, (px + pw // 2 - title.get_width() // 2, py + 24))
+
+    box = pygame.Rect(px + 40, py + 90, pw - 80, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), box, width=2, border_radius=10)
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    inp = menu_font.render(_rename_text + cursor, True, get_text_color())
+    base_surface.blit(inp, (box.x + 10, box.centery - inp.get_height() // 2))
+
+    if _rename_busy:
+        msg_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 150))
+    elif _rename_msg:
+        col = (60, 190, 100) if _rename_msg == get_text("rename_success") else (220, 60, 60)
+        msg_s = small_font.render(_rename_msg, True, col)
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 150))
+
+    confirm_rect = pygame.Rect(px + pw // 2 - 200, py + ph - 62, 180, 44)
+    back_rect = pygame.Rect(px + pw // 2 + 20, py + ph - 62, 180, 44)
+    mp = get_mouse_pos_logical()
+    hov_c = confirm_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
+    cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
+    base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
+    hov_b = back_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_b else get_button_color(), back_rect, border_radius=12)
+    bl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(bl, (back_rect.centerx - bl.get_width() // 2, back_rect.centery - bl.get_height() // 2))
+
+    pygame.display.flip()
+    return confirm_rect, back_rect
+
+
+def rename_profile_loop():
+    global in_rename_profile, in_profile_hub, _rename_text, _rename_pending_local_name
+    clock = pygame.time.Clock()
+    while in_rename_profile:
+        confirm_rect, back_rect = draw_rename_profile()
+        if _rename_pending_local_name is not None:
+            rename_current_profile_local(_rename_pending_local_name)
+            _rename_pending_local_name = None
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _confirm_rename()
+                elif event.key == pygame.K_BACKSPACE:
+                    _rename_text = _rename_text[:-1]
+                elif is_back_key(event.key, allow_backspace=False):
+                    play_sound(click_back_sound)
+                    in_rename_profile = False
+                    in_profile_hub = True
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_rename_text) < 20:
+                        _rename_text += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if confirm_rect.collidepoint(pos):
+                    _confirm_rename()
+                elif back_rect.collidepoint(pos):
+                    play_sound(click_back_sound)
+                    in_rename_profile = False
+                    in_profile_hub = True
         clock.tick(60)
 
 
@@ -10322,6 +10878,16 @@ in_profile_hub = False
 in_online_leaderboard = False
 in_player_search = False
 in_public_profile = False
+in_rename_profile = False
+in_redeem_code = False
+
+_redeem_code_text = ""
+_redeem_code_msg = ""
+_redeem_code_busy = False
+
+_rename_text = ""
+_rename_msg = ""
+_rename_busy = False
 
 # Online-Leaderboard UI-State (rein fürs Durchblättern - unabhängig von der
 # echten Spieleinstellung difficulty_index). Nur Standard-Modus: Klassik-Läufe
@@ -12909,6 +13475,7 @@ _ALL_SCREEN_FLAGS = [
     "in_cosmetic_inventory", "in_loading", "in_difficulty_select", "in_tutorial", "in_language_select",
     "in_admin_login", "in_admin_panel", "in_achievements_screen", "in_profile_hub",
     "in_online_leaderboard", "in_player_search", "in_public_profile",
+    "in_rename_profile", "in_redeem_code",
 ]
 
 
@@ -13061,6 +13628,8 @@ DEV_COMMANDS = {
     "profile_hub":        (_dev_cmd_nav("in_profile_hub"), "Profil-Hub öffnen (Avatar/Stats/Profile)"),
     "online_leaderboard": (_dev_cmd_nav("in_online_leaderboard"), "Online-Rangliste öffnen"),
     "player_search":      (_dev_cmd_nav("in_player_search"), "Spielersuche öffnen"),
+    "rename_profile":     (_dev_cmd_nav("in_rename_profile"), "Namen-ändern-Screen öffnen"),
+    "redeem_code":        (_dev_cmd_nav("in_redeem_code"), "Code-Einlösen-Screen öffnen (im Mehr-Menü)"),
     "stats":              (_dev_cmd_nav("showing_stats"), "Statistik-Screen öffnen"),
     "difficulty":         (_dev_cmd_nav("in_difficulty_select"), "Schwierigkeitsauswahl öffnen"),
     "daily_rewards":      (_dev_cmd_nav("in_daily_rewards"), "Daily Rewards öffnen"),
@@ -13717,6 +14286,8 @@ while True:
                             elif _bidx2 == 2:
                                 open_online_leaderboard_from_hub()
                             elif _bidx2 == 3:
+                                open_rename_profile_from_hub()
+                            elif _bidx2 == 4:
                                 back_to_main_from_profile_hub()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
@@ -13739,6 +14310,8 @@ while True:
                         elif idx == 2:
                             open_online_leaderboard_from_hub()
                         elif idx == 3:
+                            open_rename_profile_from_hub()
+                        elif idx == 4:
                             back_to_main_from_profile_hub()
                         break
         clock.tick(60)
@@ -13748,9 +14321,9 @@ while True:
         start_y = 140
         gap = 58
         if _check_admin_keyfile():
-            _more_actions = ["admin", "classic", "help", "back"]
+            _more_actions = ["admin", "classic", "help", "redeem_code", "back"]
         else:
-            _more_actions = ["classic", "help", "back"]
+            _more_actions = ["classic", "help", "redeem_code", "back"]
         _more_rects = [pygame.Rect(start_x, start_y + idx*gap, 360, 48) for idx in range(len(_more_actions))]
 
         for event in pygame.event.get():
@@ -13786,6 +14359,8 @@ while True:
                     in_more_menu = False
                     in_tutorial = True
                     tutorial_step = 0
+                elif _more_action == "redeem_code":
+                    open_redeem_code_from_more()
                 elif _more_action == "back":
                     back_to_main_from_more()
         draw_more_menu()
@@ -14322,6 +14897,10 @@ while True:
         player_search_loop()
     elif in_public_profile:
         public_profile_loop()
+    elif in_rename_profile:
+        rename_profile_loop()
+    elif in_redeem_code:
+        redeem_code_loop()
 
     elif in_admin_login:
         admin_login_loop()

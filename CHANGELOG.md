@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.4.5 - 2026-08-31
+
+new code redeem button 
+
+
 ## v1.4.01 - 2026-08-31
 
 server connected 
