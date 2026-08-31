@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.4.0 - 2026-08-31
+
+new leaderboard 
+
+
 ## v1.3.5 - 2026-08-31
 
  

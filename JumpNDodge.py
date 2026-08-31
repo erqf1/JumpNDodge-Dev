@@ -12,11 +12,14 @@ from math import floor, sin, pi, exp  # Mathematische Funktionen
 from datetime import timedelta, datetime  # Datum und Zeit für Daily Rewards
 import urllib.request  # HTTP-Anfragen für Internetverbindung und Zeitabfrage
 import urllib.error  # Fehlerbehandlung für HTTP-Anfragen
+import urllib.parse  # URL-Encoding für Online-Leaderboard-Requests (Namen können Umlaute etc. enthalten)
 import base64        # Base64-Kodierung für verschlüsselte Dateien
 import hashlib       # SHA256-Prüfsummen für Dateiintegrität / Schlüsselableitung
 import hmac          # HMAC für Verschlüsselung (Keystream) und Integritätsprüfung
-import threading     # Dev-Konsole: liest stdin in einem Hintergrund-Thread
+import threading     # Dev-Konsole: liest stdin in einem Hintergrund-Thread; auch für Online-Requests
 import queue         # Dev-Konsole: Thread-sichere Übergabe der eingelesenen Zeilen
+import secrets       # Kryptographisch sichere Zufalls-Tokens fürs Online-Leaderboard
+import unicodedata   # Namens-Normalisierung für den Online-Namensfilter
 
 # Konsole auf UTF-8 umstellen - sonst erscheinen Umlaute in print()-Ausgaben (z.B. der
 # Dev-Konsole) auf Windows als Mojibake, weil cmd.exe/PowerShell oft eine andere
@@ -428,6 +431,163 @@ def get_current_date():
     return get_current_datetime()[:10]  # Nur das Datum extrahieren (YYYY-MM-DD)
 
 # =============================
+# Online-Leaderboard (Client)
+# =============================
+# Alles hier ist best-effort: der Heimserver kann jederzeit offline sein
+# (Stromausfall, Wartung, kein Port-Forwarding) - das Spiel muss davon
+# unabhängig immer normal weiterlaufen. Deshalb: kurze Timeouts, jeder Fehler
+# wird geschluckt und liefert None statt einer Exception, und alle Requests
+# laufen in eigenen Threads, damit ein hängender Server nie einen Frame oder
+# den Game-Over-Screen blockiert. Der Score selbst bleibt eine Client-Meldung
+# (siehe server/app.py) - das Token verhindert nur Namens-Diebstahl.
+
+ONLINE_ENABLED = True
+ONLINE_SERVER_URL = "http://localhost:5000"  # TEMPORÄR zum lokalen Testen - vor dem Release wieder auf die echte Server-Adresse setzen!
+
+_DEFAULT_BANNED_WORDS = ["fuck", "shit", "bitch", "nigger", "faggot", "hurensohn", "wichser", "arschloch"]
+_banned_words_cache = None
+_ONLINE_LEET_MAP = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s"})
+
+
+def _online_normalize_name(text):
+    text = text.casefold()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = text.translate(_ONLINE_LEET_MAP)
+    return "".join(c for c in text if c.isalnum())
+
+
+def _online_request(method, path, payload=None, timeout=5):
+    """Führt einen HTTP-Request gegen ONLINE_SERVER_URL aus. Gibt bei jedem
+    Fehler (kein Internet, Server offline, Timeout, ungültige Antwort) None
+    zurück, statt eine Exception nach aussen durchzureichen."""
+    if not ONLINE_ENABLED:
+        return None
+    url = ONLINE_SERVER_URL.rstrip("/") + path
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _online_request_async(method, path, payload=None, on_done=None):
+    """Wie _online_request(), aber in einem Hintergrund-Thread - blockiert das
+    Spiel nie, egal wie lange der Server braucht oder ob er gar nicht antwortet."""
+    def _run():
+        result = _online_request(method, path, payload)
+        if on_done:
+            try:
+                on_done(result)
+            except Exception:
+                pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def ensure_online_token():
+    """Erzeugt beim ersten Online-Kontakt eines Profils einen geheimen,
+    zufälligen Token und speichert ihn dauerhaft im Profil (wie stats/settings/
+    etc., siehe save_current_profile()). Nur mit diesem Token darf später
+    unter demselben Namen gepostet werden."""
+    global online_token
+    if not online_token:
+        online_token = secrets.token_urlsafe(24)
+        save_current_profile()
+    return online_token
+
+
+def get_cached_banned_words():
+    """Gibt die gecachte Blockliste zurück (nie blockierend!). Startet beim
+    allerersten Aufruf einen Hintergrund-Refresh von der echten Server-Liste
+    und beantwortet diesen einen Aufruf sofort mit der kleinen eingebauten
+    Fallback-Liste; alle folgenden Aufrufe sehen dann die echte Liste, sobald
+    die Antwort da ist (oder bleiben beim Fallback, falls der Server nicht
+    erreichbar ist)."""
+    global _banned_words_cache
+    if _banned_words_cache is None:
+        _banned_words_cache = _DEFAULT_BANNED_WORDS
+
+        def _on_done(result):
+            global _banned_words_cache
+            if result and result.get("ok") and isinstance(result.get("words"), list):
+                _banned_words_cache = result["words"]
+
+        _online_request_async("GET", "/api/banned_words", on_done=_on_done)
+    return _banned_words_cache
+
+
+def is_name_allowed(name):
+    """Client-seitige Vorprüfung eines Profilnamens gegen die Blockliste - nur
+    für sofortiges Feedback. Die verbindliche Prüfung passiert serverseitig in
+    /api/submit (siehe server/filter.py)."""
+    if not name or not name.strip():
+        return False
+    normalized = _online_normalize_name(name)
+    if not normalized:
+        return False
+    for word in get_cached_banned_words():
+        needle = _online_normalize_name(word)
+        if needle and needle in normalized:
+            return False
+    return True
+
+
+def submit_score_online(mode, difficulty, score):
+    """Meldet einen Lauf best-effort an den Online-Leaderboard-Server. Nur für
+    nicht-modded Standard-Läufe aufgerufen (siehe Aufrufstellen in run_game();
+    Klassik wird bewusst nicht gemeldet)."""
+    if not ONLINE_ENABLED or not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {
+        "name": current_profile_name,
+        "token": token,
+        "mode": mode,
+        "difficulty": difficulty,
+        "score": int(score),
+        "powers_used": list(powers_state.get("equipped", [])),
+        "profile_snapshot": {
+            "stats": stats,
+            "owned_powers": powers_state.get("owned", []),
+            "equipped_powers": powers_state.get("equipped", []),
+            "cosmetics": cosmetics_state,
+            "player_color": settings.get("player_color", "blue"),
+        },
+    }
+    _online_request_async("POST", "/api/submit", payload)
+
+
+def fetch_leaderboard(mode, difficulty, limit=50, on_done=None):
+    """Holt die Rangliste für einen (Modus, Schwierigkeit)-Bucket asynchron."""
+    path = f"/api/leaderboard?mode={urllib.parse.quote(mode)}&difficulty={urllib.parse.quote(difficulty)}&limit={limit}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+def search_players_online(query, on_done=None):
+    """Sucht Spielernamen (Substring, serverseitig) asynchron."""
+    path = f"/api/players/search?q={urllib.parse.quote(query)}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+def fetch_public_profile(name, on_done=None):
+    """Holt das öffentliche Profil (Stats/Powers/Cosmetics/Bucket-Highscores)
+    eines Spielers asynchron."""
+    path = f"/api/players/{urllib.parse.quote(name)}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+# =============================
 # Gecachte Zeit (Daily Reward & Sale)
 # =============================
 # Sowohl der Daily-Reward-Status als auch der tägliche Shop-Sale müssen wissen,
@@ -766,6 +926,7 @@ def save_modded_section(section, data):
 
 current_profile_name = None
 _profile_save_lock = False
+online_token = None  # geheimer Pro-Profil-Token fürs Online-Leaderboard, siehe ensure_online_token()
 
 def _load_profiles_file():
     _ensure_gamedata_loaded()
@@ -795,13 +956,14 @@ def save_current_profile():
             "settings": settings,
             "powers": powers_state,
             "cosmetics": cosmetics_state,
+            "online_token": online_token,
         }
         _save_profiles_file(pdata)
     finally:
         _profile_save_lock = False
 
 def load_profile(name):
-    global current_profile_name, stats, achievements, saved_scores
+    global current_profile_name, stats, achievements, saved_scores, online_token
     global settings, powers_state, cosmetics_state, language_index, sound_enabled
     pdata = _load_profiles_file()
     p = pdata.get("profiles", {}).get(name)
@@ -815,6 +977,7 @@ def load_profile(name):
     settings        = {**default_settings,     **p.get("settings", {})}
     powers_state    = {**default_powers,       **p.get("powers", {})}
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
+    online_token    = p.get("online_token")
     _migrate_cosmetics_equipped_player(cosmetics_state)
     powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
@@ -841,7 +1004,7 @@ def load_profile(name):
 
 def create_profile(name):
     global current_profile_name, stats, achievements, saved_scores, best_times
-    global settings, powers_state, cosmetics_state
+    global settings, powers_state, cosmetics_state, online_token
     current_profile_name = name
     stats           = dict(default_stats)
     achievements    = dict(default_achievements)
@@ -850,6 +1013,7 @@ def create_profile(name):
     settings        = dict(default_settings)
     powers_state    = dict(default_powers)
     cosmetics_state = dict(default_cosmetics)
+    online_token    = None  # wird bei Bedarf von ensure_online_token() erzeugt
     _gamedata_cache.update({
         "stats": stats, "achievements": achievements, "highscores": saved_scores,
         "best_times": best_times, "settings": settings, "powers": powers_state, "cosmetics": cosmetics_state,
@@ -1518,6 +1682,9 @@ texts = {
         "no_achievements": "Noch keine Erfolge freigeschaltet.", "total_time": "Gesamte Spielzeit",
         "rounds_played": "Gespielte Runden", "1ups_collected": "1-Ups gesammelt", "record": "Rekord", "current": "Aktuell",
         "table_difficulty": "Schwierigkeit", "table_highscore": "Rekord", "table_session": "Sitzung",
+        "online_leaderboard_btn": "Online-Rangliste", "search": "Suche", "no_entries_yet": "Noch keine Einträge",
+        "player_search_title": "Spielersuche", "player_not_found": "Spieler nicht gefunden", "powers_used_label": "Verwendete Powers",
+        "owned_powers_label": "Freigeschaltete Powers", "owned_cosmetics_label": "Freigeschaltete Cosmetics",
         "total_jumps": "Sprünge gesamt", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins gesamt verdient",
         "shop": "Shop", "loadout": "Inventar", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1561,7 +1728,7 @@ texts = {
         "achievements": "Erfolge",
         "profiles": "Profile", "add_profile": "Profil hinzufügen", "who_is_playing": "Wer spielt?",
         "enter_name": "Wie heißt du?", "confirm": "Bestätigen", "delete_profile": "Löschen",
-        "name_taken": "Name bereits vergeben!", "name_empty": "Bitte einen Namen eingeben!",
+        "name_taken": "Name bereits vergeben!", "name_empty": "Bitte einen Namen eingeben!", "name_filtered": "Name nicht erlaubt!",
         "auto_start_profile": "Auto-Start",
         "auto_start_hint": "Häkchen = immer mit diesem Profil starten.",
         "fire_trail": "Feuerspur",
@@ -1595,6 +1762,9 @@ texts = {
         "no_achievements": "No achievements unlocked yet.", "total_time": "Total Time Played",
         "rounds_played": "Rounds Played", "1ups_collected": "1-Ups Collected", "record": "Highscore", "current": "Current",
         "table_difficulty": "Difficulty", "table_highscore": "Highscore", "table_session": "Session",
+        "online_leaderboard_btn": "Online Leaderboard", "search": "Search", "no_entries_yet": "No entries yet",
+        "player_search_title": "Player Search", "player_not_found": "Player not found", "powers_used_label": "Powers used",
+        "owned_powers_label": "Unlocked Powers", "owned_cosmetics_label": "Unlocked Cosmetics",
         "total_jumps": "Total Jumps", "total_deaths": "Game Overs", "avg_score": "Avg. Score", "total_coins_earned": "Total Coins Earned",
         "shop": "Shop", "loadout": "Inventory", "coins": "Coins",
         "power_roll": "Power Roll",
@@ -1642,7 +1812,7 @@ texts = {
         "achievements": "Achievements",
         "profiles": "Profiles", "add_profile": "Add Profile", "who_is_playing": "Who's playing?",
         "enter_name": "What's your name?", "confirm": "Confirm", "delete_profile": "Delete",
-        "name_taken": "Name already taken!", "name_empty": "Please enter a name!",
+        "name_taken": "Name already taken!", "name_empty": "Please enter a name!", "name_filtered": "Name not allowed!",
         "auto_start_profile": "Auto-Start",
         "auto_start_hint": "Checkbox = always start with this profile.",
         "choose_difficulty_title": "Choose Difficulty", "selected_badge": "Selected", "press_a_key": "Press a key...",
@@ -1673,6 +1843,9 @@ texts = {
         "no_achievements": "Нет достижений.", "total_time": "Общее время",
         "rounds_played": "Раундов сыграно", "1ups_collected": "1-ап собрано", "record": "Рекорд", "current": "Текущий",
         "table_difficulty": "Сложность", "table_highscore": "Рекорд", "table_session": "Сессия",
+        "online_leaderboard_btn": "Онлайн-рейтинг", "search": "Поиск", "no_entries_yet": "Пока нет записей",
+        "player_search_title": "Поиск игрока", "player_not_found": "Игрок не найден", "powers_used_label": "Использованные способности",
+        "owned_powers_label": "Разблокированные способности", "owned_cosmetics_label": "Разблокированная косметика",
         "total_jumps": "Прыжков всего", "total_deaths": "Поражений", "avg_score": "Ø очки", "total_coins_earned": "Всего монет заработано",
         "shop": "Магазин", "loadout": "Инвентарь", "coins": "Монеты",
         "power_roll": "Power Roll",
@@ -1720,7 +1893,7 @@ texts = {
         "achievements": "Достижения",
         "profiles": "Профили", "add_profile": "Добавить профиль", "who_is_playing": "Кто играет?",
         "enter_name": "Как тебя зовут?", "confirm": "Подтвердить", "delete_profile": "Удалить",
-        "name_taken": "Имя уже занято!", "name_empty": "Введите имя!",
+        "name_taken": "Имя уже занято!", "name_empty": "Введите имя!", "name_filtered": "Имя не разрешено!",
         "auto_start_profile": "Автозапуск",
         "auto_start_hint": "Флажок = всегда начинать с этим профилем.",
         "choose_difficulty_title": "Выбери сложность", "selected_badge": "Выбрано", "press_a_key": "Нажми клавишу...",
@@ -1751,6 +1924,9 @@ texts = {
         "no_achievements": "Henüz başarı yok.", "total_time": "Toplam Süre",
         "rounds_played": "Oynanan Turlar", "1ups_collected": "Toplanan 1-UP", "record": "Rekor", "current": "Şu an",
         "table_difficulty": "Zorluk", "table_highscore": "Rekor", "table_session": "Oturum",
+        "online_leaderboard_btn": "Çevrimiçi Sıralama", "search": "Ara", "no_entries_yet": "Henüz kayıt yok",
+        "player_search_title": "Oyuncu Ara", "player_not_found": "Oyuncu bulunamadı", "powers_used_label": "Kullanılan güçler",
+        "owned_powers_label": "Açılan Güçler", "owned_cosmetics_label": "Açılan Kozmetikler",
         "total_jumps": "Toplam Zıplama", "total_deaths": "Kaybedilen Oyunlar", "avg_score": "Ø Skor", "total_coins_earned": "Toplam Kazanılan Coin",
         "shop": "Mağaza", "loadout": "Envanter", "coins": "Paralar",
         "power_roll": "Power Roll",
@@ -1798,7 +1974,7 @@ texts = {
         "achievements": "Başarılar",
         "profiles": "Profiller", "add_profile": "Profil Ekle", "who_is_playing": "Kim oynuyor?",
         "enter_name": "Adın ne?", "confirm": "Onayla", "delete_profile": "Sil",
-        "name_taken": "Bu isim alındı!", "name_empty": "Lütfen bir isim girin!",
+        "name_taken": "Bu isim alındı!", "name_empty": "Lütfen bir isim girin!", "name_filtered": "Bu isme izin verilmiyor!",
         "auto_start_profile": "Otomatik Başlat",
         "auto_start_hint": "Kutu = her zaman bu profille başla.",
         "choose_difficulty_title": "Zorluk Seç", "selected_badge": "Seçildi", "press_a_key": "Bir tuşa bas...",
@@ -1829,6 +2005,9 @@ texts = {
         "no_achievements": "Kei Erfolg bis jetzt.", "total_time": "Ziit gspiilt",
         "rounds_played": "Runde gspiilt", "1ups_collected": "1-UP gsammlt", "record": "Rekord", "current": "Jetzt",
         "table_difficulty": "Schwierigkeit", "table_highscore": "Rekord", "table_session": "Sitzung",
+        "online_leaderboard_btn": "Online-Rangliste", "search": "Suche", "no_entries_yet": "Noch keine Einträge",
+        "player_search_title": "Spielersuche", "player_not_found": "Spieler nicht gefunden", "powers_used_label": "Verwendete Powers",
+        "owned_powers_label": "Freigeschaltete Powers", "owned_cosmetics_label": "Freigeschaltete Cosmetics",
         "total_jumps": "Sprüng total", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins total verdiänt",
         "shop": "Lade", "loadout": "Inventar", "coins": "Münze",
         "power_roll": "Power Roll",
@@ -1876,7 +2055,7 @@ texts = {
         "achievements": "Ervolg",
         "profiles": "Profile", "add_profile": "Profil hinzuefieje", "who_is_playing": "Wer spielt?",
         "enter_name": "Wie heischsch du?", "confirm": "Bestätige", "delete_profile": "Lösche",
-        "name_taken": "Name scho vergäbe!", "name_empty": "Bitte en Name igäh!",
+        "name_taken": "Name scho vergäbe!", "name_empty": "Bitte en Name igäh!", "name_filtered": "Name nid erlaubt!",
         "auto_start_profile": "Auto-Start",
         "auto_start_hint": "Häckli = immer mit dem Profil starte.",
         "choose_difficulty_title": "Schwierigkeit uswähle", "selected_badge": "Uswählt", "press_a_key": "Tascht drücke...",
@@ -3397,6 +3576,54 @@ def open_profile_select_from_hub():
     global in_profile_hub, in_profile_select
     in_profile_hub = False
     in_profile_select = True
+
+def open_online_leaderboard_from_hub():
+    play_sound(menu_click_sound)
+    global in_profile_hub, in_online_leaderboard
+    in_profile_hub = False
+    in_online_leaderboard = True
+
+def back_to_hub_from_online_leaderboard():
+    play_sound(click_back_sound)
+    global in_online_leaderboard, in_profile_hub
+    in_online_leaderboard = False
+    in_profile_hub = True
+
+def open_player_search_from_leaderboard():
+    play_sound(menu_click_sound)
+    global in_online_leaderboard, in_player_search, _search_query, _search_results, _search_loading
+    in_online_leaderboard = False
+    in_player_search = True
+    _search_query = ""
+    _search_results = None
+    _search_loading = False
+
+def back_from_player_search():
+    play_sound(click_back_sound)
+    global in_player_search, in_online_leaderboard
+    in_player_search = False
+    in_online_leaderboard = True
+
+def open_public_profile(name, return_screen):
+    play_sound(menu_click_sound)
+    global in_online_leaderboard, in_player_search, in_public_profile
+    global _public_profile_name, _public_profile_data, _public_profile_loading, _public_profile_return_screen
+    in_online_leaderboard = False
+    in_player_search = False
+    in_public_profile = True
+    _public_profile_name = name
+    _public_profile_data = None
+    _public_profile_loading = False
+    _public_profile_return_screen = return_screen
+
+def back_from_public_profile():
+    play_sound(click_back_sound)
+    global in_public_profile, in_online_leaderboard, in_player_search
+    in_public_profile = False
+    if _public_profile_return_screen == "in_player_search":
+        in_player_search = True
+    else:
+        in_online_leaderboard = True
 
 def get_daily_reward_status():
     """Gibt den Status des Daily Rewards zurück.
@@ -5113,17 +5340,17 @@ def draw_language_select():
         light_sel = not dark
         dark_sel  = dark
 
-        for _mi, (rect, label, sel) in enumerate([(light_rect, "Hell / Light", light_sel), (dark_rect, "Dunkel / Dark", dark_sel)]):
+        for _mi, (rect, label, sel, is_light) in enumerate([(light_rect, get_text("light_mode"), light_sel, True), (dark_rect, get_text("dark_mode"), dark_sel, False)]):
             hov = rect.collidepoint(mouse_pos) or nav_is_focused("language_select", 5 + _mi, _ls_total, default_idx=_ls_weiter_idx)
             if sel:
-                bg     = (255, 220, 80) if label.startswith("Hell") else (40, 40, 60)
-                border = (220, 180, 0)  if label.startswith("Hell") else (120, 120, 200)
+                bg     = (255, 220, 80) if is_light else (40, 40, 60)
+                border = (220, 180, 0)  if is_light else (120, 120, 200)
             else:
                 bg     = get_button_hover_color() if hov else get_button_color()
                 border = (160, 160, 180)
             pygame.draw.rect(base_surface, bg, rect, border_radius=10)
             pygame.draw.rect(base_surface, border, rect, width=2 if not sel else 3, border_radius=10)
-            ls = small_font.render(label, True, (30, 30, 30) if (sel and label.startswith("Hell")) else get_text_color())
+            ls = small_font.render(label, True, (30, 30, 30) if (sel and is_light) else get_text_color())
             base_surface.blit(ls, (rect.centerx - ls.get_width() // 2, rect.centery - ls.get_height() // 2))
 
         weiter_y = mode_y + 28 + btn_h + 12
@@ -5270,6 +5497,9 @@ def _confirm_profile_name():
         return
     if name in get_all_profiles():
         _profile_name_msg = get_text("name_taken")
+        return
+    if not is_name_allowed(name):
+        _profile_name_msg = get_text("name_filtered")
         return
     create_profile(name)
     in_profile_name_input = False
@@ -5491,8 +5721,8 @@ def draw_profile_hub():
     start_x = WIDTH // 2 - 180
     start_y = sy + swatch_size + 30
     gap = 56
-    btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('back')]
-    btn_colors = [(100, 150, 200), (200, 150, 100), (150, 150, 150)]
+    btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('online_leaderboard_btn'), get_text('back')]
+    btn_colors = [(100, 150, 200), (200, 150, 100), (100, 180, 160), (150, 150, 150)]
     btn_rects = []
     _hub_nav_total = len(swatch_names) + len(btn_texts)
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
@@ -5510,6 +5740,411 @@ def draw_profile_hub():
 
     pygame.display.flip()
     return swatch_rects, swatch_names, btn_rects
+
+
+# =============================
+# Online-Leaderboard-Screens
+# =============================
+
+def _draw_wrapped_text(text, x, y, max_w, font_obj, color, line_gap=4):
+    """Rendert Text mit einfachem Wortumbruch innerhalb von max_w Pixeln, startend
+    bei (x, y). Gibt die y-Position nach der letzten Zeile zurück."""
+    words = text.split()
+    lines = []
+    line = ""
+    for w in words:
+        test = (line + " " + w).strip()
+        if font_obj.size(test)[0] <= max_w:
+            line = test
+        else:
+            if line:
+                lines.append(line)
+            line = w
+    if line:
+        lines.append(line)
+    for ln in lines:
+        line_s = font_obj.render(ln, True, color)
+        base_surface.blit(line_s, (x, y))
+        y += line_s.get_height() + line_gap
+    return y
+
+
+def _lb_start_fetch():
+    """Holt die Rangliste für die aktuell gewählte Schwierigkeit (nur Standard-
+    Modus, siehe Kommentar bei _lb_difficulty_idx). _lb_request_id verhindert,
+    dass eine veraltete Antwort eine inzwischen neu gewählte Schwierigkeit
+    überschreibt."""
+    global _lb_loading, _lb_request_id, _lb_entries
+    _lb_loading = True
+    _lb_request_id += 1
+    my_id = _lb_request_id
+    mode = "standard"
+    difficulty = difficulties[_lb_difficulty_idx]
+
+    def _on_done(result):
+        global _lb_loading, _lb_entries
+        if my_id != _lb_request_id:
+            return
+        _lb_loading = False
+        _lb_entries = result.get("entries", []) if (result and result.get("ok")) else []
+
+    fetch_leaderboard(mode, difficulty, on_done=_on_done)
+
+
+def draw_online_leaderboard():
+    global _lb_row_rects
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    _lb_row_rects = []
+
+    title_txt = get_text("online_leaderboard_btn")
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    hov_back = back_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_back else get_button_color(), back_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
+    back_lbl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+
+    search_rect = pygame.Rect(20, 15, 110, 35)
+    hov_search = search_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_search else get_button_color(), search_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), search_rect, width=2, border_radius=10)
+    search_lbl = small_font.render(get_text("search"), True, get_text_color())
+    base_surface.blit(search_lbl, (search_rect.centerx - search_lbl.get_width() // 2, search_rect.centery - search_lbl.get_height() // 2))
+
+    # Schwierigkeits-Umschalter - rein zum Durchblättern der Rangliste, unabhängig
+    # von der echten Spieleinstellung difficulty_index. Nur Standard-Modus, siehe
+    # Kommentar bei _lb_difficulty_idx.
+    diff_label = difficulties[_lb_difficulty_idx]
+    diff_rect = pygame.Rect(WIDTH // 2 - 95, 65, 190, 36)
+    diff_left = pygame.Rect(diff_rect.x - 32, diff_rect.y, 26, 36)
+    diff_right = pygame.Rect(diff_rect.right + 6, diff_rect.y, 26, 36)
+
+    pygame.draw.rect(base_surface, get_panel_color(), diff_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), diff_rect, width=2, border_radius=10)
+    lbl_s = small_font.render(diff_label, True, get_text_color())
+    base_surface.blit(lbl_s, (diff_rect.centerx - lbl_s.get_width() // 2, diff_rect.centery - lbl_s.get_height() // 2))
+    for arrow_rect, arrow_txt in [(diff_left, "<"), (diff_right, ">")]:
+        hov = arrow_rect.collidepoint(mouse_pos)
+        pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_button_color(), arrow_rect, border_radius=6)
+        pygame.draw.rect(base_surface, (180, 180, 180), arrow_rect, width=1, border_radius=6)
+        arr_s = small_font.render(arrow_txt, True, get_text_color())
+        base_surface.blit(arr_s, (arrow_rect.centerx - arr_s.get_width() // 2, arrow_rect.centery - arr_s.get_height() // 2))
+
+    header_y = 112
+    base_surface.blit(small_font.render("#", True, (140, 140, 160)), (72, header_y))
+    base_surface.blit(small_font.render("Name", True, (140, 140, 160)), (120, header_y))
+    base_surface.blit(small_font.render(get_text("table_highscore"), True, (140, 140, 160)), (330, header_y))
+    base_surface.blit(small_font.render(get_text("powers_used_label"), True, (140, 140, 160)), (420, header_y))
+
+    content_top = 136
+    fade_bottom = HEIGHT - 45
+
+    if _lb_loading or _lb_entries is None:
+        loading_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 30))
+    elif not _lb_entries:
+        empty_s = small_font.render(get_text("no_entries_yet"), True, get_text_color())
+        base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 30))
+    else:
+        y = content_top
+        row_h = 38
+        for entry in _lb_entries:
+            if y + row_h > fade_bottom:
+                break
+            row_rect = pygame.Rect(60, y, WIDTH - 120, row_h - 6)
+            _lb_row_rects.append((pygame.Rect(row_rect), entry.get("name", "")))
+            hov = row_rect.collidepoint(mouse_pos)
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+            pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+
+            rank = entry.get("rank", 0)
+            rank_col = (255, 210, 50) if rank <= 3 else get_text_color()
+            rank_s = small_font.render(f"#{rank}", True, rank_col)
+            base_surface.blit(rank_s, (row_rect.x + 12, row_rect.centery - rank_s.get_height() // 2))
+
+            name_s = small_font.render(entry.get("name", ""), True, get_text_color())
+            base_surface.blit(name_s, (row_rect.x + 60, row_rect.centery - name_s.get_height() // 2))
+
+            score_s = small_font.render(str(entry.get("score", 0)), True, get_text_color())
+            base_surface.blit(score_s, (row_rect.x + 270, row_rect.centery - score_s.get_height() // 2))
+
+            powers_txt = ", ".join(entry.get("powers_used") or []) or "-"
+            max_w = row_rect.right - (row_rect.x + 360) - 10
+            if small_font.size(powers_txt)[0] > max_w:
+                while powers_txt and small_font.size(powers_txt + "…")[0] > max_w:
+                    powers_txt = powers_txt[:-1]
+                powers_txt += "…"
+            powers_s = small_font.render(powers_txt, True, (150, 150, 170))
+            base_surface.blit(powers_s, (row_rect.x + 360, row_rect.centery - powers_s.get_height() // 2))
+
+            y += row_h
+
+    pygame.display.flip()
+    return back_rect, search_rect, diff_left, diff_right
+
+
+def online_leaderboard_loop():
+    global in_online_leaderboard, _lb_difficulty_idx
+    clock = pygame.time.Clock()
+    _lb_start_fetch()
+    _last_key = _lb_difficulty_idx
+    while in_online_leaderboard:
+        back_rect, search_rect, diff_left, diff_right = draw_online_leaderboard()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_to_hub_from_online_leaderboard()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    back_to_hub_from_online_leaderboard()
+                elif search_rect.collidepoint(pos):
+                    open_player_search_from_leaderboard()
+                elif diff_left.collidepoint(pos):
+                    _lb_difficulty_idx = (_lb_difficulty_idx - 1) % len(difficulties)
+                    play_sound(click_sound)
+                elif diff_right.collidepoint(pos):
+                    _lb_difficulty_idx = (_lb_difficulty_idx + 1) % len(difficulties)
+                    play_sound(click_sound)
+                else:
+                    for rect, name in _lb_row_rects:
+                        if rect.collidepoint(pos):
+                            open_public_profile(name, "in_online_leaderboard")
+                            break
+        if _lb_difficulty_idx != _last_key and in_online_leaderboard:
+            _last_key = _lb_difficulty_idx
+            _lb_start_fetch()
+        clock.tick(60)
+
+
+def _search_trigger(query):
+    global _search_loading, _search_request_id, _search_results
+    query = query.strip()
+    if not query:
+        _search_results = []
+        _search_loading = False
+        return
+    _search_loading = True
+    _search_request_id += 1
+    my_id = _search_request_id
+
+    def _on_done(result):
+        global _search_loading, _search_results
+        if my_id != _search_request_id:
+            return
+        _search_loading = False
+        _search_results = result.get("results", []) if (result and result.get("ok")) else []
+
+    search_players_online(query, on_done=_on_done)
+
+
+def draw_player_search():
+    global _search_row_rects
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    _search_row_rects = []
+
+    title_s = font.render(get_text("player_search_title"), True, get_text_color())
+    shadow_s = font.render(get_text("player_search_title"), True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    hov_back = back_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_back else get_button_color(), back_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
+    back_lbl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+
+    box = pygame.Rect(WIDTH // 2 - 220, 75, 440, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), box, width=2, border_radius=10)
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    inp = menu_font.render(_search_query + cursor, True, get_text_color())
+    base_surface.blit(inp, (box.x + 12, box.centery - inp.get_height() // 2))
+
+    content_top = 140
+    fade_bottom = HEIGHT - 45
+
+    if _search_loading:
+        loading_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 20))
+    elif _search_results is not None and not _search_results:
+        empty_s = small_font.render(get_text("player_not_found"), True, get_text_color())
+        base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 20))
+    elif _search_results:
+        y = content_top
+        row_h = 44
+        for name in _search_results:
+            if y + row_h > fade_bottom:
+                break
+            row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
+            _search_row_rects.append((pygame.Rect(row_rect), name))
+            hov = row_rect.collidepoint(mouse_pos)
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+            pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+            name_s = menu_font.render(name, True, get_text_color())
+            base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+            y += row_h
+
+    pygame.display.flip()
+    return back_rect
+
+
+def player_search_loop():
+    global in_player_search, _search_query
+    clock = pygame.time.Clock()
+    while in_player_search:
+        back_rect = draw_player_search()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_BACKSPACE:
+                    _search_query = _search_query[:-1]
+                    _search_trigger(_search_query)
+                elif is_back_key(event.key, allow_backspace=False) or event.key == pygame.K_m:
+                    back_from_player_search()
+                elif event.key != pygame.K_RETURN:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_search_query) < 20:
+                        _search_query += ch
+                        _search_trigger(_search_query)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    back_from_player_search()
+                else:
+                    for rect, name in _search_row_rects:
+                        if rect.collidepoint(pos):
+                            open_public_profile(name, "in_player_search")
+                            break
+        clock.tick(60)
+
+
+def _public_profile_start_fetch():
+    global _public_profile_loading, _public_profile_data
+    _public_profile_loading = True
+    _public_profile_data = None
+    name = _public_profile_name
+
+    def _on_done(result):
+        global _public_profile_loading, _public_profile_data
+        if name != _public_profile_name:
+            return  # zwischenzeitlich wurde ein anderes Profil geöffnet
+        _public_profile_loading = False
+        _public_profile_data = result if (result and result.get("ok")) else False
+
+    fetch_public_profile(name, on_done=_on_done)
+
+
+def draw_public_profile():
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    hov_back = back_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, get_button_hover_color() if hov_back else get_button_color(), back_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
+    back_lbl = small_font.render(get_text("back"), True, get_text_color())
+    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+
+    if _public_profile_loading or _public_profile_data is None:
+        loading_s = font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
+        pygame.display.flip()
+        return back_rect
+
+    if _public_profile_data is False:
+        msg_s = font.render(get_text("player_not_found"), True, get_text_color())
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT // 2 - msg_s.get_height() // 2))
+        pygame.display.flip()
+        return back_rect
+
+    player = _public_profile_data.get("player", {})
+
+    title_txt = player.get("name") or "-"
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    avatar_size = 50
+    avatar_rect = pygame.Rect(WIDTH // 2 - avatar_size // 2, 65, avatar_size, avatar_size)
+    avatar_shadow = pygame.Rect(avatar_rect.x + 4, avatar_rect.y + 4, avatar_size, avatar_size)
+    pygame.draw.rect(base_surface, (100, 100, 150), avatar_shadow, border_radius=10)
+    avatar_color = PLAYER_COLORS.get(player.get("player_color") or "blue", PLAYER_COLORS.get("blue"))
+    draw_avatar(base_surface, avatar_rect, color=avatar_color, cosmetics=True, cosmetics_overrides=player.get("cosmetics") or {})
+
+    col_top = avatar_rect.bottom + 26
+    left_x = 50
+    right_x = WIDTH // 2 + 30
+    col_w = WIDTH // 2 - 70
+    hdr_col = (160, 160, 210) if dark else (80, 80, 140)
+
+    p_stats = player.get("stats") or {}
+    base_surface.blit(small_font.render(get_text("stats"), True, hdr_col), (left_x, col_top))
+    stat_rows = [
+        (get_text("coins"), p_stats.get("coins", 0)),
+        (get_text("rounds_played"), p_stats.get("total_rounds", 0)),
+        (get_text("1ups_collected"), p_stats.get("total_1ups", 0)),
+    ]
+    y = col_top + 26
+    for label, value in stat_rows:
+        row_s = small_font.render(f"{label}: {value}", True, get_text_color())
+        base_surface.blit(row_s, (left_x, y))
+        y += 24
+
+    y += 10
+    base_surface.blit(small_font.render(get_text("table_highscore"), True, hdr_col), (left_x, y))
+    y += 26
+    for s in (player.get("scores") or [])[:8]:
+        row_txt = f"{s.get('difficulty', '-')}: {s.get('score', 0)}"
+        row_s = small_font.render(row_txt, True, get_text_color())
+        base_surface.blit(row_s, (left_x, y))
+        y += 22
+
+    ry = col_top
+    base_surface.blit(small_font.render(get_text("owned_powers_label"), True, hdr_col), (right_x, ry))
+    ry += 26
+    owned_powers = player.get("owned_powers") or []
+    ry = _draw_wrapped_text(", ".join(owned_powers) if owned_powers else "-", right_x, ry, col_w, small_font, get_text_color())
+
+    ry += 16
+    base_surface.blit(small_font.render(get_text("owned_cosmetics_label"), True, hdr_col), (right_x, ry))
+    ry += 26
+    owned_cosmetics = (player.get("cosmetics") or {}).get("owned") or []
+    _draw_wrapped_text(", ".join(owned_cosmetics) if owned_cosmetics else "-", right_x, ry, col_w, small_font, get_text_color())
+
+    pygame.display.flip()
+    return back_rect
+
+
+def public_profile_loop():
+    global in_public_profile
+    clock = pygame.time.Clock()
+    _public_profile_start_fetch()
+    while in_public_profile:
+        back_rect = draw_public_profile()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_from_public_profile()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if back_rect.collidepoint(get_mouse_pos_logical()):
+                    back_from_public_profile()
+        clock.tick(60)
 
 
 _ach_scroll = 0
@@ -9684,6 +10319,30 @@ in_profile_select = False
 in_profile_name_input = False
 in_mods_menu = False
 in_profile_hub = False
+in_online_leaderboard = False
+in_player_search = False
+in_public_profile = False
+
+# Online-Leaderboard UI-State (rein fürs Durchblättern - unabhängig von der
+# echten Spieleinstellung difficulty_index). Nur Standard-Modus: Klassik-Läufe
+# werden nicht ans Online-Leaderboard gemeldet (siehe submit_score_online()-
+# Aufrufstellen in run_game()) und haben hier bewusst keine eigene Ansicht.
+_lb_difficulty_idx = 0
+_lb_entries = None       # None = noch nie geladen, [] = geladen & leer, [...] = Einträge
+_lb_loading = False
+_lb_request_id = 0       # verhindert, dass eine veraltete Antwort eine neuere Auswahl überschreibt
+_lb_row_rects = []       # [(rect, name), ...] - vom letzten draw_online_leaderboard()-Aufruf
+
+_search_query = ""
+_search_results = None
+_search_loading = False
+_search_request_id = 0
+_search_row_rects = []
+
+_public_profile_name = None
+_public_profile_data = None
+_public_profile_loading = False
+_public_profile_return_screen = "in_online_leaderboard"
 
 # Mod-menu UI state
 _mods_scroll = 0
@@ -11035,6 +11694,8 @@ def run_game():
                             saved_scores[difficulty] = max(old_highscore, score)
                             session_scores[difficulty] = max(session_scores.get(difficulty, 0), score)
                             save_section("highscores", saved_scores)
+                            if not klassik_mode:
+                                submit_score_online("standard", difficulty, score)
 
                             best_times[difficulty] = max(best_times.get(difficulty, 0), round_seconds)
                             session_times[difficulty] = max(session_times.get(difficulty, 0), round_seconds)
@@ -11114,6 +11775,8 @@ def run_game():
                             saved_scores[difficulty] = max(old_highscore, score)
                             session_scores[difficulty] = max(session_scores.get(difficulty, 0), score)
                             save_section("highscores", saved_scores)
+                            if not klassik_mode:
+                                submit_score_online("standard", difficulty, score)
                             best_times[difficulty] = max(best_times.get(difficulty, 0), round_seconds)
                             session_times[difficulty] = max(session_times.get(difficulty, 0), round_seconds)
                             save_section("best_times", best_times)
@@ -12245,6 +12908,7 @@ _ALL_SCREEN_FLAGS = [
     "in_help", "in_daily_rewards", "in_shop_menu", "in_cosmetic_shop", "in_loadout_menu",
     "in_cosmetic_inventory", "in_loading", "in_difficulty_select", "in_tutorial", "in_language_select",
     "in_admin_login", "in_admin_panel", "in_achievements_screen", "in_profile_hub",
+    "in_online_leaderboard", "in_player_search", "in_public_profile",
 ]
 
 
@@ -12395,6 +13059,8 @@ DEV_COMMANDS = {
     "controls":           (_dev_cmd_nav("in_controls_menu"), "Steuerung-Screen öffnen"),
     "more":               (_dev_cmd_nav("in_more_menu"), "Mehr-Menü öffnen"),
     "profile_hub":        (_dev_cmd_nav("in_profile_hub"), "Profil-Hub öffnen (Avatar/Stats/Profile)"),
+    "online_leaderboard": (_dev_cmd_nav("in_online_leaderboard"), "Online-Rangliste öffnen"),
+    "player_search":      (_dev_cmd_nav("in_player_search"), "Spielersuche öffnen"),
     "stats":              (_dev_cmd_nav("showing_stats"), "Statistik-Screen öffnen"),
     "difficulty":         (_dev_cmd_nav("in_difficulty_select"), "Schwierigkeitsauswahl öffnen"),
     "daily_rewards":      (_dev_cmd_nav("in_daily_rewards"), "Daily Rewards öffnen"),
@@ -13049,6 +13715,8 @@ while True:
                             elif _bidx2 == 1:
                                 open_profile_select_from_hub()
                             elif _bidx2 == 2:
+                                open_online_leaderboard_from_hub()
+                            elif _bidx2 == 3:
                                 back_to_main_from_profile_hub()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
@@ -13069,6 +13737,8 @@ while True:
                         elif idx == 1:
                             open_profile_select_from_hub()
                         elif idx == 2:
+                            open_online_leaderboard_from_hub()
+                        elif idx == 3:
                             back_to_main_from_profile_hub()
                         break
         clock.tick(60)
@@ -13646,6 +14316,12 @@ while True:
         loadout_menu_loop()
     elif in_cosmetic_inventory:
         cosmetic_inventory_loop()
+    elif in_online_leaderboard:
+        online_leaderboard_loop()
+    elif in_player_search:
+        player_search_loop()
+    elif in_public_profile:
+        public_profile_loop()
 
     elif in_admin_login:
         admin_login_loop()
