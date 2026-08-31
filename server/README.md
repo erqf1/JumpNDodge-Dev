@@ -17,12 +17,26 @@ installieren, ganz ohne SSH/Terminal auf dem Heimserver.
    danach automatisch das Image und lädt es nach
    `ghcr.io/erqf1/jumpndodge-leaderboard` hoch (Fortschritt im "Actions"-Tab
    des Repos auf github.com).
-2. **Einmalig das Package auf öffentlich stellen**, sonst kann CasaOS es ohne
-   Zugangsdaten nicht herunterladen: auf github.com zu deinem Profil ->
-   *Packages* -> `jumpndodge-leaderboard` öffnen -> *Package settings* ->
-   ganz unten bei *Danger Zone* -> *Change visibility* -> *Public*. Das ist
-   nur ein Docker-Image (keine Highscores/Spielerdaten drin), also
-   unbedenklich öffentlich.
+2. **Einmalig CasaOS für das (private) Image anmelden.** Das Package bleibt
+   damit privat - "public" würde hier nur heissen, dass irgendwer das
+   Docker-Image (den Bauplan) herunterladen könnte, nicht dass Highscores/
+   Spielerdaten öffentlich wären (die liegen sowieso nur auf dem Heimserver),
+   aber privat ist trotzdem der sauberere Default:
+   1. Auf github.com einen Personal Access Token erstellen: Profilbild ->
+      *Settings* -> *Developer settings* -> *Personal access tokens* ->
+      *Tokens (classic)* -> *Generate new token (classic)*, Häkchen bei
+      `read:packages`, Token generieren und kopieren.
+   2. In CasaOS das eingebaute Terminal öffnen (im Dashboard, browserbasiert -
+      kein separates Programm nötig) und einmalig:
+      ```bash
+      docker login ghcr.io -u erqf1 -p DEIN_TOKEN
+      ```
+   3. Ab jetzt kann dieser Server das private Image jederzeit ziehen.
+
+   *Alternative, falls das eingebaute Terminal nicht verfügbar ist:* Package
+   stattdessen einmalig auf öffentlich stellen (*Profil -> Packages ->
+   jumpndodge-leaderboard -> Package settings -> Danger Zone -> Change
+   visibility -> Public*) - dann entfällt der Login-Schritt komplett.
 
 **In CasaOS installieren:**
 
