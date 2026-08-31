@@ -1,0 +1,13 @@
+services:
+  jumpndodge-leaderboard:
+    image: ghcr.io/erqf1/jumpndodge-leaderboard:latest
+    build: .
+    container_name: jumpndodge-leaderboard
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - leaderboard_data:/app/data
+
+volumes:
+  leaderboard_data:

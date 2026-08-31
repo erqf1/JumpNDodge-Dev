@@ -1,0 +1,29 @@
+# Blockliste für Profilnamen. Eine Phrase pro Zeile, Kommentare mit #.
+# Dies ist bewusst nur ein kleiner Startsatz (DE/EN) - direkt auf dem Server
+# erweiterbar (z.B. weitere Sprachen, Varianten), kein Redeploy nötig.
+# Der Filter normalisiert Gross-/Kleinschreibung, Akzente und simples
+# Leetspeak, prüft dann per Substring - also reichen einfache Grundformen.
+fuck
+shit
+bitch
+cunt
+asshole
+bastard
+whore
+slut
+nigger
+nigga
+faggot
+fag
+retard
+spic
+chink
+tranny
+hurensohn
+wichser
+arschloch
+fotze
+schlampe
+hure
+nazi
+hitler
