@@ -299,8 +299,12 @@ def my_rank():
 
 @app.get("/api/leaderboard")
 def leaderboard():
+    """?names=Name1,Name2,... schränkt optional auf eine bestimmte Spielerliste
+    ein (z.B. fürs Freunde-Filter) - Reihenfolge/Response-Form bleibt gleich,
+    nur eben nicht die globale Top-Liste sondern nur diese Namen."""
     mode = request.args.get("mode", "")
     difficulty = request.args.get("difficulty", "")
+    names_param = request.args.get("names", "").strip()
     try:
         limit = min(max(int(request.args.get("limit", 50)), 1), 200)
     except ValueError:
@@ -308,7 +312,7 @@ def leaderboard():
 
     conn = db.get_connection()
     try:
-        rows = conn.execute("""
+        base_query = """
             SELECT p.name AS name, s.score AS score, s.powers_used_json AS powers_used_json,
                    s.submitted_at AS submitted_at,
                    EXISTS(
@@ -317,9 +321,17 @@ def leaderboard():
                    ) AS verified
             FROM scores s JOIN players p ON p.token_hash = s.token_hash
             WHERE s.mode = ? AND s.difficulty = ?
-            ORDER BY s.score DESC, s.submitted_at ASC
-            LIMIT ?
-        """, (mode, difficulty, limit)).fetchall()
+        """
+        params = [mode, difficulty]
+        if names_param:
+            names = [n.strip() for n in names_param.split(",") if n.strip()][:100]
+            if not names:
+                return jsonify(ok=True, entries=[])
+            base_query += f" AND p.name IN ({','.join('?' for _ in names)})"
+            params.extend(names)
+        base_query += " ORDER BY s.score DESC, s.submitted_at ASC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(base_query, params).fetchall()
     finally:
         conn.close()
 
