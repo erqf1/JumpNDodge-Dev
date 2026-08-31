@@ -160,28 +160,20 @@ def redeem_key():
         ).fetchone()
         if key_row is None:
             return jsonify(ok=False, error="invalid_key"), 404
-        if key_row["status"] == "revoked":
-            return jsonify(ok=False, error="key_revoked"), 403
 
-        if key_row["status"] == "unused":
-            conn.execute(
-                "UPDATE verified_keys SET status='claimed', claimed_by_token_hash=?, claimed_at=datetime('now') "
-                "WHERE key_hash=?",
-                (token_hash, key_hash),
-            )
-            conn.commit()
-            return jsonify(ok=True, verified=True)
-
-        # status == 'claimed'
-        if key_row["claimed_by_token_hash"] == token_hash:
-            return jsonify(ok=True, verified=True)  # schon durch dich selbst eingelöst
-
-        # Ein ANDERER Token hat den Key schon - Weitergabe erkannt, Key für
-        # alle sperren (auch der Erst-Einlöser verliert seinen Verified-Status,
-        # da der ja abgeleitet wird aus status='claimed').
-        conn.execute("UPDATE verified_keys SET status='revoked' WHERE key_hash=?", (key_hash,))
+        # Key wird (neu) zugewiesen - egal ob vorher unbenutzt, von dir selbst
+        # oder von jemand anderem gehalten. Wird er weitergegeben, "erbt" der
+        # neue Einlöser einfach den Verified-Status; der alte Halter verliert
+        # ihn automatisch, weil verified davon abgeleitet wird, ob DIESER
+        # Token gerade als claimed_by_token_hash für diesen Key eingetragen
+        # ist - kein separates "gesperrt"-Signal nötig, der Key bleibt nutzbar.
+        conn.execute(
+            "UPDATE verified_keys SET status='claimed', claimed_by_token_hash=?, claimed_at=datetime('now') "
+            "WHERE key_hash=?",
+            (token_hash, key_hash),
+        )
         conn.commit()
-        return jsonify(ok=False, error="key_shared_revoked"), 403
+        return jsonify(ok=True, verified=True)
     finally:
         conn.close()
 
