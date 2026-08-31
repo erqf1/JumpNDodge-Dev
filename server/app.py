@@ -263,6 +263,40 @@ def rename_player():
         conn.close()
 
 
+@app.post("/api/my_rank")
+def my_rank():
+    """Eigener Rang in einem (Modus, Schwierigkeit)-Bucket, auch ausserhalb der
+    Top-N aus /api/leaderboard - fürs "Dock" am unteren Bildschirmrand. POST
+    statt GET, damit der Token nicht im Query-String landet (der taucht sonst
+    im Klartext in den Server-Logs auf, siehe access log)."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    mode = (body.get("mode") or "").strip()
+    difficulty = (body.get("difficulty") or "").strip()
+    if not token or not mode or not difficulty:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        mine = conn.execute(
+            "SELECT score, submitted_at FROM scores WHERE token_hash = ? AND mode = ? AND difficulty = ?",
+            (token_hash, mode, difficulty),
+        ).fetchone()
+        if mine is None:
+            return jsonify(ok=True, rank=None)
+
+        ahead = conn.execute("""
+            SELECT COUNT(*) AS c FROM scores
+            WHERE mode = ? AND difficulty = ?
+              AND (score > ? OR (score = ? AND submitted_at < ?))
+        """, (mode, difficulty, mine["score"], mine["score"], mine["submitted_at"])).fetchone()
+
+        return jsonify(ok=True, rank=ahead["c"] + 1, score=mine["score"])
+    finally:
+        conn.close()
+
+
 @app.get("/api/leaderboard")
 def leaderboard():
     mode = request.args.get("mode", "")
