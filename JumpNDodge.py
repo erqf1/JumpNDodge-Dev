@@ -442,7 +442,7 @@ def get_current_date():
 # (siehe server/app.py) - das Token verhindert nur Namens-Diebstahl.
 
 ONLINE_ENABLED = True
-ONLINE_SERVER_URL = "http://localhost:5000"  # TEMPORÄR zum lokalen Testen - vor dem Release wieder auf die echte Server-Adresse setzen!
+ONLINE_SERVER_URL = "https://leaderboard.jumpndodge.download"
 
 _DEFAULT_BANNED_WORDS = ["fuck", "shit", "bitch", "nigger", "faggot", "hurensohn", "wichser", "arschloch"]
 _banned_words_cache = None
