@@ -9,6 +9,7 @@ import random  # Zufallszahlen für verschiedene Spielmechaniken
 import json  # JSON-Dateien für das Speichern und Laden von Daten
 import time  # Zeitfunktionen für Delays und Timestamps
 import os  # Betriebssystemfunktionen, z.B. für Pfadoperationen
+import subprocess  # Linux-Zwischenablage-Fallback (xclip/xsel/wl-paste), siehe _get_clipboard_text()
 from math import floor, sin, pi, exp  # Mathematische Funktionen
 from datetime import timedelta, datetime  # Datum und Zeit für Daily Rewards
 import ssl            # SSL-Kontext-Fallback für Online-Leaderboard-Requests (siehe _online_urlopen)
@@ -596,6 +597,15 @@ def is_name_allowed(name):
     return True
 
 
+_submit_pending_local_name = None  # von submit_score_online()s on_done (Hintergrund-
+# Thread) gesetzt, von sync_window_size() im Main-Thread angewendet (gleiches
+# Race-Condition-Muster wie _rename_pending_local_name, siehe dort) - falls der
+# Server bei der allerersten Registrierung einen kollidierenden Namen zu
+# "Name#2" usw. aufgelöst hat (siehe server/app.py _resolve_unique_name()),
+# muss das lokale Profil nachgeführt werden, sonst weicht der online geführte
+# Name dauerhaft vom lokal angezeigten ab.
+
+
 def submit_score_online(mode, difficulty, score):
     """Meldet einen Lauf best-effort an den Online-Leaderboard-Server. Nur für
     nicht-modded Standard-Läufe aufgerufen (siehe Aufrufstellen in run_game();
@@ -603,8 +613,9 @@ def submit_score_online(mode, difficulty, score):
     if not ONLINE_ENABLED or not current_profile_name:
         return
     token = ensure_online_token()
+    sent_name = current_profile_name
     payload = {
-        "name": current_profile_name,
+        "name": sent_name,
         "token": token,
         "mode": mode,
         "difficulty": difficulty,
@@ -618,7 +629,15 @@ def submit_score_online(mode, difficulty, score):
             "player_color": settings.get("player_color", "blue"),
         },
     }
-    _online_request_async("POST", "/api/submit", payload)
+
+    def _on_done(result):
+        global _submit_pending_local_name
+        if result and result.get("ok"):
+            confirmed_name = result.get("name")
+            if confirmed_name and confirmed_name != sent_name:
+                _submit_pending_local_name = confirmed_name
+
+    _online_request_async("POST", "/api/submit", payload, on_done=_on_done)
 
 
 def fetch_leaderboard(mode, difficulty, limit=50, names=None, on_done=None):
@@ -687,6 +706,41 @@ def rename_profile_online(new_name, on_done=None):
     token = ensure_online_token()
     payload = {"token": token, "new_name": new_name.strip()}
     _online_request_async("POST", "/api/rename", payload, on_done=on_done)
+
+
+_confirmed_online_deletions = []  # von _flush_pending_online_deletions()s on_done (Hintergrund-
+# Thread) angehängt, von sync_window_size() im Main-Thread aus _pending_online_deletions
+# entfernt und gespeichert - gleiches Race-Condition-Muster wie _rename_pending_local_name/
+# _submit_pending_local_name (Dateizugriff darf nicht aus einem Hintergrund-Thread passieren).
+
+
+def _flush_pending_online_deletions():
+    """Versucht jeden noch offenen Online-Account-Löschauftrag erneut - Tokens,
+    für die delete_profile() das lokale Profil schon entfernt hat, aber der
+    Server-Kontakt (mangels Internet o.ä.) noch nicht bestätigt wurde. Wird
+    sowohl direkt bei delete_profile() aufgerufen (Sofortversuch, falls online)
+    als auch bei jedem Profil-Eintritt (siehe _enter_profile()), also praktisch
+    bei jedem Programmstart, bis der Server irgendwann erfolgreich bestätigt."""
+    pending = _load_profiles_file().get("_pending_online_deletions", [])
+    for token in pending:
+        def _on_done(result, token=token):
+            if result and result.get("ok"):
+                _confirmed_online_deletions.append(token)
+        _online_request_async("POST", "/api/delete_account", {"token": token}, on_done=_on_done)
+
+
+def _apply_confirmed_online_deletions():
+    global _confirmed_online_deletions
+    if not _confirmed_online_deletions:
+        return
+    pdata = _load_profiles_file()
+    pending = pdata.get("_pending_online_deletions", [])
+    for token in _confirmed_online_deletions:
+        if token in pending:
+            pending.remove(token)
+    pdata["_pending_online_deletions"] = pending
+    _save_profiles_file(pdata)
+    _confirmed_online_deletions = []
 
 
 def rename_current_profile_local(new_name):
@@ -1174,12 +1228,23 @@ def create_profile(name):
 
 def delete_profile(name):
     pdata = _load_profiles_file()
-    pdata.get("profiles", {}).pop(name, None)
+    profile = pdata.get("profiles", {}).pop(name, None)
     if pdata.get("active") == name:
         pdata["active"] = None
     if pdata.get("auto_start") == name:
         pdata["auto_start"] = None  # gelöschtes Profil kann kein Auto-Start-Ziel mehr sein
+    token = (profile or {}).get("online_token")
+    if token:
+        # Account soll auch online verschwinden (siehe _flush_pending_online_deletions()) -
+        # der Token muss VOR dem Löschen des Profils gesichert werden, sonst ist er nach
+        # dem pop() oben weg. In _pending_online_deletions merken, bis ein Server-Kontakt
+        # (jetzt oder beim nächsten Programmstart) das Löschen bestätigt.
+        pending = pdata.setdefault("_pending_online_deletions", [])
+        if token not in pending:
+            pending.append(token)
     _save_profiles_file(pdata)
+    if token:
+        _flush_pending_online_deletions()
 
 def get_auto_start_profile():
     """Gibt den Namen des Profils zurück, mit dem das Spiel automatisch starten
@@ -1719,10 +1784,15 @@ def sync_window_size():
     Resume/Rematch usw.), die dafür nicht einzeln angefasst werden müssen. Sobald die Runde
     vorbei ist, wird die Resizebarkeit automatisch wiederhergestellt."""
     global base_surface, WIDTH, HEIGHT, scale_x, scale_y, offset_x, offset_y, display_surface, _window_locked_for_gameplay
+    global _submit_pending_local_name
     try:
         _process_dev_commands()
     except Exception:
         pass
+    if _submit_pending_local_name is not None:
+        rename_current_profile_local(_submit_pending_local_name)
+        _submit_pending_local_name = None
+    _apply_confirmed_online_deletions()
     try:
         fullscreen = settings.get("fullscreen", False)
         if not fullscreen and game_running != _window_locked_for_gameplay:
@@ -5712,6 +5782,7 @@ def _enter_profile(name):
     global in_profile_select, in_menu, in_language_select, in_profile_name_input
     load_profile(name)
     check_local_verified_key_file()
+    _flush_pending_online_deletions()
     set_all_menu_flags(False)
     if not stats.get("tutorial_seen", False):
         in_language_select = True
@@ -6563,6 +6634,17 @@ def _get_clipboard_text():
     drin, oder pygame.scrap auf dieser Plattform nicht verfügbar). pygame
     unterstützt Ctrl+V nicht automatisch in Textfeldern, daher dieser Helfer
     für die Paste-Buttons bei Redeem-Key/-Code."""
+    text = _get_clipboard_text_scrap()
+    if text:
+        return text
+    if sys.platform.startswith("linux"):
+        text = _get_clipboard_text_linux_cli()
+        if text:
+            return text
+    return None
+
+
+def _get_clipboard_text_scrap():
     try:
         if not pygame.scrap.get_init():
             pygame.scrap.init()
@@ -6573,6 +6655,26 @@ def _get_clipboard_text():
         return text.strip() or None
     except Exception:
         return None
+
+
+def _get_clipboard_text_linux_cli():
+    """Fallback für Linux, wo pygame.scrap oft nicht zuverlässig funktioniert -
+    v.a. unter Wayland, das SDLs X11-Selection-basiertes Clipboard-Backend
+    (worauf pygame.scrap aufbaut) nicht unterstützt, ausser über XWayland.
+    Probiert der Reihe nach gängige CLI-Tools durch, je nachdem was auf dem
+    jeweiligen System installiert ist (wl-clipboard unter Wayland, xclip/xsel
+    unter X11) - fehlt ein Tool, wird einfach das nächste versucht."""
+    for cmd in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard", "--output"]):
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=2)
+        except Exception:
+            continue
+        if result.returncode == 0 and result.stdout:
+            text = result.stdout.decode("utf-8", errors="ignore").strip()
+            if text:
+                return text
+    return None
 
 
 def _paste_into_field(max_len):
