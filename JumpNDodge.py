@@ -11,6 +11,7 @@ import time  # Zeitfunktionen für Delays und Timestamps
 import os  # Betriebssystemfunktionen, z.B. für Pfadoperationen
 from math import floor, sin, pi, exp  # Mathematische Funktionen
 from datetime import timedelta, datetime  # Datum und Zeit für Daily Rewards
+import ssl            # SSL-Kontext-Fallback für Online-Leaderboard-Requests (siehe _online_urlopen)
 import urllib.request  # HTTP-Anfragen für Internetverbindung und Zeitabfrage
 import urllib.error  # Fehlerbehandlung für HTTP-Anfragen
 import urllib.parse  # URL-Encoding für Online-Leaderboard-Requests (Namen können Umlaute etc. enthalten)
@@ -445,6 +446,54 @@ def get_current_date():
 ONLINE_ENABLED = True
 ONLINE_SERVER_URL = "https://leaderboard.jumpndodge.download"
 
+
+def _online_ssl_context():
+    """Auf manchen Linux-Systemen (v.a. bei frischen/minimalen Installationen) fehlen
+    die System-CA-Zertifikate, wodurch jede HTTPS-Verbindung mit CERTIFICATE_VERIFY_FAILED
+    fehlschlägt - _online_request() fängt das als gewöhnlichen OSError ab und meldet
+    einfach "kein Server", ohne dass der Spieler je erfährt, dass eigentlich nur die
+    Zertifikatsprüfung das Problem ist. Gleiches Problem war schon im Updater (siehe
+    updater.py build_ssl_context()/urlopen_safe(), v1.3.01) - hier dieselbe gestaffelte
+    Lösung fürs Online-Leaderboard."""
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        return None
+
+
+_ONLINE_SSL_CONTEXT = _online_ssl_context()
+
+
+def _online_ssl_context_certifi_fallback():
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None
+
+
+def _online_urlopen(req, timeout):
+    """Wie urllib.request.urlopen(), aber mit gestaffelten Fallbacks bei SSL-Fehlern:
+    System-CAs -> certifi-Bundle (falls installiert) -> unverifizierte Verbindung als
+    letzter Ausweg, damit ein kaputter/fehlender System-CA-Store das Online-Leaderboard
+    nicht komplett stummschaltet. Betrifft nur Score-Submits/Abfragen (nie sicherheits-
+    kritisch, siehe Modulkommentar oben), der Tradeoff ist bewusst zugunsten von
+    "funktioniert" gewählt - identisch zur Begründung im Updater."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout, context=_ONLINE_SSL_CONTEXT)
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", e)
+        if not (isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e)):
+            raise
+        fallback_ctx = _online_ssl_context_certifi_fallback()
+        if fallback_ctx is not None:
+            try:
+                return urllib.request.urlopen(req, timeout=timeout, context=fallback_ctx)
+            except urllib.error.URLError:
+                pass
+        return urllib.request.urlopen(req, timeout=timeout, context=ssl._create_unverified_context())
+
+
 _DEFAULT_BANNED_WORDS = ["fuck", "shit", "bitch", "nigger", "faggot", "hurensohn", "wichser", "arschloch"]
 _banned_words_cache = None
 _ONLINE_LEET_MAP = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s"})
@@ -475,7 +524,7 @@ def _online_request(method, path, payload=None, timeout=5):
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with _online_urlopen(req, timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
@@ -3666,6 +3715,66 @@ class Button:
 
 
 # =============================
+# Shared UI Drawing Helpers (Cards, Buttons, Glow-Pulse)
+# Bisher hat praktisch jeder Screen Buttons/Panels einzeln von Hand gezeichnet
+# (collidepoint -> Farbe wählen -> Rect -> Rahmen -> Text blitten, dutzendfach
+# copy-pasted). Diese Helfer bündeln genau dieses Muster an einer Stelle, damit
+# ein Stil-Update an vielen Screens gleichzeitig ankommt. Reine Zeichenfunktionen -
+# Klick-/Hover-/Fokus-Erkennung bleibt beim Aufrufer, hier wird nichts angefasst
+# was Spiellogik oder Eingabe betrifft.
+# =============================
+
+def ui_glow_pulse(base_color, speed=5.0, low=0.72, t=None):
+    """Pulsierende Helligkeitsvariante einer Farbe (Sinus-Welle), wie bisher einzeln
+    im Achievement-Popup/Banner-Code eingebaut. low = Mindesthelligkeit (0-1)."""
+    if t is None:
+        t = time.time()
+    k = low + (1.0 - low) * (0.5 + 0.5 * math.sin(t * speed))
+    return tuple(min(255, int(c * k)) for c in base_color)
+
+
+def draw_card(surface, rect, radius=16, shadow=True, border_color=None, border_width=3,
+              glow=False, glow_color=None):
+    """Panel im Stil des Roll-Ergebnis-Popups: Schatten + Panel-Fläche + Rahmen,
+    optional mit pulsierendem Glow-Rahmen (Achievement-Popup-Stil) statt festem
+    Rahmen. Für Popups/Overlays/Hervorhebungen (z.B. Game Over, neuer Highscore)."""
+    dark = is_dark_mode()
+    if shadow:
+        shadow_rect = pygame.Rect(rect.x + 5, rect.y + 5, rect.w, rect.h)
+        pygame.draw.rect(surface, (0, 0, 0, 80) if dark else (170, 170, 190), shadow_rect, border_radius=radius)
+    pygame.draw.rect(surface, get_panel_color(), rect, border_radius=radius)
+    if glow:
+        gc = glow_color or (255, 195, 50)
+        pulse_col = ui_glow_pulse(gc, speed=5.0, low=0.7)
+        outer = tuple(c // 4 for c in gc)
+        pygame.draw.rect(surface, outer, rect.inflate(6, 6), width=2, border_radius=radius + 3)
+        pygame.draw.rect(surface, pulse_col, rect, width=border_width, border_radius=radius)
+    else:
+        bc = border_color or ((70, 90, 110) if dark else (60, 80, 140))
+        pygame.draw.rect(surface, bc, rect, width=border_width, border_radius=radius)
+
+
+def draw_ui_button(surface, rect, text, font=None, hovered=False, base_color=None,
+                    hover_color=None, text_color=None, border_color=None,
+                    hover_border_color=None, radius=12, border_width=2, hover_border_width=3):
+    """Standard-Button: Hintergrund + Rahmen + zentrierter Text - das Muster, das
+    bisher an jedem Screen einzeln von Hand nachgebaut wurde. `hovered` deckt Maus-
+    Hover UND Tastatur-/Controller-Fokus ab (vom Aufrufer kombiniert, z.B.
+    `rect.collidepoint(mp) or nav_is_focused(...)`). Reine Zeichenfunktion -
+    Klick-Erkennung bleibt wie bisher beim Aufrufer."""
+    font = font or menu_font
+    bg = (hover_color or get_button_hover_color()) if hovered else (base_color or get_button_color())
+    pygame.draw.rect(surface, bg, rect, border_radius=radius)
+    bc = (hover_border_color or (150, 180, 220)) if hovered else (border_color or (180, 180, 180))
+    bw = hover_border_width if hovered else border_width
+    pygame.draw.rect(surface, bc, rect, width=bw, border_radius=radius)
+    txt_col = text_color or get_text_color()
+    text_surf = font.render(text, True, txt_col)
+    surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
+                              rect.centery - text_surf.get_height() // 2))
+
+
+# =============================
 # Menu Buttons (Menü-Buttons)
 # =============================
 
@@ -4098,9 +4207,7 @@ def draw_menu():
     _profile_hub_btn_rect = _get_profile_hub_btn_rect()
     _profile_nav_idx = len(buttons) + (1 if _menu_has_mods else 0) + 1  # nach Mods (bedingt) + Daily-Reward
     _profile_hovered = _profile_hub_btn_rect.collidepoint(mouse_pos) or nav_is_focused("menu", _profile_nav_idx, _menu_nav_total)
-    pygame.draw.rect(base_surface, get_button_hover_color() if _profile_hovered else get_button_color(),
-                      _profile_hub_btn_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), _profile_hub_btn_rect, width=2, border_radius=10)
+    draw_ui_button(base_surface, _profile_hub_btn_rect, "", hovered=_profile_hovered, radius=10)
     _pb_avatar_rect = pygame.Rect(_profile_hub_btn_rect.x + 3, _profile_hub_btn_rect.y + 3, 50, 50)
     draw_avatar(base_surface, _pb_avatar_rect)
     _pb_name_surf = small_font.render(current_profile_name or "-", True, get_text_color())
@@ -4110,25 +4217,8 @@ def draw_menu():
 
     # Buttons mit verbessertem Design
     for i, button in enumerate(buttons):
-        # Hover-Effekt
         is_hovered = button.rect.collidepoint(mouse_pos) or nav_is_focused("menu", i, _menu_nav_total)
-
-        # Button-Hintergrund mit Gradient-Effekt
-        if is_hovered:
-            # Hover-Farbe
-            pygame.draw.rect(base_surface, get_button_hover_color(), button.rect, border_radius=12)
-            pygame.draw.rect(base_surface, (150, 180, 220), button.rect, width=3, border_radius=12)
-        else:
-            # Normale Farbe
-            pygame.draw.rect(base_surface, get_button_color(), button.rect, border_radius=12)
-            pygame.draw.rect(base_surface, (180, 180, 180), button.rect, width=2, border_radius=12)
-        
-        # Button-Text
-        text_surf = button.font.render(button.text, True, get_text_color())
-        base_surface.blit(text_surf, (button.rect.centerx - text_surf.get_width() // 2,
-                                button.rect.centery - text_surf.get_height() // 2))
-        
-        # Icons entfernt - werden nicht korrekt angezeigt
+        draw_ui_button(base_surface, button.rect, button.text, font=button.font, hovered=is_hovered)
     
     # Mods Button (only shown when at least one mod is loaded)
     if _menu_has_mods:
@@ -4136,30 +4226,18 @@ def draw_menu():
         _mb_label = f"Mods ({_mc})" if _mc > 0 else "Mods"
         mods_btn_rect = pygame.Rect(20, HEIGHT - 56, 130, 36)
         _mb_hovered   = mods_btn_rect.collidepoint(mouse_pos) or nav_is_focused("menu", len(buttons), _menu_nav_total)
-        _mb_bg  = (80, 60, 200) if _mb_hovered else (60, 40, 160)
-        _mb_brd = (180, 160, 255) if _mb_hovered else (100, 80, 200)
-        pygame.draw.rect(base_surface, _mb_bg,  mods_btn_rect, border_radius=10)
-        pygame.draw.rect(base_surface, _mb_brd, mods_btn_rect, width=2, border_radius=10)
-        _mb_surf = small_font.render(_mb_label, True, (255, 255, 255))
-        base_surface.blit(_mb_surf, (mods_btn_rect.centerx - _mb_surf.get_width() // 2,
-                                      mods_btn_rect.centery - _mb_surf.get_height() // 2))
+        draw_ui_button(base_surface, mods_btn_rect, _mb_label, font=small_font, hovered=_mb_hovered,
+                        base_color=(60, 40, 160), hover_color=(80, 60, 200), text_color=(255, 255, 255),
+                        border_color=(100, 80, 200), hover_border_color=(180, 160, 255))
 
     # Daily Rewards Button in der oberen rechten Ecke
     daily_reward_rect = pygame.Rect(WIDTH - 200, 15, 180, 40)
     _daily_idx = len(buttons) + (1 if _menu_has_mods else 0)
     is_hovered = daily_reward_rect.collidepoint(mouse_pos) or nav_is_focused("menu", _daily_idx, _menu_nav_total)
+    draw_ui_button(base_surface, daily_reward_rect, get_text("daily_rewards"), font=small_font, hovered=is_hovered,
+                    base_color=(255, 200, 0), hover_color=(255, 215, 0), text_color=(0, 0, 0),
+                    border_color=(180, 120, 0), hover_border_color=(200, 150, 0), radius=8)
 
-    if is_hovered:
-        pygame.draw.rect(base_surface, (255, 215, 0), daily_reward_rect, border_radius=8)
-        pygame.draw.rect(base_surface, (200, 150, 0), daily_reward_rect, width=2, border_radius=8)
-    else:
-        pygame.draw.rect(base_surface, (255, 200, 0), daily_reward_rect, border_radius=8)
-        pygame.draw.rect(base_surface, (180, 120, 0), daily_reward_rect, width=2, border_radius=8)
-    
-    daily_text = small_font.render(get_text("daily_rewards"), True, (0, 0, 0))
-    base_surface.blit(daily_text, (daily_reward_rect.centerx - daily_text.get_width() // 2, 
-                            daily_reward_rect.centery - daily_text.get_height() // 2))
-    
     pygame.display.flip()
 
 
@@ -5006,12 +5084,13 @@ def draw_difficulty_select():
     start_rect = pygame.Rect(WIDTH // 2 + 8,  btn_y, 200, btn_h)
     back_rect  = pygame.Rect(WIDTH // 2 - 208, btn_y, 200, btn_h)
 
-    # Start button (accent color)
+    # Start button (accent color, sanfter Puls als Blickfang für die primäre Aktion)
     _start_focused = nav_is_focused("difficulty_select", _ds_start_idx, _ds_total)
     start_hov = start_rect.collidepoint(mouse_pos) or _start_focused
     start_bg = (0, 140, 60) if start_hov else (0, 110, 50)
+    start_border = (255, 255, 255) if _start_focused else ui_glow_pulse((0, 200, 80), speed=3.0, low=0.65)
     pygame.draw.rect(base_surface, start_bg, start_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (255, 255, 255) if _start_focused else (0, 200, 80), start_rect, width=2, border_radius=10)
+    pygame.draw.rect(base_surface, start_border, start_rect, width=2, border_radius=10)
     start_lbl = menu_font.render(get_text("start"), True, (255, 255, 255))
     base_surface.blit(start_lbl, (start_rect.centerx - start_lbl.get_width() // 2,
                                   start_rect.centery - start_lbl.get_height() // 2))
@@ -5288,9 +5367,10 @@ def draw_tutorial():
     next_rect = pygame.Rect(panel_x + panel_w - 160, btn_y, 140, btn_h)
     mouse_pos = get_mouse_pos_logical()
     next_hov = next_rect.collidepoint(mouse_pos)
-    pygame.draw.rect(base_surface, next_col if not next_hov else tuple(min(255, c + 30) for c in next_col), next_rect, border_radius=10)
-    ns = menu_font.render(next_label, True, (255, 255, 255))
-    base_surface.blit(ns, (next_rect.centerx - ns.get_width() // 2, next_rect.centery - ns.get_height() // 2))
+    draw_ui_button(base_surface, next_rect, next_label, font=menu_font, hovered=next_hov,
+                    base_color=next_col, hover_color=tuple(min(255, c + 30) for c in next_col),
+                    text_color=(255, 255, 255), border_color=tuple(max(0, c - 40) for c in next_col),
+                    hover_border_color=(255, 255, 255))
 
     # "Zurück" (only if not first step)
     if tutorial_step > 0:
@@ -5299,11 +5379,8 @@ def draw_tutorial():
         back_label = back_labels.get(lang, "<< Zurück")
         back_rect = pygame.Rect(panel_x + 20, btn_y, 140, btn_h)
         back_hov = back_rect.collidepoint(mouse_pos)
-        back_bg = get_button_hover_color() if back_hov else get_button_color()
-        pygame.draw.rect(base_surface, back_bg, back_rect, border_radius=10)
-        pygame.draw.rect(base_surface, (160, 160, 180), back_rect, width=1, border_radius=10)
-        bs = menu_font.render(back_label, True, get_text_color())
-        base_surface.blit(bs, (back_rect.centerx - bs.get_width() // 2, back_rect.centery - bs.get_height() // 2))
+        draw_ui_button(base_surface, back_rect, back_label, font=menu_font, hovered=back_hov,
+                        border_color=(160, 160, 180), border_width=1)
 
     # Progress dots
     dot_y = btn_y + btn_h // 2
@@ -5839,26 +5916,16 @@ def draw_more_menu():
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
         is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("more_menu", i, len(btn_texts))
-
-        # Button-Hintergrund
-        if is_hovered:
-            pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (150, 180, 220), rect, width=3, border_radius=12)
-        else:
-            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
-
-        # Text (zentriert ohne Icons)
-        text_surf = menu_font.render(text, True, get_text_color())
-        base_surface.blit(text_surf, (rect.centerx - text_surf.get_width()//2, rect.centery - text_surf.get_height()//2))
+        draw_ui_button(base_surface, rect, text, font=menu_font, hovered=is_hovered,
+                        border_color=color, hover_border_color=color, hover_border_width=3)
 
 
-    # Footer
+    # Footer (theme-aware - vorher immer hell, egal ob Dark Mode aktiv war)
     footer_bg = pygame.Rect(0, HEIGHT - 30, WIDTH, 30)
-    pygame.draw.rect(base_surface, (230, 235, 245), footer_bg)
-    pygame.draw.line(base_surface, (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
-    
-    footer_text = small_font.render(get_text("back_to_main"), True, (100, 100, 100))
+    pygame.draw.rect(base_surface, get_panel_color(), footer_bg)
+    pygame.draw.line(base_surface, (90, 90, 100) if is_dark_mode() else (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
+
+    footer_text = small_font.render(get_text("back_to_main"), True, get_text_color())
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
     pygame.display.flip()
 
@@ -5929,14 +5996,8 @@ def draw_profile_hub():
         rect = pygame.Rect(start_x, start_y + i * gap, 360, 44)
         btn_rects.append(rect)
         is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("profile_hub", len(swatch_names) + i, _hub_nav_total)
-        if is_hovered:
-            pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (150, 180, 220), rect, width=3, border_radius=12)
-        else:
-            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
-        text_surf = menu_font.render(text, True, get_text_color())
-        base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2, rect.centery - text_surf.get_height() // 2))
+        draw_ui_button(base_surface, rect, text, font=menu_font, hovered=is_hovered,
+                        border_color=color, hover_border_color=color, hover_border_width=3)
 
     pygame.display.flip()
     return swatch_rects, swatch_names, btn_rects
@@ -6035,18 +6096,12 @@ def draw_online_leaderboard():
     base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
 
     back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
-    hov_back = back_rect.collidepoint(mouse_pos)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_back else get_button_color(), back_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-    back_lbl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
 
     search_rect = pygame.Rect(20, 15, 110, 35)
-    hov_search = search_rect.collidepoint(mouse_pos)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_search else get_button_color(), search_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), search_rect, width=2, border_radius=10)
-    search_lbl = small_font.render(get_text("search"), True, get_text_color())
-    base_surface.blit(search_lbl, (search_rect.centerx - search_lbl.get_width() // 2, search_rect.centery - search_lbl.get_height() // 2))
+    draw_ui_button(base_surface, search_rect, get_text("search"), font=small_font,
+                    hovered=search_rect.collidepoint(mouse_pos), radius=10)
 
     # Alle/Freunde-Umschalter - filtert die Rangliste auf friends_local (siehe
     # _lb_start_fetch()). Kein eigener Tab noetig, wenn (noch) keine Freunde
@@ -6080,11 +6135,8 @@ def draw_online_leaderboard():
     lbl_s = small_font.render(diff_label, True, get_text_color())
     base_surface.blit(lbl_s, (diff_rect.centerx - lbl_s.get_width() // 2, diff_rect.centery - lbl_s.get_height() // 2))
     for arrow_rect, arrow_txt in [(diff_left, "<"), (diff_right, ">")]:
-        hov = arrow_rect.collidepoint(mouse_pos)
-        pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_button_color(), arrow_rect, border_radius=6)
-        pygame.draw.rect(base_surface, (180, 180, 180), arrow_rect, width=1, border_radius=6)
-        arr_s = small_font.render(arrow_txt, True, get_text_color())
-        base_surface.blit(arr_s, (arrow_rect.centerx - arr_s.get_width() // 2, arrow_rect.centery - arr_s.get_height() // 2))
+        draw_ui_button(base_surface, arrow_rect, arrow_txt, font=small_font,
+                        hovered=arrow_rect.collidepoint(mouse_pos), radius=6, border_width=1)
 
     header_y = 112
     base_surface.blit(small_font.render("#", True, (140, 140, 160)), (72, header_y))
@@ -6244,11 +6296,8 @@ def draw_player_search():
     base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
 
     back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
-    hov_back = back_rect.collidepoint(mouse_pos)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_back else get_button_color(), back_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-    back_lbl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
 
     box = pygame.Rect(WIDTH // 2 - 220, 75, 440, 46)
     pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
@@ -6645,18 +6694,12 @@ def draw_redeem_code():
     confirm_rect = pygame.Rect(px + 215, py + ph - 62, 170, 44)
     back_rect = pygame.Rect(px + 400, py + ph - 62, 170, 44)
     mp = get_mouse_pos_logical()
-    hov_p = paste_rect.collidepoint(mp)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_p else get_button_color(), paste_rect, border_radius=12)
-    pl = small_font.render(get_text("paste_btn"), True, get_text_color())
-    base_surface.blit(pl, (paste_rect.centerx - pl.get_width() // 2, paste_rect.centery - pl.get_height() // 2))
+    draw_ui_button(base_surface, paste_rect, get_text("paste_btn"), font=small_font, hovered=paste_rect.collidepoint(mp))
     hov_c = confirm_rect.collidepoint(mp)
     pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
     cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
     base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
-    hov_b = back_rect.collidepoint(mp)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_b else get_button_color(), back_rect, border_radius=12)
-    bl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(bl, (back_rect.centerx - bl.get_width() // 2, back_rect.centery - bl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font, hovered=back_rect.collidepoint(mp))
 
     pygame.display.flip()
     return paste_rect, confirm_rect, back_rect
@@ -6781,10 +6824,7 @@ def draw_rename_profile():
     pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
     cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
     base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
-    hov_b = back_rect.collidepoint(mp)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov_b else get_button_color(), back_rect, border_radius=12)
-    bl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(bl, (back_rect.centerx - bl.get_width() // 2, back_rect.centery - bl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font, hovered=back_rect.collidepoint(mp))
 
     pygame.display.flip()
     return confirm_rect, back_rect
@@ -6865,10 +6905,7 @@ def draw_achievements_screen():
     # Back button (top-right)
     back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
     hov = back_rect.collidepoint(mouse_pos) or nav_is_focused("achievements", _ach_total_rows, _ach_nav_total)
-    pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_button_color(), back_rect, border_radius=10)
-    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-    back_lbl = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_lbl, (back_rect.centerx - back_lbl.get_width() // 2, back_rect.centery - back_lbl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font, hovered=hov, radius=10)
 
     content_top = 75
     fade_top = content_top + 18
@@ -7069,13 +7106,17 @@ def draw_controls_menu():
     actions = _ctrl_tab_defs[_ctrl_active_tab][1]
     is_menu_nav_tab = (_ctrl_active_tab == 2)
 
-    # Konflikt-Erkennung: welche Tasten sind bei mehr als einer Action gebunden? (nur für
-    # normale Gameplay-Keybindings - die Menü-Navigation lebt in einem eigenen Speicher
-    # und Pfeiltasten/WASD dort sollen nicht als "Konflikt" mit Jump/2P markiert werden)
+    # Konflikt-Erkennung: welche Tasten sind bei mehr als einer Action GEBUNDEN
+    # INNERHALB DES AKTIVEN TABS? (nur für normale Gameplay-Keybindings - die
+    # Menü-Navigation lebt in einem eigenen Speicher und Pfeiltasten/WASD dort
+    # sollen nicht als "Konflikt" mit Jump/2P markiert werden). Bewusst nur über
+    # `actions` (aktiver Tab) statt kb.items() (alle Tabs) - eine Taste, die z.B.
+    # in Standard UND 2-Player gebunden ist, soll in keinem der beiden Tabs als
+    # Konflikt aufleuchten, nur eine Doppelbelegung INNERHALB desselben Tabs.
     _key_use_count = {}
     if not is_menu_nav_tab:
-        for _a, _keys in kb.items():
-            for _k in _keys:
+        for _a in actions:
+            for _k in kb.get(_a, []):
                 _key_use_count[_k] = _key_use_count.get(_k, 0) + 1
 
     table_w   = min(760, WIDTH - 60)
@@ -7092,6 +7133,11 @@ def draw_controls_menu():
     content_h       = len(actions) * row_h
     max_scroll      = max(0, content_h - viewport_h)
     _ctrl_scroll    = max(0, min(_ctrl_scroll, max_scroll))
+
+    # Card-Panel hinter der Tabelle (vorher: Zeilen schwebten direkt auf dem
+    # Dim-Overlay, nur Divider-Linien dazwischen, kein umschliessendes Panel)
+    table_panel = pygame.Rect(table_x - 16, viewport_top - 8, table_w + 36, viewport_h + 16)
+    draw_card(base_surface, table_panel, radius=14, shadow=False)
 
     prev_clip = base_surface.get_clip()
     base_surface.set_clip(pygame.Rect(0, viewport_top, WIDTH, viewport_h))
@@ -7343,18 +7389,9 @@ def draw_settings_menu():
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
         is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("settings_menu", len(_bg_toggle_defs) + i, _stgs_nav_total)
-
-        # Button-Hintergrund
-        if is_hovered:
-            pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (150, 180, 220), rect, width=3, border_radius=12)
-        else:
-            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
-
-        # Text (zentriert ohne Icons)
-        text_surf = menu_font.render(text, True, get_text_color())
-        base_surface.blit(text_surf, (rect.centerx - text_surf.get_width()//2, rect.centery - text_surf.get_height()//2))
+        # Randfarbe = thematische Akzentfarbe je Button (Grün=Sprache, Blau=Sound, ...)
+        draw_ui_button(base_surface, rect, text, font=menu_font, hovered=is_hovered,
+                        border_color=color, hover_border_color=color, hover_border_width=3)
 
 
     # Export status textbox
@@ -7372,12 +7409,12 @@ def draw_settings_menu():
         base_surface.blit(txt, ((WIDTH - txt.get_width()) // 2, 100))
     draw_achievement_popups(base_surface)
 
-    # Footer
+    # Footer (theme-aware - vorher immer hell, egal ob Dark Mode aktiv war)
     footer_bg = pygame.Rect(0, HEIGHT - 30, WIDTH, 30)
-    pygame.draw.rect(base_surface, (230, 235, 245), footer_bg)
-    pygame.draw.line(base_surface, (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
+    pygame.draw.rect(base_surface, get_panel_color(), footer_bg)
+    pygame.draw.line(base_surface, (90, 90, 100) if is_dark_mode() else (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
 
-    footer_text = small_font.render(get_text("back_to_main"), True, (100, 100, 100))
+    footer_text = small_font.render(get_text("back_to_main"), True, get_text_color())
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
 
     pygame.display.flip()
@@ -7403,10 +7440,8 @@ def draw_settings_more_menu():
         rect = pygame.Rect(start_x, start_y + i * gap, 360, 48)
         rects.append(rect)
         is_hov = rect.collidepoint(mouse_pos) or nav_is_focused("settings_more_menu", i, len(btn_texts))
-        pygame.draw.rect(base_surface, get_button_hover_color() if is_hov else get_button_color(), rect, border_radius=12)
-        pygame.draw.rect(base_surface, color if not is_hov else (200, 220, 255), rect, width=3, border_radius=12)
-        ts = menu_font.render(text, True, get_text_color())
-        base_surface.blit(ts, (rect.centerx - ts.get_width()//2, rect.centery - ts.get_height()//2))
+        draw_ui_button(base_surface, rect, text, font=menu_font, hovered=is_hov,
+                        border_color=color, hover_border_color=(200, 220, 255), hover_border_width=3)
 
     pygame.display.flip()
     return rects
@@ -7431,26 +7466,14 @@ def draw_experimental_menu():
     for i, text in enumerate(btn_texts):
         rect = pygame.Rect(start_x, start_y + i*gap, 360, 48)
         is_hovered = rect.collidepoint(mouse_pos) or nav_is_focused("experimental_menu", i, len(btn_texts))
+        draw_ui_button(base_surface, rect, text, font=menu_font, hovered=is_hovered)
 
-        # Button-Hintergrund
-        if is_hovered:
-            pygame.draw.rect(base_surface, get_button_hover_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (150, 180, 220), rect, width=3, border_radius=12)
-        else:
-            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=12)
-            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=2, border_radius=12)
-
-        # Text
-        text_surf = menu_font.render(text, True, get_text_color())
-        base_surface.blit(text_surf, (rect.centerx - text_surf.get_width() // 2,
-                                rect.centery - text_surf.get_height() // 2))
-
-    # Footer
+    # Footer (theme-aware - vorher immer hell, egal ob Dark Mode aktiv war)
     footer_bg = pygame.Rect(0, HEIGHT - 30, WIDTH, 30)
-    pygame.draw.rect(base_surface, (230, 235, 245), footer_bg)
-    pygame.draw.line(base_surface, (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
+    pygame.draw.rect(base_surface, get_panel_color(), footer_bg)
+    pygame.draw.line(base_surface, (90, 90, 100) if is_dark_mode() else (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
 
-    footer_text = small_font.render("ESC/M: Back to Settings", True, (100, 100, 100))
+    footer_text = small_font.render("ESC/M: Back to Settings", True, get_text_color())
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
 
     pygame.display.flip()
@@ -7478,21 +7501,11 @@ def draw_settings_sound_menu():
 
     # Draw toggle
     is_hovered = toggle_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 0, _ssm_nav_total)
-    color = get_button_hover_color() if is_hovered else get_button_color()
-    pygame.draw.rect(base_surface, color, toggle_rect, border_radius=12)
-    pygame.draw.rect(base_surface, (180, 180, 180), toggle_rect, width=2, border_radius=12)
-    text_surf = menu_font.render(enabled_text, True, get_text_color())
-    base_surface.blit(text_surf, (toggle_rect.centerx - text_surf.get_width() // 2,
-                            toggle_rect.centery - text_surf.get_height() // 2))
+    draw_ui_button(base_surface, toggle_rect, enabled_text, font=menu_font, hovered=is_hovered)
 
     # Draw back
     is_hovered = back_rect.collidepoint(mouse_pos) or nav_is_focused("settings_sound_menu", 1, _ssm_nav_total)
-    color = get_button_hover_color() if is_hovered else get_button_color()
-    pygame.draw.rect(base_surface, color, back_rect, border_radius=12)
-    pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=12)
-    text_surf = menu_font.render(get_text('back'), True, get_text_color())
-    base_surface.blit(text_surf, (back_rect.centerx - text_surf.get_width() // 2,
-                            back_rect.centery - text_surf.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text('back'), font=menu_font, hovered=is_hovered)
 
     # Volume controls
     volumes = [
@@ -7562,12 +7575,12 @@ def draw_settings_sound_menu():
 
         y += 40
 
-    # Footer
+    # Footer (theme-aware - vorher immer hell, egal ob Dark Mode aktiv war)
     footer_bg = pygame.Rect(0, HEIGHT - 30, WIDTH, 30)
-    pygame.draw.rect(base_surface, (230, 235, 245), footer_bg)
-    pygame.draw.line(base_surface, (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
+    pygame.draw.rect(base_surface, get_panel_color(), footer_bg)
+    pygame.draw.line(base_surface, (90, 90, 100) if is_dark_mode() else (200, 200, 200), (0, HEIGHT - 30), (WIDTH, HEIGHT - 30), 1)
 
-    footer_text = small_font.render("ESC/M: Back to Settings", True, (100, 100, 100))
+    footer_text = small_font.render("ESC/M: Back to Settings", True, get_text_color())
     base_surface.blit(footer_text, (WIDTH // 2 - footer_text.get_width() // 2, HEIGHT - 25))
 
     pygame.display.flip()
@@ -7600,6 +7613,12 @@ def run_classic_game():
     """JumpNDodge Classic — die Original-Spiellogik aus Spiel.py, eingebettet
     ins JumpNDodge-Fenster (kein separater Prozess, kein eigenes Fenster mehr).
 
+    NICHT ANFASSEN beim UI/Stil-Redesign: Dieser Screen ist auf explizite
+    Nutzer-Vorgabe bewusst von der "Screens hübscher machen"-Überarbeitung
+    ausgenommen. Keine Farb-/Font-/Card-/Glow-Änderungen hier, auch nicht
+    "nur fürs Theme" oder "nur der Rahmen" - das gilt für den kompletten
+    Original-Code-Block unten (siehe Markierung).
+
     Die eigentliche Spielmechanik (Physik, Gegner, Kollisionen, Zeichnen)
     ist 1:1 aus Spiel.py übernommen und unverändert. Angepasst wurden nur
     die für die Einbettung nötigen Teile:
@@ -7616,7 +7635,11 @@ def run_classic_game():
     # Eigene Oberfläche in der Original-Auflösung von Spiel.py (800x600)
     screen = pygame.Surface((800, 600))
 
-    # ===================== Original-Code aus Spiel.py (Spiellogik unverändert) =====================
+    # ============================================================================
+    # NICHT ANFASSEN - Original-Code aus Spiel.py, 1:1 unverändert (siehe Docstring
+    # oben). Explizit AUSSERHALB des UI/Stil-Redesigns. Keine Farb-/Font-/Card-/
+    # Glow-Edits in diesem Block, auch nicht kleine "nur fürs Theme"-Anpassungen.
+    # ============================================================================
     WIDTH, HEIGHT = 800, 600
 
     WHITE = (255, 255, 255)
@@ -7910,17 +7933,9 @@ def draw_daily_rewards_menu():
         # Claim Button
         claim_rect = pygame.Rect(WIDTH//2 - 100, y_offset, 200, 50)
         is_hovered = claim_rect.collidepoint(mouse_pos) or nav_is_focused("daily_rewards", 0, 2)
-
-        if is_hovered:
-            pygame.draw.rect(base_surface, (0, 200, 0), claim_rect, border_radius=12)
-            pygame.draw.rect(base_surface, (0, 150, 0), claim_rect, width=3, border_radius=12)
-        else:
-            pygame.draw.rect(base_surface, (0, 180, 0), claim_rect, border_radius=12)
-            pygame.draw.rect(base_surface, (0, 120, 0), claim_rect, width=2, border_radius=12)
-        
-        claim_text = menu_font.render(get_text("claim_reward"), True, (255, 255, 255))
-        base_surface.blit(claim_text, (claim_rect.centerx - claim_text.get_width()//2, 
-                                claim_rect.centery - claim_text.get_height()//2))
+        draw_ui_button(base_surface, claim_rect, get_text("claim_reward"), font=menu_font, hovered=is_hovered,
+                        base_color=(0, 180, 0), hover_color=(0, 210, 40), text_color=(255, 255, 255),
+                        border_color=(0, 120, 0), hover_border_color=(150, 255, 170), hover_border_width=3)
         y_offset += 80
         
     elif "Internet" in message:
@@ -7975,17 +7990,7 @@ def draw_daily_rewards_menu():
     back_rect = pygame.Rect(WIDTH - 180, HEIGHT - 60, 150, 40)
     _dr_back_idx = 1 if can_claim else 0
     is_hovered = back_rect.collidepoint(mouse_pos) or nav_is_focused("daily_rewards", _dr_back_idx, _dr_back_idx + 1)
-
-    if is_hovered:
-        pygame.draw.rect(base_surface, get_button_hover_color(), back_rect, border_radius=10)
-        pygame.draw.rect(base_surface, (150, 180, 220), back_rect, width=3, border_radius=10)
-    else:
-        pygame.draw.rect(base_surface, get_button_color(), back_rect, border_radius=10)
-        pygame.draw.rect(base_surface, (180, 180, 180), back_rect, width=2, border_radius=10)
-
-    back_label = small_font.render(get_text("back"), True, get_text_color())
-    base_surface.blit(back_label, (back_rect.centerx - back_label.get_width() // 2,
-                            back_rect.centery - back_label.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font, hovered=is_hovered, radius=10)
 
     pygame.display.flip()
 
@@ -8008,13 +8013,20 @@ def draw_help_menu():
     title = font.render(get_text('help'), True, get_text_color())
     base_surface.blit(title, (WIDTH//2 - title.get_width()//2, 20))
 
-    # Render lines, apply scroll offset
-    y0 = 100 - help_scroll
+    # Card-Panel hinter dem scrollbaren Text (vorher: nackter Text direkt auf dem
+    # Hintergrund, ohne Clipping - konnte beim Scrollen über Titel/Hint hinausragen)
+    panel = pygame.Rect(20, 90, WIDTH - 40, HEIGHT - 146)
+    draw_card(base_surface, panel, radius=14, shadow=False)
+
+    prev_clip = base_surface.get_clip()
+    base_surface.set_clip(panel.inflate(-16, -16))
+    y0 = panel.y + 14 - help_scroll
     for line in help_lines:
         # Wrap if too long? We'll render raw lines; long lines may be clipped
         txt = small_font.render(line, True, get_text_color())
-        base_surface.blit(txt, (40, y0))
+        base_surface.blit(txt, (panel.x + 20, y0))
         y0 += 26
+    base_surface.set_clip(prev_clip)
 
     hint = small_font.render(get_text("scroll_back_hint"), True, get_text_color())
     base_surface.blit(hint, (WIDTH//2 - hint.get_width()//2, HEIGHT - 40))
@@ -10566,13 +10578,16 @@ def draw_admin_login():
     title = font.render(get_text("admin"), True, get_text_color())
     base_surface.blit(title, (WIDTH//2 - title.get_width()//2, 40))
 
+    panel = pygame.Rect(70, 110, 460, 220)
+    draw_card(base_surface, panel, radius=14)
+
     label = small_font.render(get_text("enter_password"), True, get_text_color())
     base_surface.blit(label, (100, 150))
 
     # Input box (masked)
     box = pygame.Rect(100, 182, 420, 40)
-    pygame.draw.rect(base_surface, get_panel_color(), box, border_radius=8)
-    pygame.draw.rect(base_surface, DARK_GRAY, box, width=2, border_radius=8)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=8)
+    pygame.draw.rect(base_surface, (90, 130, 210), box, width=2, border_radius=8)
     masked = "*" * len(admin_pwd_input)
     txt = small_font.render(masked, True, get_text_color())
     base_surface.blit(txt, (box.x + 10, box.y + 8))
@@ -10581,7 +10596,7 @@ def draw_admin_login():
     base_surface.blit(hint, (100, 240))
 
     if admin_msg:
-        msg = small_font.render(admin_msg, True, (180,0,0))
+        msg = small_font.render(admin_msg, True, (220, 60, 60))
         base_surface.blit(msg, (100, 280))
 
     pygame.display.flip()
@@ -10621,6 +10636,9 @@ def draw_admin_panel():
     title = font.render(get_text("admin"), True, get_text_color())
     base_surface.blit(title, (WIDTH//2 - title.get_width()//2, 40))
 
+    panel = pygame.Rect(60, 95, WIDTH - 120, HEIGHT - 110)
+    draw_card(base_surface, panel, radius=16)
+
     # Current coins
     cur = small_font.render(f"{get_text('coins')}: {stats.get('coins',0)}", True, get_text_color())
     base_surface.blit(cur, (100, 120))
@@ -10630,8 +10648,8 @@ def draw_admin_panel():
     base_surface.blit(label, (100, 164))
 
     box = pygame.Rect(200, 156, 140, 40)
-    pygame.draw.rect(base_surface, get_panel_color(), box, border_radius=8)
-    pygame.draw.rect(base_surface, DARK_GRAY, box, width=2, border_radius=8)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=8)
+    pygame.draw.rect(base_surface, (90, 130, 210), box, width=2, border_radius=8)
     txt = small_font.render(admin_amount_input, True, get_text_color())
     base_surface.blit(txt, (box.x + 10, box.y + 8))
 
@@ -10640,10 +10658,9 @@ def draw_admin_panel():
     set_btn = pygame.Rect(360, 206, 200, 40)
     logout_btn = pygame.Rect(WIDTH - 160, HEIGHT - 60, 140, 40)
 
+    mp = get_mouse_pos_logical()
     for rect, label_key in [(add_btn, "add_coins"), (set_btn, "set_coins"), (logout_btn, "logout")]:
-        pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=10)
-        lbl = small_font.render(get_text(label_key), True, get_text_color())
-        base_surface.blit(lbl, (rect.centerx - lbl.get_width()//2, rect.centery - lbl.get_height()//2))
+        draw_ui_button(base_surface, rect, get_text(label_key), font=small_font, hovered=rect.collidepoint(mp))
 
     # Power buttons
     power_label = small_font.render(get_text("give_power") + ":", True, get_text_color())
@@ -10661,8 +10678,9 @@ def draw_admin_panel():
         # Color by rarity
         rar = POWERS_DB.get(power_name, {}).get("rarity", "?")
         color = rarity_colors.get(rar, GRAY)
+        hov = rect.collidepoint(mp)
         pygame.draw.rect(base_surface, color, rect, border_radius=6)
-        pygame.draw.rect(base_surface, DARK_GRAY, rect, width=1, border_radius=6)
+        pygame.draw.rect(base_surface, (255, 255, 255) if hov else DARK_GRAY, rect, width=(2 if hov else 1), border_radius=6)
 
         # Power name
         txt = small_font.render(get_power_name(power_name), True, get_text_color())
@@ -12568,23 +12586,16 @@ def run_game():
                                       (wx - _ux * wlen, wy - _uy * wlen), (wx, wy), 2)
                 base_surface.blit(_wind_layer, (0, 0))
 
-        # HUD - kein Box-Hintergrund, Text mit Schatten, skaliert mit gui_scale
-        _gs = max(0.5, min(2.0, settings.get("gui_scale", 1.0)))
-        _lh = int(22 * _gs)
-        _tx = int(12 * _gs)
-        _ty = int(10 * _gs)
+        # HUD - kein Box-Hintergrund, Text mit Schatten
+        _lh = 22
+        _tx = 12
+        _ty = 10
         _tcol = (230, 235, 255) if is_dark_mode() else (20, 20, 50)
         _shcol = (0, 0, 0) if is_dark_mode() else (180, 185, 210)
 
         def _hud_text(line, x, y):
-            sh = pygame.transform.smoothscale(
-                small_font.render(line, True, _shcol),
-                (int(small_font.size(line)[0] * _gs), int(small_font.get_height() * _gs))
-            )
-            s = pygame.transform.smoothscale(
-                small_font.render(line, True, _tcol),
-                (int(small_font.size(line)[0] * _gs), int(small_font.get_height() * _gs))
-            )
+            sh = small_font.render(line, True, _shcol)
+            s = small_font.render(line, True, _tcol)
             base_surface.blit(sh, (x + 1, y + 1))
             base_surface.blit(s, (x, y))
 
@@ -12597,8 +12608,8 @@ def run_game():
         ]):
             _hud_text(_line, _tx, _ty + _i * _lh)
         _time_line = f"{_elapsed_s}s"
-        _score_w = int(small_font.size(f"{get_text('score')}: {score}")[0] * _gs)
-        _hud_text(_time_line, _tx + _score_w + int(14 * _gs), _ty)
+        _score_w = small_font.size(f"{get_text('score')}: {score}")[0]
+        _hud_text(_time_line, _tx + _score_w + 14, _ty)
 
         if wind_h_enabled or wind_v_enabled:
             _h_dir = 1 if wind_h_strength > 0.05 else (-1 if wind_h_strength < -0.05 else 0)
@@ -12608,15 +12619,15 @@ def run_game():
             _wind_row_y = _ty + 4 * _lh
             _hud_text(_wind_label, _tx, _wind_row_y)
             # Richtungspfeil als Vektorgrafik statt Unicode-Zeichen (nicht jede Font hat →↑↓ etc.)
-            _aw = int(small_font.size(_wind_label)[0] * _gs)
-            _acx = _tx + _aw + int(16 * _gs)
-            _acy = _wind_row_y + int(small_font.get_height() * _gs) // 2
+            _aw = small_font.size(_wind_label)[0]
+            _acx = _tx + _aw + 16
+            _acy = _wind_row_y + small_font.get_height() // 2
             if _h_dir == 0 and _v_dir == 0:
-                pygame.draw.circle(base_surface, _tcol, (_acx, _acy), max(2, int(3 * _gs)))
+                pygame.draw.circle(base_surface, _tcol, (_acx, _acy), 3)
             else:
                 _alen = max(0.001, (_h_dir ** 2 + _v_dir ** 2) ** 0.5)
                 _aux, _auy = _h_dir / _alen, _v_dir / _alen
-                _asz = int(9 * _gs)
+                _asz = 9
                 _tip = (_acx + _aux * _asz, _acy + _auy * _asz)
                 _tail = (_acx - _aux * _asz, _acy - _auy * _asz)
                 _perp = (-_auy, _aux)
@@ -12624,18 +12635,18 @@ def run_game():
                           _tip[1] - _auy * _asz * 0.7 + _perp[1] * _asz * 0.5)
                 _wing2 = (_tip[0] - _aux * _asz * 0.7 - _perp[0] * _asz * 0.5,
                           _tip[1] - _auy * _asz * 0.7 - _perp[1] * _asz * 0.5)
-                pygame.draw.line(base_surface, _tcol, _tail, _tip, max(2, int(2 * _gs)))
+                pygame.draw.line(base_surface, _tcol, _tail, _tip, 2)
                 pygame.draw.polygon(base_surface, _tcol, [_tip, _wing1, _wing2])
 
 
         # Power HUD (rechts oben)
-        _py_screen = int(10 * _gs)
+        _py_screen = 10
         if rp.equipped:
             for name in rp.equipped:
                 rar = POWERS_DB.get(name, {}).get("rarity", "?")
                 color = rarity_colors.get(rar, GRAY)
-                _icon = int(16 * _gs)
-                _ix = WIDTH - int(220 * _gs)
+                _icon = 16
+                _ix = WIDTH - 220
                 pygame.draw.rect(base_surface, color, pygame.Rect(_ix, _py_screen + 2, _icon, _icon), border_radius=3)
                 label = get_power_name(name)
                 if name in rp.timers and rp.timers[name] > 0:
@@ -12658,16 +12669,16 @@ def run_game():
                         label += f" [Slow {rp.phoenix_slow_remaining//1000}s]"
                     elif rp.phoenix_cd > 0:
                         label += f" [{rp.phoenix_cd//60000}:{(rp.phoenix_cd//1000 % 60):02d}]"
-                _hud_text(label, _ix + _icon + int(6 * _gs), _py_screen)
+                _hud_text(label, _ix + _icon + 6, _py_screen)
                 _py_screen += _lh
 
         # Bind hints for actives
         binds = rp.active_bindings()
         if len(binds) >= 1:
-            _hud_text(f"Q: {binds[0]}", WIDTH - int(220 * _gs), _py_screen)
+            _hud_text(f"Q: {binds[0]}", WIDTH - 220, _py_screen)
             _py_screen += _lh
         if len(binds) >= 2:
-            _hud_text(f"E: {binds[1]}", WIDTH - int(220 * _gs), _py_screen)
+            _hud_text(f"E: {binds[1]}", WIDTH - 220, _py_screen)
 
         # draw overlays (top / per pos)
         cleanup_overlays()
@@ -13374,6 +13385,12 @@ def show_game_over_2p(score, winner, survived_seconds):
             title_text  = "Game Over!"
             title_color = get_text_color()
 
+        # Card-Panel hinter dem Inhalt (gleiche Behandlung wie beim 1-Player Game Over),
+        # Rahmenfarbe folgt der Sieger-Farbe statt eines festen pulsierenden Golds -
+        # hier gibt es keinen "neuer Highscore"-Moment, aber der Sieger ist die Nachricht.
+        panel = pygame.Rect(cx - 240, HEIGHT // 2 - 200, 480, 320)
+        draw_card(base_surface, panel, radius=20, border_color=title_color)
+
         title_surf = font.render(title_text, True, title_color)
         # Schatten
         title_sh   = font.render(title_text, True, (0, 0, 0))
@@ -13397,17 +13414,12 @@ def show_game_over_2p(score, winner, survived_seconds):
         _go2_rects   = [menu_rect, rematch_rect]
 
         mp = get_mouse_pos_logical()
-        for i, (rect, label, base_col, txt_col) in enumerate([
-            (menu_rect,    get_text("back"), get_button_color(),  get_text_color()),
-            (rematch_rect, "Rematch ↺",     (0, 110, 50),        (255, 255, 255)),
-        ]):
-            hl = rect.collidepoint(mp) or nav_is_focused("game_over_2p", i, len(_go2_rects), default_idx=1)
-            bg = get_button_hover_color() if hl else base_col
-            pygame.draw.rect(base_surface, bg, rect, border_radius=10)
-            pygame.draw.rect(base_surface, (160, 160, 160), rect, width=2, border_radius=10)
-            ls = menu_font.render(label, True, txt_col)
-            base_surface.blit(ls, (rect.centerx - ls.get_width() // 2,
-                                   rect.centery - ls.get_height() // 2))
+        menu_hl    = menu_rect.collidepoint(mp)    or nav_is_focused("game_over_2p", 0, len(_go2_rects), default_idx=1)
+        rematch_hl = rematch_rect.collidepoint(mp) or nav_is_focused("game_over_2p", 1, len(_go2_rects), default_idx=1)
+        draw_ui_button(base_surface, menu_rect, get_text("back"), font=menu_font, hovered=menu_hl)
+        draw_ui_button(base_surface, rematch_rect, "Rematch ↺", font=menu_font, hovered=rematch_hl,
+                        base_color=(0, 130, 60), hover_color=(30, 175, 90), text_color=(255, 255, 255),
+                        border_color=(60, 90, 70), hover_border_color=(190, 255, 210), hover_border_width=3)
 
         pygame.display.flip()
 
@@ -13461,6 +13473,13 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         fill_bg(rings=True)
         cx = WIDTH // 2
 
+        # Card-Panel hinter dem gesamten Inhalt (vorher: nackter Text direkt auf dem
+        # animierten Hintergrund, im Gegensatz zu z.B. draw_results_overlay). Bei neuem
+        # Highscore pulsierender Gold-Rahmen statt festem Rahmen.
+        panel = pygame.Rect(cx - 240, HEIGHT // 2 - 300, 480, 460)
+        draw_card(base_surface, panel, radius=20, glow=new_record,
+                  glow_color=(255, 215, 0) if new_record else None)
+
         # Avatar + Profilname (Block in Wunschfarbe + ausgerüstete Kosmetik, siehe draw_avatar)
         _go_avatar_size = 50
         _go_avatar_rect = pygame.Rect(cx - _go_avatar_size // 2, HEIGHT // 2 - 265, _go_avatar_size, _go_avatar_size)
@@ -13468,8 +13487,10 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         _go_name_surf = small_font.render(current_profile_name or "-", True, get_text_color())
         base_surface.blit(_go_name_surf, (cx - _go_name_surf.get_width() // 2, _go_avatar_rect.bottom + 4))
 
-        # Title
+        # Title mit Schatten (gleicher Stil wie Settings/Shop-Titel)
         over_s = font.render(get_text("game_over"), True, get_text_color())
+        over_shadow = font.render(get_text("game_over"), True, (60, 60, 75) if is_dark_mode() else (170, 170, 190))
+        base_surface.blit(over_shadow, (cx - over_s.get_width() // 2 + 2, HEIGHT // 2 - 168))
         base_surface.blit(over_s, (cx - over_s.get_width() // 2, HEIGHT // 2 - 170))
 
         # Score + Zeit nebeneinander
@@ -13479,9 +13500,10 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         base_surface.blit(score_label, (cx - total_w // 2, HEIGHT // 2 - 100))
         base_surface.blit(time_label,  (cx - total_w // 2 + score_label.get_width() + 20, HEIGHT // 2 - 100))
 
-        # Highscore section
+        # Highscore section - neuer Rekord pulsiert (gleicher Glow-Effekt wie der Panel-Rahmen)
         if new_record:
-            hs_line1 = menu_font.render(f"Neuer Highscore:  {new_hs}", True, (255, 215, 0))
+            hs_col = ui_glow_pulse((255, 215, 0), speed=4.0, low=0.75)
+            hs_line1 = menu_font.render(f"Neuer Highscore:  {new_hs}", True, hs_col)
             hs_line2 = small_font.render(f"Alter Highscore:  {old_highscore}", True, (170, 170, 170))
             base_surface.blit(hs_line1, (cx - hs_line1.get_width() // 2, HEIGHT // 2 - 52))
             base_surface.blit(hs_line2, (cx - hs_line2.get_width() // 2, HEIGHT // 2 - 20))
@@ -13499,16 +13521,12 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         menu_rect  = pygame.Rect(cx + 20,  btn_y, 195, 46)
         _go_rects  = [retry_rect, menu_rect]
         mp = get_mouse_pos_logical()
-        for i, (rect, label, base_col, txt_col) in enumerate([
-            (retry_rect, get_text("retry"), (0, 110, 50),       (255, 255, 255)),
-            (menu_rect,  get_text("back"),  get_button_color(), get_text_color()),
-        ]):
-            hl = rect.collidepoint(mp) or nav_is_focused("game_over_1p", i, len(_go_rects))
-            bg = get_button_hover_color() if hl else base_col
-            pygame.draw.rect(base_surface, bg, rect, border_radius=10)
-            pygame.draw.rect(base_surface, (160, 160, 160), rect, width=2, border_radius=10)
-            ls = menu_font.render(label, True, txt_col)
-            base_surface.blit(ls, (rect.centerx - ls.get_width() // 2, rect.centery - ls.get_height() // 2))
+        retry_hl = retry_rect.collidepoint(mp) or nav_is_focused("game_over_1p", 0, len(_go_rects))
+        menu_hl  = menu_rect.collidepoint(mp)  or nav_is_focused("game_over_1p", 1, len(_go_rects))
+        draw_ui_button(base_surface, retry_rect, get_text("retry"), font=menu_font, hovered=retry_hl,
+                        base_color=(0, 130, 60), hover_color=(30, 175, 90), text_color=(255, 255, 255),
+                        border_color=(60, 90, 70), hover_border_color=(190, 255, 210), hover_border_width=3)
+        draw_ui_button(base_surface, menu_rect, get_text("back"), font=menu_font, hovered=menu_hl)
 
         # Controls hint
         retry_s = small_font.render(f"R: {get_text('retry')}   ·   M: {get_text('back')}", True, (130, 130, 150))

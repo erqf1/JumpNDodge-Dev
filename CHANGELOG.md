@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.4.71 - 2026-09-01
+
+
+linux server fix 
+
+
 ## v1.4.7 - 2026-08-31
 
 new friend system, fixed some text/ui in powers
