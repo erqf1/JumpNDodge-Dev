@@ -708,6 +708,118 @@ def rename_profile_online(new_name, on_done=None):
     _online_request_async("POST", "/api/rename", payload, on_done=on_done)
 
 
+def send_friend_request_online(to_name, on_done=None):
+    """Schickt eine Freundschaftsanfrage. Ergebnis über on_done(result);
+    result['status'] ('pending'/'accepted') bei Erfolg, sonst result['error']
+    ('already_friends', 'target_not_found', 'unknown_player')."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "to_name": to_name}
+    _online_request_async("POST", "/api/friends/request", payload, on_done=on_done)
+
+
+def respond_friend_request_online(from_name, accept, on_done=None):
+    """Nimmt eine eingehende Anfrage an oder lehnt sie ab. Ablehnen räumt
+    serverseitig in beide Richtungen auf, deckt also auch "eigene gesendete
+    Anfrage zurückziehen" mit demselben Aufruf ab (siehe server/app.py
+    friend_decline())."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    if accept:
+        _online_request_async("POST", "/api/friends/accept", {"token": token, "from_name": from_name}, on_done=on_done)
+    else:
+        _online_request_async("POST", "/api/friends/decline", {"token": token, "other_name": from_name}, on_done=on_done)
+
+
+def remove_friend_online(name, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/friends/remove", {"token": token, "other_name": name}, on_done=on_done)
+
+
+def fetch_friends_list(name, on_done=None):
+    """Holt die bestätigte Freundesliste eines Spielers asynchron - öffentlich
+    lesbar wie alles unter /api/players/<name>, kein Token nötig."""
+    path = f"/api/friends/list?name={urllib.parse.quote(name)}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+def fetch_incoming_friend_requests(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/friends/incoming", {"token": token}, on_done=on_done)
+
+
+def create_clan_online(tag, name, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "tag": tag.strip(), "name": name.strip()}
+    _online_request_async("POST", "/api/clans/create", payload, on_done=on_done)
+
+
+def join_clan_online(tag, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/join", {"token": token, "tag": tag.strip()}, on_done=on_done)
+
+
+def leave_clan_online(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/leave", {"token": token}, on_done=on_done)
+
+
+def kick_clan_member_online(target_name, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/kick", {"token": token, "target_name": target_name}, on_done=on_done)
+
+
+def fetch_clan_info(tag, on_done=None):
+    path = f"/api/clans/{urllib.parse.quote(tag)}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+def fetch_my_clan(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/mine", {"token": token}, on_done=on_done)
+
+
+def search_clans_online(query, on_done=None):
+    path = f"/api/clans/search?q={urllib.parse.quote(query)}"
+    _online_request_async("GET", path, on_done=on_done)
+
+
+def send_chat_message_online(conversation_type, target, body, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "conversation_type": conversation_type, "target": target, "body": body}
+    _online_request_async("POST", "/api/messages/send", payload, on_done=on_done)
+
+
+def fetch_chat_messages(conversation_type, target, since_id=0, on_done=None):
+    """POST statt GET, obwohl es inhaltlich ein Read ist - der Token wird hier
+    zwingend gebraucht, um die Lese-Berechtigung serverseitig zu prüfen
+    (Freundschaft/Clan-Mitgliedschaft), siehe Kommentar bei /api/my_rank in
+    server/app.py für die gleiche Begründung (Token nie im Query-String)."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "conversation_type": conversation_type, "target": target, "since_id": since_id}
+    _online_request_async("POST", "/api/messages/list", payload, on_done=on_done)
+
+
 _confirmed_online_deletions = []  # von _flush_pending_online_deletions()s on_done (Hintergrund-
 # Thread) angehängt, von sync_window_size() im Main-Thread aus _pending_online_deletions
 # entfernt und gespeichert - gleiches Race-Condition-Muster wie _rename_pending_local_name/
@@ -1918,6 +2030,19 @@ texts = {
         "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
         "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
         "paste_btn": "Einfügen", "add_friend_btn": "+ Freund", "remove_friend_btn": "- Freund",
+        "friends_hub_title": "Freunde", "friends_tab_roster": "Meine Freunde", "friends_tab_requests": "Anfragen",
+        "no_requests_yet": "Keine Anfragen", "accept_btn": "Annehmen", "decline_btn": "Ablehnen",
+        "message_btn": "Nachricht", "friend_request_sent_msg": "Anfrage gesendet!", "already_friends_msg": "Ihr seid bereits befreundet",
+        "clan_hub_title": "Clan", "create_clan_btn": "Clan erstellen", "join_clan_btn": "Clan beitreten",
+        "leave_clan_btn": "Verlassen", "kick_btn": "Kick", "clan_tag_label": "Tag", "clan_name_label": "Name",
+        "clan_not_in_one": "Du bist in keinem Clan", "clan_members_label": "Mitglieder", "clan_owner_label": "Anführer",
+        "clan_search_title": "Clan-Suche", "clan_not_found": "Clan nicht gefunden",
+        "clan_fields_required_msg": "Bitte Tag und Namen eingeben", "clan_already_in_one_msg": "Du bist bereits in einem Clan",
+        "clan_tag_taken_msg": "Tag bereits vergeben", "clan_name_taken_msg": "Name bereits vergeben", "clan_full_msg": "Clan ist voll",
+        "chat_title": "Chat", "send_btn": "Senden", "no_messages_yet": "Noch keine Nachrichten",
+        "chat_message_too_long_msg": "Nachricht zu lang", "chat_message_filtered_msg": "Nachricht nicht erlaubt",
+        "chat_not_friends_msg": "Ihr seid nicht befreundet", "chat_not_clan_member_msg": "Du bist nicht in diesem Clan",
+        "chat_rate_limited_msg": "Bitte kurz warten",
         "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprünge gesamt", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins gesamt verdient",
         "shop": "Shop", "loadout": "Inventar", "coins": "Coins",
@@ -2010,6 +2135,19 @@ texts = {
         "redeem_code_btn": "Redeem Code", "redeem_code_success": "Code redeemed!",
         "code_invalid_msg": "Invalid code", "code_already_redeemed_msg": "Code already redeemed",
         "paste_btn": "Paste", "add_friend_btn": "+ Friend", "remove_friend_btn": "- Friend",
+        "friends_hub_title": "Friends", "friends_tab_roster": "My Friends", "friends_tab_requests": "Requests",
+        "no_requests_yet": "No requests", "accept_btn": "Accept", "decline_btn": "Decline",
+        "message_btn": "Message", "friend_request_sent_msg": "Request sent!", "already_friends_msg": "You're already friends",
+        "clan_hub_title": "Clan", "create_clan_btn": "Create Clan", "join_clan_btn": "Join Clan",
+        "leave_clan_btn": "Leave", "kick_btn": "Kick", "clan_tag_label": "Tag", "clan_name_label": "Name",
+        "clan_not_in_one": "You're not in a clan", "clan_members_label": "Members", "clan_owner_label": "Leader",
+        "clan_search_title": "Clan Search", "clan_not_found": "Clan not found",
+        "clan_fields_required_msg": "Please enter a tag and name", "clan_already_in_one_msg": "You're already in a clan",
+        "clan_tag_taken_msg": "Tag already taken", "clan_name_taken_msg": "Name already taken", "clan_full_msg": "Clan is full",
+        "chat_title": "Chat", "send_btn": "Send", "no_messages_yet": "No messages yet",
+        "chat_message_too_long_msg": "Message too long", "chat_message_filtered_msg": "Message not allowed",
+        "chat_not_friends_msg": "You're not friends", "chat_not_clan_member_msg": "You're not in this clan",
+        "chat_rate_limited_msg": "Please wait a moment",
         "friends_tab": "Friends", "all_tab_lb": "All", "no_friends_yet": "No friends added yet",
         "total_jumps": "Total Jumps", "total_deaths": "Game Overs", "avg_score": "Avg. Score", "total_coins_earned": "Total Coins Earned",
         "shop": "Shop", "loadout": "Inventory", "coins": "Coins",
@@ -2103,6 +2241,19 @@ texts = {
         "redeem_code_btn": "Активировать код", "redeem_code_success": "Код активирован!",
         "code_invalid_msg": "Неверный код", "code_already_redeemed_msg": "Код уже использован",
         "paste_btn": "Вставить", "add_friend_btn": "+ Друг", "remove_friend_btn": "- Друг",
+        "friends_hub_title": "Друзья", "friends_tab_roster": "Мои друзья", "friends_tab_requests": "Заявки",
+        "no_requests_yet": "Нет заявок", "accept_btn": "Принять", "decline_btn": "Отклонить",
+        "message_btn": "Сообщение", "friend_request_sent_msg": "Заявка отправлена!", "already_friends_msg": "Вы уже друзья",
+        "clan_hub_title": "Клан", "create_clan_btn": "Создать клан", "join_clan_btn": "Вступить в клан",
+        "leave_clan_btn": "Покинуть", "kick_btn": "Кикнуть", "clan_tag_label": "Тег", "clan_name_label": "Название",
+        "clan_not_in_one": "Вы не состоите в клане", "clan_members_label": "Участники", "clan_owner_label": "Лидер",
+        "clan_search_title": "Поиск клана", "clan_not_found": "Клан не найден",
+        "clan_fields_required_msg": "Введите тег и название", "clan_already_in_one_msg": "Вы уже состоите в клане",
+        "clan_tag_taken_msg": "Тег уже занят", "clan_name_taken_msg": "Название уже занято", "clan_full_msg": "Клан заполнен",
+        "chat_title": "Чат", "send_btn": "Отправить", "no_messages_yet": "Пока нет сообщений",
+        "chat_message_too_long_msg": "Сообщение слишком длинное", "chat_message_filtered_msg": "Сообщение не разрешено",
+        "chat_not_friends_msg": "Вы не друзья", "chat_not_clan_member_msg": "Вы не состоите в этом клане",
+        "chat_rate_limited_msg": "Пожалуйста, подождите",
         "friends_tab": "Друзья", "all_tab_lb": "Все", "no_friends_yet": "Пока нет друзей",
         "total_jumps": "Прыжков всего", "total_deaths": "Поражений", "avg_score": "Ø очки", "total_coins_earned": "Всего монет заработано",
         "shop": "Магазин", "loadout": "Инвентарь", "coins": "Монеты",
@@ -2196,6 +2347,19 @@ texts = {
         "redeem_code_btn": "Kod Kullan", "redeem_code_success": "Kod kullanıldı!",
         "code_invalid_msg": "Geçersiz kod", "code_already_redeemed_msg": "Kod zaten kullanıldı",
         "paste_btn": "Yapıştır", "add_friend_btn": "+ Arkadaş", "remove_friend_btn": "- Arkadaş",
+        "friends_hub_title": "Arkadaşlar", "friends_tab_roster": "Arkadaşlarım", "friends_tab_requests": "İstekler",
+        "no_requests_yet": "İstek yok", "accept_btn": "Kabul Et", "decline_btn": "Reddet",
+        "message_btn": "Mesaj", "friend_request_sent_msg": "İstek gönderildi!", "already_friends_msg": "Zaten arkadaşsınız",
+        "clan_hub_title": "Klan", "create_clan_btn": "Klan Kur", "join_clan_btn": "Klana Katıl",
+        "leave_clan_btn": "Ayrıl", "kick_btn": "At", "clan_tag_label": "Etiket", "clan_name_label": "İsim",
+        "clan_not_in_one": "Bir klanda değilsin", "clan_members_label": "Üyeler", "clan_owner_label": "Lider",
+        "clan_search_title": "Klan Arama", "clan_not_found": "Klan bulunamadı",
+        "clan_fields_required_msg": "Lütfen etiket ve isim gir", "clan_already_in_one_msg": "Zaten bir klandasın",
+        "clan_tag_taken_msg": "Etiket zaten alınmış", "clan_name_taken_msg": "İsim zaten alınmış", "clan_full_msg": "Klan dolu",
+        "chat_title": "Sohbet", "send_btn": "Gönder", "no_messages_yet": "Henüz mesaj yok",
+        "chat_message_too_long_msg": "Mesaj çok uzun", "chat_message_filtered_msg": "Mesaja izin verilmiyor",
+        "chat_not_friends_msg": "Arkadaş değilsiniz", "chat_not_clan_member_msg": "Bu klanda değilsin",
+        "chat_rate_limited_msg": "Lütfen biraz bekle",
         "friends_tab": "Arkadaşlar", "all_tab_lb": "Tümü", "no_friends_yet": "Henüz arkadaş eklenmedi",
         "total_jumps": "Toplam Zıplama", "total_deaths": "Kaybedilen Oyunlar", "avg_score": "Ø Skor", "total_coins_earned": "Toplam Kazanılan Coin",
         "shop": "Mağaza", "loadout": "Envanter", "coins": "Paralar",
@@ -2289,6 +2453,19 @@ texts = {
         "redeem_code_btn": "Code einlösen", "redeem_code_success": "Code eingelöst!",
         "code_invalid_msg": "Ungültiger Code", "code_already_redeemed_msg": "Code bereits eingelöst",
         "paste_btn": "Einfügen", "add_friend_btn": "+ Freund", "remove_friend_btn": "- Freund",
+        "friends_hub_title": "Fründe", "friends_tab_roster": "Mini Fründe", "friends_tab_requests": "Aafrage",
+        "no_requests_yet": "Kei Aafrage", "accept_btn": "Aaneh", "decline_btn": "Ablehne",
+        "message_btn": "Nachricht", "friend_request_sent_msg": "Aafrag gschickt!", "already_friends_msg": "Ihr sind scho befründet",
+        "clan_hub_title": "Clan", "create_clan_btn": "Clan erstelle", "join_clan_btn": "Clan bitrete",
+        "leave_clan_btn": "Verlah", "kick_btn": "Chick", "clan_tag_label": "Tag", "clan_name_label": "Name",
+        "clan_not_in_one": "Du bisch i keim Clan", "clan_members_label": "Mitglieder", "clan_owner_label": "Aafüehrer",
+        "clan_search_title": "Clan-Suech", "clan_not_found": "Clan nid gfunde",
+        "clan_fields_required_msg": "Bitte Tag und Name igäh", "clan_already_in_one_msg": "Du bisch scho i eim Clan",
+        "clan_tag_taken_msg": "Tag scho vergäbe", "clan_name_taken_msg": "Name scho vergäbe", "clan_full_msg": "Clan isch voll",
+        "chat_title": "Chat", "send_btn": "Schicke", "no_messages_yet": "No kei Nachrichte",
+        "chat_message_too_long_msg": "Nachricht z'lang", "chat_message_filtered_msg": "Nachricht nid erlaubt",
+        "chat_not_friends_msg": "Ihr sind nid befründet", "chat_not_clan_member_msg": "Du bisch nid i däm Clan",
+        "chat_rate_limited_msg": "Bitte churz warte",
         "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprüng total", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins total verdiänt",
         "shop": "Lade", "loadout": "Inventar", "coins": "Münze",
@@ -3963,15 +4140,20 @@ def back_from_player_search():
 
 def open_public_profile(name, return_screen):
     play_sound(menu_click_sound)
-    global in_online_leaderboard, in_player_search, in_public_profile
+    global in_online_leaderboard, in_player_search, in_public_profile, in_friends_hub, in_clan_hub
     global _public_profile_name, _public_profile_data, _public_profile_loading, _public_profile_return_screen
+    global _friend_action_pending, _public_profile_friend_msg
     in_online_leaderboard = False
     in_player_search = False
+    in_friends_hub = False
+    in_clan_hub = False
     in_public_profile = True
     _public_profile_name = name
     _public_profile_data = None
     _public_profile_loading = False
     _public_profile_return_screen = return_screen
+    _friend_action_pending = None
+    _public_profile_friend_msg = ""
 
 def open_redeem_code_from_more():
     # Kein eigener play_sound() hier - die Aufrufstelle im "Mehr"-Menü
@@ -3995,10 +4177,14 @@ def open_rename_profile_from_hub():
 
 def back_from_public_profile():
     play_sound(click_back_sound)
-    global in_public_profile, in_online_leaderboard, in_player_search
+    global in_public_profile, in_online_leaderboard, in_player_search, in_friends_hub, in_clan_hub
     in_public_profile = False
     if _public_profile_return_screen == "in_player_search":
         in_player_search = True
+    elif _public_profile_return_screen == "in_friends_hub":
+        in_friends_hub = True
+    elif _public_profile_return_screen == "in_clan_hub":
+        in_clan_hub = True
     else:
         in_online_leaderboard = True
 
@@ -6056,11 +6242,17 @@ def draw_profile_hub():
 
     # Buttons: Kosmetik ändern, Statistik, Profil wechseln, Zurück
     start_x = WIDTH // 2 - 180
-    start_y = sy + swatch_size + 30
-    gap = 56
+    start_y = sy + swatch_size + 24
+    gap = 48  # bei 5 Buttons war hier noch 56/+30 - beides reduziert, seit
+              # Freunde/Clan dazukamen. Buttons sind 44px hoch, gap ist der
+              # Start-zu-Start-Abstand - unter 44 überlappen sich die Buttons
+              # (das war ein echter Bug: 42 < 44). 48 lässt 4px sichtbaren
+              # Abstand und passt bei 7 Buttons noch knapp ins 800x600-Fenster.
     btn_texts = [get_text('stats'), get_text('switch_profile'), get_text('online_leaderboard_btn'),
+                 get_text('friends_hub_title'), get_text('clan_hub_title'),
                  get_text('rename_btn'), get_text('back')]
-    btn_colors = [(100, 150, 200), (200, 150, 100), (100, 180, 160), (170, 130, 200), (150, 150, 150)]
+    btn_colors = [(100, 150, 200), (200, 150, 100), (100, 180, 160), (100, 190, 130), (210, 175, 80),
+                  (170, 130, 200), (150, 150, 150)]
     btn_rects = []
     _hub_nav_total = len(swatch_names) + len(btn_texts)
     for i, (text, color) in enumerate(zip(btn_texts, btn_colors)):
@@ -6152,6 +6344,37 @@ def _lb_start_fetch():
             names.append(current_profile_name)
     fetch_leaderboard(mode, difficulty, names=names, on_done=_on_done)
     fetch_my_rank(mode, difficulty, on_done=_on_rank_done)
+
+
+_friends_local_pending = None  # Neue Freundesliste vom Server, von
+# _refresh_friends_local()s on_done (Hintergrund-Thread) gesetzt - im Main-
+# Thread über _apply_friends_local_pending() angewendet (gleiches Race-
+# Condition-Muster wie _rename_pending_local_name, save_current_profile()
+# darf nicht aus einem Hintergrund-Thread laufen).
+
+
+def _refresh_friends_local():
+    """Holt die bestätigte Freundesliste vom Server und ersetzt friends_local
+    komplett damit - friends_local ist jetzt eine Cache-Kopie des Servers
+    (echte Freundschaften brauchen eine Anfrage/Bestätigung, siehe
+    send_friend_request_online()), keine rein lokale Bookmark-Liste mehr."""
+    if not current_profile_name:
+        return
+
+    def _on_done(result):
+        global _friends_local_pending
+        if result and result.get("ok"):
+            _friends_local_pending = list(result.get("friends", []))
+
+    fetch_friends_list(current_profile_name, on_done=_on_done)
+
+
+def _apply_friends_local_pending():
+    global friends_local, _friends_local_pending
+    if _friends_local_pending is not None:
+        friends_local = _friends_local_pending
+        _friends_local_pending = None
+        save_current_profile()
 
 
 def draw_online_leaderboard():
@@ -6250,8 +6473,13 @@ def draw_online_leaderboard():
 
             name_s = small_font.render(entry.get("name", ""), True, get_text_color())
             base_surface.blit(name_s, (row_rect.x + 60, row_rect.centery - name_s.get_height() // 2))
+            tag_x = row_rect.x + 68 + name_s.get_width()
             if entry.get("verified"):
-                _draw_verified_badge(base_surface, row_rect.x + 68 + name_s.get_width(), row_rect.centery, radius=8)
+                _draw_verified_badge(base_surface, tag_x, row_rect.centery, radius=8)
+                tag_x += 16
+            if entry.get("clan_tag"):
+                clan_tag_s = small_font.render(f"[{entry['clan_tag']}]", True, (120, 160, 220))
+                base_surface.blit(clan_tag_s, (tag_x + 6, row_rect.centery - clan_tag_s.get_height() // 2))
 
             score_s = small_font.render(str(entry.get("score", 0)), True, get_text_color())
             base_surface.blit(score_s, (row_rect.x + 270, row_rect.centery - score_s.get_height() // 2))
@@ -6293,9 +6521,11 @@ def online_leaderboard_loop():
     global in_online_leaderboard, _lb_difficulty_idx, _lb_friends_only
     clock = pygame.time.Clock()
     _lb_start_fetch()
+    _refresh_friends_local()
     _last_key = (_lb_difficulty_idx, _lb_friends_only)
     while in_online_leaderboard:
         back_rect, search_rect, diff_left, diff_right, dock_rect, all_tab_rect, friends_tab_rect = draw_online_leaderboard()
+        _apply_friends_local_pending()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -6400,8 +6630,13 @@ def draw_player_search():
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
             name_s = menu_font.render(name, True, get_text_color())
             base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+            tag_x = row_rect.x + 20 + name_s.get_width()
             if entry.get("verified"):
-                _draw_verified_badge(base_surface, row_rect.x + 20 + name_s.get_width(), row_rect.centery, radius=9)
+                _draw_verified_badge(base_surface, tag_x, row_rect.centery, radius=9)
+                tag_x += 18
+            if entry.get("clan_tag"):
+                clan_tag_s = small_font.render(f"[{entry['clan_tag']}]", True, (120, 160, 220))
+                base_surface.blit(clan_tag_s, (tag_x + 6, row_rect.centery - clan_tag_s.get_height() // 2))
             y += row_h
 
     pygame.display.flip()
@@ -6490,18 +6725,19 @@ def draw_public_profile():
         loading_s = font.render(get_text("loading"), True, get_text_color())
         base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
         pygame.display.flip()
-        return back_rect, None
+        return back_rect, None, None, None
 
     if _public_profile_data is False:
         msg_s = font.render(get_text("player_not_found"), True, get_text_color())
         base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT // 2 - msg_s.get_height() // 2))
         pygame.display.flip()
-        return back_rect, None
+        return back_rect, None, None, None
 
     player = _public_profile_data.get("player", {})
 
     # Freund hinzufügen/entfernen - nicht beim eigenen Profil
     friend_rect = None
+    message_rect = None
     viewed_name = player.get("name")
     if viewed_name and viewed_name != current_profile_name:
         is_friend = viewed_name in friends_local
@@ -6513,6 +6749,17 @@ def draw_public_profile():
         pygame.draw.rect(base_surface, (180, 180, 180), friend_rect, width=2, border_radius=10)
         friend_lbl = small_font.render(get_text("remove_friend_btn") if is_friend else get_text("add_friend_btn"), True, (255, 255, 255))
         base_surface.blit(friend_lbl, (friend_rect.centerx - friend_lbl.get_width() // 2, friend_rect.centery - friend_lbl.get_height() // 2))
+
+        if is_friend:
+            message_rect = pygame.Rect(160, 15, 130, 35)
+            hov_msg = message_rect.collidepoint(mouse_pos)
+            pygame.draw.rect(base_surface, (140, 180, 240) if hov_msg else (120, 160, 220), message_rect, border_radius=10)
+            pygame.draw.rect(base_surface, (180, 180, 180), message_rect, width=2, border_radius=10)
+            msg_lbl = small_font.render(get_text("message_btn"), True, (255, 255, 255))
+            base_surface.blit(msg_lbl, (message_rect.centerx - msg_lbl.get_width() // 2, message_rect.centery - msg_lbl.get_height() // 2))
+        elif _public_profile_friend_msg:
+            fmsg_s = small_font.render(_public_profile_friend_msg, True, (210, 190, 90))
+            base_surface.blit(fmsg_s, (20, 54))
     avatar_color = PLAYER_COLORS.get(player.get("player_color") or "blue", PLAYER_COLORS.get("blue"))
 
     # Avatar mit weichem Farb-Glow dahinter (mehrere Kreise mit abnehmender Deckkraft)
@@ -6537,8 +6784,20 @@ def draw_public_profile():
     if player.get("verified"):
         _draw_verified_badge(base_surface, title_x + title_s.get_width() + 18, title_y + title_s.get_height() // 2, radius=12)
 
+    clan_tag_rect = None
+    clan_tag = player.get("clan_tag")
+    if clan_tag:
+        tag_s = small_font.render(f"[{clan_tag}]", True, (120, 160, 220))
+        clan_tag_rect = pygame.Rect(0, 0, tag_s.get_width() + 20, tag_s.get_height() + 10)
+        clan_tag_rect.centerx = WIDTH // 2
+        clan_tag_rect.y = title_y + title_s.get_height() + 6
+        hov_tag = clan_tag_rect.collidepoint(mouse_pos)
+        pygame.draw.rect(base_surface, get_button_hover_color() if hov_tag else get_panel_color(), clan_tag_rect, border_radius=8)
+        pygame.draw.rect(base_surface, (120, 160, 220), clan_tag_rect, width=1, border_radius=8)
+        base_surface.blit(tag_s, (clan_tag_rect.centerx - tag_s.get_width() // 2, clan_tag_rect.centery - tag_s.get_height() // 2))
+
     # 2x2 Karten-Grid: Stats / Powers oben, Highscores / Cosmetics unten
-    grid_top = title_y + title_s.get_height() + 22
+    grid_top = (clan_tag_rect.bottom + 14) if clan_tag_rect else (title_y + title_s.get_height() + 22)
     gap = 20
     col_w = (WIDTH - 2 * 40 - gap) // 2
     row_h = (HEIGHT - grid_top - 30 - gap) // 2
@@ -6592,25 +6851,75 @@ def draw_public_profile():
     _draw_wrapped_text(", ".join(cosmetic_names) if cosmetic_names else "-", cosmetics_rect.x + 16, c_top, col_w - 32, small_font, get_text_color())
 
     pygame.display.flip()
-    return back_rect, friend_rect
+    return back_rect, friend_rect, message_rect, clan_tag_rect
 
 
-def _toggle_friend(name):
+_friend_action_pending = None  # Name von send_friend_request_online()s on_done
+# (Hintergrund-Thread) gesetzt, im Main-Thread (public_profile_loop()) via
+# _add_friend_local() angewendet - gleiches Race-Condition-Muster wie
+# _rename_pending_local_name. Wird nur gesetzt, wenn der Server sofort
+# "accepted" zurückgibt (symmetrisches Auto-Accept, siehe server/app.py
+# friend_request()) - bei "pending" bleibt friends_local bewusst unverändert,
+# bis die Gegenseite die Anfrage annimmt, sonst würde eine unbestätigte
+# Anfrage fälschlich als Freundschaft in den Freunde-Filter der Rangliste
+# einfliessen.
+_public_profile_friend_msg = ""
+
+
+def _add_friend_local(name):
+    global friends_local
+    if name not in friends_local:
+        friends_local.append(name)
+        save_current_profile()
+
+
+def _remove_friend_local(name):
     global friends_local
     if name in friends_local:
         friends_local.remove(name)
-    else:
-        friends_local.append(name)
-    save_current_profile()
+        save_current_profile()
+
+
+def _send_friend_request(name):
+    global _public_profile_friend_msg
+    _public_profile_friend_msg = ""
     play_sound(click_sound)
+
+    def _on_done(result):
+        global _friend_action_pending, _public_profile_friend_msg
+        if result and result.get("ok"):
+            if result.get("status") == "accepted":
+                _friend_action_pending = name
+            else:
+                _public_profile_friend_msg = get_text("friend_request_sent_msg")
+        else:
+            err = (result or {}).get("error")
+            _public_profile_friend_msg = {
+                "already_friends": get_text("already_friends_msg"),
+                "target_not_found": get_text("player_not_found"),
+            }.get(err, get_text("generic_error_msg"))
+
+    send_friend_request_online(name, on_done=_on_done)
+
+
+def _remove_friend(name):
+    # Entfernen bleibt bewusst sofort/optimistisch (keine Bestätigung durch
+    # die Gegenseite nötig) - anders als beim Hinzufügen gibt es hier niemanden,
+    # der zustimmen müsste, und es entspricht der bisherigen Instant-Unfriend-UX.
+    _remove_friend_local(name)
+    play_sound(click_sound)
+    remove_friend_online(name)
 
 
 def public_profile_loop():
-    global in_public_profile
+    global in_public_profile, _friend_action_pending
     clock = pygame.time.Clock()
     _public_profile_start_fetch()
     while in_public_profile:
-        back_rect, friend_rect = draw_public_profile()
+        back_rect, friend_rect, message_rect, clan_tag_rect = draw_public_profile()
+        if _friend_action_pending is not None:
+            _add_friend_local(_friend_action_pending)
+            _friend_action_pending = None
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -6623,9 +6932,1104 @@ def public_profile_loop():
                     back_from_public_profile()
                 elif friend_rect is not None and friend_rect.collidepoint(pos):
                     player = (_public_profile_data or {}).get("player", {})
-                    if player.get("name"):
-                        _toggle_friend(player["name"])
+                    name = player.get("name")
+                    if name:
+                        if name in friends_local:
+                            _remove_friend(name)
+                        else:
+                            _send_friend_request(name)
+                elif message_rect is not None and message_rect.collidepoint(pos):
+                    player = (_public_profile_data or {}).get("player", {})
+                    name = player.get("name")
+                    if name:
+                        open_chat("dm", name, "in_public_profile")
+                elif clan_tag_rect is not None and clan_tag_rect.collidepoint(pos):
+                    player = (_public_profile_data or {}).get("player", {})
+                    tag = player.get("clan_tag")
+                    if tag:
+                        open_clan_view(tag, "in_public_profile")
         clock.tick(60)
+
+
+# =============================
+# Freunde-Hub
+# =============================
+
+_friends_hub_tab = "roster"  # "roster" | "requests"
+_friends_hub_requests = []
+_friends_hub_requests_loading = False
+_friends_hub_row_rects = []  # [(rect, name)] - Roster-Tab
+_friends_hub_request_rects = []  # [(accept_rect, decline_rect, from_name)] - Requests-Tab
+
+
+def _friends_hub_refresh_requests():
+    global _friends_hub_requests_loading
+    _friends_hub_requests_loading = True
+
+    def _on_done(result):
+        global _friends_hub_requests, _friends_hub_requests_loading
+        _friends_hub_requests_loading = False
+        _friends_hub_requests = result.get("requests", []) if (result and result.get("ok")) else []
+
+    fetch_incoming_friend_requests(on_done=_on_done)
+
+
+def _respond_to_request(from_name, accept):
+    """Anders als beim Senden einer Anfrage (siehe _send_friend_request()) ist
+    hier keine Wartephase nötig - eine eingehende Anfrage anzunehmen erzeugt
+    server-seitig immer sofort eine Freundschaft, also ist optimistisches
+    lokales Anwenden hier korrekt statt riskant. Läuft ausserdem synchron im
+    Main-Thread (direkter Event-Handler-Aufruf), keine Race-Condition-Sorge."""
+    global _friends_hub_requests
+    play_sound(click_sound)
+    _friends_hub_requests = [r for r in _friends_hub_requests if r.get("from_name") != from_name]
+    if accept:
+        _add_friend_local(from_name)
+    respond_friend_request_online(from_name, accept)
+
+
+def draw_friends_hub():
+    global _friends_hub_row_rects, _friends_hub_request_rects
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    _friends_hub_row_rects = []
+    _friends_hub_request_rects = []
+
+    title_txt = get_text("friends_hub_title")
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
+
+    # Roster/Requests-Umschalter - gleiches Muster wie Alle/Freunde auf der Rangliste.
+    roster_tab_rect = pygame.Rect(60, 65, 160, 36)
+    requests_tab_rect = pygame.Rect(226, 65, 160, 36)
+    requests_label = get_text("friends_tab_requests")
+    if _friends_hub_requests:
+        requests_label += f" ({len(_friends_hub_requests)})"
+    for rect, active, label in [
+        (roster_tab_rect, _friends_hub_tab == "roster", get_text("friends_tab_roster")),
+        (requests_tab_rect, _friends_hub_tab == "requests", requests_label),
+    ]:
+        hov = rect.collidepoint(mouse_pos)
+        if active:
+            pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=10)
+            pygame.draw.rect(base_surface, (100, 160, 255), rect, width=2, border_radius=10)
+        else:
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), rect, border_radius=10)
+            pygame.draw.rect(base_surface, (180, 180, 180), rect, width=1, border_radius=10)
+        tab_s = small_font.render(label, True, get_text_color())
+        base_surface.blit(tab_s, (rect.centerx - tab_s.get_width() // 2, rect.centery - tab_s.get_height() // 2))
+
+    content_top = 130
+    fade_bottom = HEIGHT - 45
+
+    if _friends_hub_tab == "roster":
+        if not friends_local:
+            empty_s = small_font.render(get_text("no_friends_yet"), True, get_text_color())
+            base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 20))
+        else:
+            y = content_top
+            row_h = 44
+            for name in sorted(friends_local, key=str.casefold):
+                if y + row_h > fade_bottom:
+                    break
+                row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
+                _friends_hub_row_rects.append((pygame.Rect(row_rect), name))
+                hov = row_rect.collidepoint(mouse_pos)
+                pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+                pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+                name_s = menu_font.render(name, True, get_text_color())
+                base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+                y += row_h
+    else:
+        if _friends_hub_requests_loading:
+            loading_s = small_font.render(get_text("loading"), True, get_text_color())
+            base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 20))
+        elif not _friends_hub_requests:
+            empty_s = small_font.render(get_text("no_requests_yet"), True, get_text_color())
+            base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 20))
+        else:
+            y = content_top
+            row_h = 48
+            for req in _friends_hub_requests:
+                if y + row_h > fade_bottom:
+                    break
+                from_name = req.get("from_name", "")
+                row_rect = pygame.Rect(WIDTH // 2 - 260, y, 520, row_h - 6)
+                pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
+                pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+                name_s = menu_font.render(from_name, True, get_text_color())
+                base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+
+                decline_rect = pygame.Rect(row_rect.right - 96, row_rect.y + 4, 88, row_rect.h - 8)
+                accept_rect = pygame.Rect(decline_rect.x - 96, row_rect.y + 4, 88, row_rect.h - 8)
+                hov_a = accept_rect.collidepoint(mouse_pos)
+                hov_d = decline_rect.collidepoint(mouse_pos)
+                pygame.draw.rect(base_surface, (120, 200, 140) if hov_a else (100, 180, 120), accept_rect, border_radius=8)
+                pygame.draw.rect(base_surface, (220, 120, 120) if hov_d else (200, 100, 100), decline_rect, border_radius=8)
+                a_lbl = small_font.render(get_text("accept_btn"), True, (255, 255, 255))
+                d_lbl = small_font.render(get_text("decline_btn"), True, (255, 255, 255))
+                base_surface.blit(a_lbl, (accept_rect.centerx - a_lbl.get_width() // 2, accept_rect.centery - a_lbl.get_height() // 2))
+                base_surface.blit(d_lbl, (decline_rect.centerx - d_lbl.get_width() // 2, decline_rect.centery - d_lbl.get_height() // 2))
+                _friends_hub_request_rects.append((accept_rect, decline_rect, from_name))
+                y += row_h
+
+    pygame.display.flip()
+    return back_rect, roster_tab_rect, requests_tab_rect
+
+
+def friends_hub_loop():
+    global in_friends_hub, _friends_hub_tab
+    clock = pygame.time.Clock()
+    _refresh_friends_local()
+    _friends_hub_refresh_requests()
+    while in_friends_hub:
+        back_rect, roster_tab_rect, requests_tab_rect = draw_friends_hub()
+        _apply_friends_local_pending()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_to_hub_from_friends_hub()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    back_to_hub_from_friends_hub()
+                elif roster_tab_rect.collidepoint(pos):
+                    _friends_hub_tab = "roster"
+                    play_sound(click_sound)
+                elif requests_tab_rect.collidepoint(pos):
+                    _friends_hub_tab = "requests"
+                    play_sound(click_sound)
+                elif _friends_hub_tab == "roster":
+                    for rect, name in _friends_hub_row_rects:
+                        if rect.collidepoint(pos):
+                            open_public_profile(name, "in_friends_hub")
+                            break
+                else:
+                    for accept_rect, decline_rect, from_name in _friends_hub_request_rects:
+                        if accept_rect.collidepoint(pos):
+                            _respond_to_request(from_name, True)
+                            break
+                        elif decline_rect.collidepoint(pos):
+                            _respond_to_request(from_name, False)
+                            break
+        clock.tick(60)
+
+
+def open_friends_hub_from_hub():
+    play_sound(menu_click_sound)
+    global in_profile_hub, in_friends_hub, _friends_hub_tab
+    in_profile_hub = False
+    in_friends_hub = True
+    _friends_hub_tab = "roster"
+
+
+def back_to_hub_from_friends_hub():
+    play_sound(click_back_sound)
+    global in_friends_hub, in_profile_hub
+    in_friends_hub = False
+    in_profile_hub = True
+
+
+
+# =============================
+# Clan-Screens
+# =============================
+
+_clan_mine_loading = False
+_clan_mine_data = None  # None=lädt, False=Fehler, dict={"in_clan":bool, "tag":..., "name":..., "is_owner":..., "owner_name":..., "members":[...]}
+_clan_hub_row_rects = []  # [(rect, name, kick_rect_or_None)]
+_clan_hub_msg = ""
+
+
+def _clan_hub_refresh():
+    """Gleiches None/False/dict-Muster wie _public_profile_start_fetch()."""
+    global _clan_mine_loading, _clan_mine_data
+    _clan_mine_loading = True
+    _clan_mine_data = None
+
+    def _on_done(result):
+        global _clan_mine_data, _clan_mine_loading
+        _clan_mine_loading = False
+        _clan_mine_data = result if (result and result.get("ok")) else False
+
+    fetch_my_clan(on_done=_on_done)
+
+
+def _leave_current_clan():
+    global _clan_hub_msg
+    play_sound(click_sound)
+    _clan_hub_msg = ""
+
+    def _on_done(result):
+        global _clan_hub_msg
+        if result and result.get("ok"):
+            _clan_hub_refresh()
+        else:
+            _clan_hub_msg = get_text("generic_error_msg")
+
+    leave_clan_online(on_done=_on_done)
+
+
+def _kick_clan_member(name):
+    global _clan_hub_msg
+    play_sound(click_sound)
+    _clan_hub_msg = ""
+
+    def _on_done(result):
+        global _clan_hub_msg
+        if result and result.get("ok"):
+            _clan_hub_refresh()
+        else:
+            _clan_hub_msg = get_text("generic_error_msg")
+
+    kick_clan_member_online(name, on_done=_on_done)
+
+
+def draw_clan_hub():
+    global _clan_hub_row_rects
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    _clan_hub_row_rects = []
+
+    title_txt = get_text("clan_hub_title")
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
+
+    create_rect = None
+    join_rect = None
+    leave_rect = None
+    chat_rect = None
+
+    if _clan_mine_loading or _clan_mine_data is None:
+        loading_s = font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
+        pygame.display.flip()
+        return back_rect, create_rect, join_rect, leave_rect, chat_rect
+
+    in_clan = bool(_clan_mine_data) and _clan_mine_data.get("in_clan")
+
+    if not in_clan:
+        empty_s = small_font.render(get_text("clan_not_in_one"), True, get_text_color())
+        base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, 130))
+
+        create_rect = pygame.Rect(WIDTH // 2 - 180, 190, 360, 48)
+        join_rect = pygame.Rect(WIDTH // 2 - 180, 250, 360, 48)
+        for rect, label, color in [
+            (create_rect, get_text("create_clan_btn"), (100, 180, 120)),
+            (join_rect, get_text("join_clan_btn"), (100, 150, 220)),
+        ]:
+            draw_ui_button(base_surface, rect, label, font=menu_font, hovered=rect.collidepoint(mouse_pos),
+                            border_color=color, hover_border_color=color, hover_border_width=3)
+    else:
+        clan = _clan_mine_data
+        tag_txt = f"[{clan.get('tag', '')}] {clan.get('name', '')}"
+        tag_s = menu_font.render(tag_txt, True, get_text_color())
+        base_surface.blit(tag_s, (WIDTH // 2 - tag_s.get_width() // 2, 100))
+
+        members = clan.get("members", [])
+        owner_name = clan.get("owner_name")
+        count_s = small_font.render(f"{get_text('clan_members_label')}: {len(members)}", True, (150, 150, 170))
+        base_surface.blit(count_s, (WIDTH // 2 - count_s.get_width() // 2, 138))
+
+        is_owner = clan.get("is_owner", False)
+        content_top = 172
+        fade_bottom = HEIGHT - 120
+        y = content_top
+        row_h = 42
+        for m in members:
+            if y + row_h > fade_bottom:
+                break
+            name = m.get("name", "")
+            row_rect = pygame.Rect(WIDTH // 2 - 240, y, 480, row_h - 6)
+            hov = row_rect.collidepoint(mouse_pos)
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+            pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+            label_txt = name + (f"  ({get_text('clan_owner_label')})" if name == owner_name else "")
+            name_s = small_font.render(label_txt, True, get_text_color())
+            base_surface.blit(name_s, (row_rect.x + 12, row_rect.centery - name_s.get_height() // 2))
+
+            kick_rect = None
+            if is_owner and name != current_profile_name:
+                kick_rect = pygame.Rect(row_rect.right - 82, row_rect.y + 3, 74, row_rect.h - 6)
+                hov_k = kick_rect.collidepoint(mouse_pos)
+                pygame.draw.rect(base_surface, (220, 120, 120) if hov_k else (200, 100, 100), kick_rect, border_radius=6)
+                k_lbl = small_font.render(get_text("kick_btn"), True, (255, 255, 255))
+                base_surface.blit(k_lbl, (kick_rect.centerx - k_lbl.get_width() // 2, kick_rect.centery - k_lbl.get_height() // 2))
+            _clan_hub_row_rects.append((pygame.Rect(row_rect), name, kick_rect))
+            y += row_h
+
+        chat_rect = pygame.Rect(WIDTH // 2 - 240, HEIGHT - 108, 220, 44)
+        leave_rect = pygame.Rect(WIDTH // 2 + 20, HEIGHT - 108, 220, 44)
+        draw_ui_button(base_surface, chat_rect, get_text("chat_title"), font=small_font,
+                        hovered=chat_rect.collidepoint(mouse_pos), radius=10,
+                        border_color=(120, 160, 220), hover_border_color=(120, 160, 220), hover_border_width=2)
+        draw_ui_button(base_surface, leave_rect, get_text("leave_clan_btn"), font=small_font,
+                        hovered=leave_rect.collidepoint(mouse_pos), radius=10,
+                        border_color=(200, 100, 100), hover_border_color=(200, 100, 100), hover_border_width=2)
+
+    if _clan_hub_msg:
+        msg_s = small_font.render(_clan_hub_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT - 34))
+
+    pygame.display.flip()
+    return back_rect, create_rect, join_rect, leave_rect, chat_rect
+
+
+def clan_hub_loop():
+    global in_clan_hub
+    clock = pygame.time.Clock()
+    _clan_hub_refresh()
+    while in_clan_hub:
+        back_rect, create_rect, join_rect, leave_rect, chat_rect = draw_clan_hub()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_to_hub_from_clan_hub()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    back_to_hub_from_clan_hub()
+                elif create_rect is not None and create_rect.collidepoint(pos):
+                    open_clan_create_from_hub()
+                elif join_rect is not None and join_rect.collidepoint(pos):
+                    open_clan_search_from_hub()
+                elif chat_rect is not None and chat_rect.collidepoint(pos):
+                    clan = _clan_mine_data or {}
+                    if clan.get("tag"):
+                        open_chat("clan", clan["tag"], "in_clan_hub")
+                elif leave_rect is not None and leave_rect.collidepoint(pos):
+                    _leave_current_clan()
+                else:
+                    for rect, name, kick_rect in _clan_hub_row_rects:
+                        if kick_rect is not None and kick_rect.collidepoint(pos):
+                            _kick_clan_member(name)
+                            break
+                        elif rect.collidepoint(pos):
+                            open_public_profile(name, "in_clan_hub")
+                            break
+        clock.tick(60)
+
+
+def open_clan_hub_from_hub():
+    play_sound(menu_click_sound)
+    global in_profile_hub, in_clan_hub, _clan_hub_msg
+    in_profile_hub = False
+    in_clan_hub = True
+    _clan_hub_msg = ""
+
+
+def back_to_hub_from_clan_hub():
+    play_sound(click_back_sound)
+    global in_clan_hub, in_profile_hub
+    in_clan_hub = False
+    in_profile_hub = True
+
+
+_clan_create_tag = ""
+_clan_create_name = ""
+_clan_create_msg = ""
+_clan_create_busy = False
+_clan_create_focus = "tag"  # "tag" | "name"
+_clan_create_pending = False  # von _confirm_clan_create()s on_done (Hintergrund-
+# Thread) gesetzt, im Main-Thread (clan_create_loop()) angewendet - Navigations-
+# Flags (in_X) dürfen nie direkt aus einem Hintergrund-Thread umgeschaltet
+# werden, gleiches Prinzip wie bei den anderen _*_pending-Feldern.
+
+
+def _confirm_clan_create():
+    global _clan_create_msg, _clan_create_busy
+    tag = _clan_create_tag.strip()
+    name = _clan_create_name.strip()
+    if not tag or not name:
+        _clan_create_msg = get_text("clan_fields_required_msg")
+        return
+    _clan_create_busy = True
+    _clan_create_msg = ""
+
+    def _on_done(result):
+        global _clan_create_msg, _clan_create_busy, _clan_create_pending
+        _clan_create_busy = False
+        if result and result.get("ok"):
+            _clan_create_pending = True
+        else:
+            err = (result or {}).get("error")
+            _clan_create_msg = {
+                "already_in_clan": get_text("clan_already_in_one_msg"),
+                "tag_taken": get_text("clan_tag_taken_msg"),
+                "name_taken": get_text("clan_name_taken_msg"),
+                "name_filtered": get_text("name_filtered"),
+                "unknown_player": get_text("unknown_player_msg"),
+            }.get(err, get_text("generic_error_msg"))
+
+    create_clan_online(tag, name, on_done=_on_done)
+
+
+def draw_clan_create():
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+    pw, ph = 560, 320
+    px = WIDTH // 2 - pw // 2
+    py = HEIGHT // 2 - ph // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=18)
+    pygame.draw.rect(base_surface, (100, 160, 255) if not dark else (80, 120, 200), panel, width=3, border_radius=18)
+
+    title = menu_font.render(get_text("create_clan_btn"), True, (80, 140, 255) if not dark else (120, 170, 255))
+    base_surface.blit(title, (px + pw // 2 - title.get_width() // 2, py + 22))
+
+    mp = get_mouse_pos_logical()
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+
+    tag_label_s = small_font.render(get_text("clan_tag_label"), True, get_text_color())
+    base_surface.blit(tag_label_s, (px + 40, py + 78))
+    tag_box = pygame.Rect(px + 40, py + 100, pw - 80, 44)
+    pygame.draw.rect(base_surface, get_bg_color(), tag_box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255) if _clan_create_focus == "tag" else (150, 150, 150), tag_box, width=2, border_radius=10)
+    tag_inp = menu_font.render(_clan_create_tag + (cursor if _clan_create_focus == "tag" else ""), True, get_text_color())
+    base_surface.blit(tag_inp, (tag_box.x + 10, tag_box.centery - tag_inp.get_height() // 2))
+
+    name_label_s = small_font.render(get_text("clan_name_label"), True, get_text_color())
+    base_surface.blit(name_label_s, (px + 40, py + 156))
+    name_box = pygame.Rect(px + 40, py + 178, pw - 80, 44)
+    pygame.draw.rect(base_surface, get_bg_color(), name_box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255) if _clan_create_focus == "name" else (150, 150, 150), name_box, width=2, border_radius=10)
+    name_inp = menu_font.render(_clan_create_name + (cursor if _clan_create_focus == "name" else ""), True, get_text_color())
+    base_surface.blit(name_inp, (name_box.x + 10, name_box.centery - name_inp.get_height() // 2))
+
+    if _clan_create_busy:
+        msg_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 230))
+    elif _clan_create_msg:
+        msg_s = small_font.render(_clan_create_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 230))
+
+    confirm_rect = pygame.Rect(px + pw // 2 - 200, py + ph - 62, 180, 44)
+    back_rect = pygame.Rect(px + pw // 2 + 20, py + ph - 62, 180, 44)
+    hov_c = confirm_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
+    cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
+    base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font, hovered=back_rect.collidepoint(mp))
+
+    pygame.display.flip()
+    return tag_box, name_box, confirm_rect, back_rect
+
+
+def clan_create_loop():
+    global in_clan_create, _clan_create_tag, _clan_create_name, _clan_create_focus, _clan_create_pending
+    clock = pygame.time.Clock()
+    while in_clan_create:
+        tag_box, name_box, confirm_rect, back_rect = draw_clan_create()
+        if _clan_create_pending:
+            _clan_create_pending = False
+            back_to_hub_from_clan_create(entered_clan=True)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _confirm_clan_create()
+                elif event.key == pygame.K_TAB:
+                    _clan_create_focus = "name" if _clan_create_focus == "tag" else "tag"
+                elif event.key == pygame.K_BACKSPACE:
+                    if _clan_create_focus == "tag":
+                        _clan_create_tag = _clan_create_tag[:-1]
+                    else:
+                        _clan_create_name = _clan_create_name[:-1]
+                elif is_back_key(event.key, allow_backspace=False):
+                    play_sound(click_back_sound)
+                    back_to_hub_from_clan_create(entered_clan=False)
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126:
+                        if _clan_create_focus == "tag" and len(_clan_create_tag) < 5:
+                            _clan_create_tag += ch
+                        elif _clan_create_focus == "name" and len(_clan_create_name) < 24:
+                            _clan_create_name += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if tag_box.collidepoint(pos):
+                    _clan_create_focus = "tag"
+                elif name_box.collidepoint(pos):
+                    _clan_create_focus = "name"
+                elif confirm_rect.collidepoint(pos):
+                    _confirm_clan_create()
+                elif back_rect.collidepoint(pos):
+                    play_sound(click_back_sound)
+                    back_to_hub_from_clan_create(entered_clan=False)
+        clock.tick(60)
+
+
+def open_clan_create_from_hub():
+    play_sound(menu_click_sound)
+    global in_clan_hub, in_clan_create, _clan_create_tag, _clan_create_name
+    global _clan_create_msg, _clan_create_busy, _clan_create_focus
+    in_clan_hub = False
+    in_clan_create = True
+    _clan_create_tag = ""
+    _clan_create_name = ""
+    _clan_create_msg = ""
+    _clan_create_busy = False
+    _clan_create_focus = "tag"
+
+
+def back_to_hub_from_clan_create(entered_clan):
+    global in_clan_create, in_clan_hub
+    in_clan_create = False
+    in_clan_hub = True
+    if entered_clan:
+        _clan_hub_refresh()
+
+
+_clan_search_query = ""
+_clan_search_results = None
+_clan_search_loading = False
+_clan_search_row_rects = []  # [(rect, tag)]
+_clan_search_request_id = 0
+_clan_search_msg = ""
+_clan_join_pending = False  # von _join_clan()s on_done (Hintergrund-Thread)
+# gesetzt, im Main-Thread (clan_search_loop()) angewendet - siehe Kommentar
+# bei _clan_create_pending.
+
+
+def _clan_search_trigger(query):
+    global _clan_search_loading, _clan_search_request_id, _clan_search_results
+    query = query.strip()
+    if not query:
+        _clan_search_results = []
+        _clan_search_loading = False
+        return
+    _clan_search_loading = True
+    _clan_search_request_id += 1
+    my_id = _clan_search_request_id
+
+    def _on_done(result):
+        global _clan_search_loading, _clan_search_results
+        if my_id != _clan_search_request_id:
+            return
+        _clan_search_loading = False
+        _clan_search_results = result.get("results", []) if (result and result.get("ok")) else []
+
+    search_clans_online(query, on_done=_on_done)
+
+
+def _join_clan(tag):
+    global _clan_search_msg
+    play_sound(click_sound)
+    _clan_search_msg = ""
+
+    def _on_done(result):
+        global _clan_search_msg, _clan_join_pending
+        if result and result.get("ok"):
+            _clan_join_pending = True
+        else:
+            err = (result or {}).get("error")
+            _clan_search_msg = {
+                "already_in_clan": get_text("clan_already_in_one_msg"),
+                "clan_full": get_text("clan_full_msg"),
+                "clan_not_found": get_text("clan_not_found"),
+            }.get(err, get_text("generic_error_msg"))
+
+    join_clan_online(tag, on_done=_on_done)
+
+
+def draw_clan_search():
+    global _clan_search_row_rects
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+    _clan_search_row_rects = []
+
+    title_s = font.render(get_text("clan_search_title"), True, get_text_color())
+    shadow_s = font.render(get_text("clan_search_title"), True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
+
+    box = pygame.Rect(WIDTH // 2 - 220, 75, 440, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), box, width=2, border_radius=10)
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    inp = menu_font.render(_clan_search_query + cursor, True, get_text_color())
+    base_surface.blit(inp, (box.x + 12, box.centery - inp.get_height() // 2))
+
+    content_top = 140
+    fade_bottom = HEIGHT - 45
+
+    if _clan_search_msg:
+        msg_s = small_font.render(_clan_search_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, content_top))
+        content_top += 30
+
+    if _clan_search_loading:
+        loading_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 20))
+    elif _clan_search_results is not None and not _clan_search_results:
+        empty_s = small_font.render(get_text("clan_not_found"), True, get_text_color())
+        base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 20))
+    elif _clan_search_results:
+        y = content_top
+        row_h = 48
+        for entry in _clan_search_results:
+            if y + row_h > fade_bottom:
+                break
+            tag = entry.get("tag", "")
+            name = entry.get("name", "")
+            row_rect = pygame.Rect(WIDTH // 2 - 240, y, 480, row_h - 6)
+            _clan_search_row_rects.append((pygame.Rect(row_rect), tag))
+            hov = row_rect.collidepoint(mouse_pos)
+            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+            pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+            label_txt = f"[{tag}] {name}  ({entry.get('member_count', 0)})"
+            name_s = menu_font.render(label_txt, True, get_text_color())
+            base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+            y += row_h
+
+    pygame.display.flip()
+    return back_rect, box
+
+
+def clan_search_loop():
+    global in_clan_search, _clan_search_query, _clan_search_msg, _clan_join_pending
+    clock = pygame.time.Clock()
+    while in_clan_search:
+        back_rect, box = draw_clan_search()
+        if _clan_join_pending:
+            _clan_join_pending = False
+            back_to_hub_from_clan_search(entered_clan=True)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_BACKSPACE:
+                    _clan_search_query = _clan_search_query[:-1]
+                    _clan_search_trigger(_clan_search_query)
+                elif is_back_key(event.key, allow_backspace=False):
+                    play_sound(click_back_sound)
+                    back_to_hub_from_clan_search(entered_clan=False)
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_clan_search_query) < 30:
+                        _clan_search_query += ch
+                        _clan_search_trigger(_clan_search_query)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    play_sound(click_back_sound)
+                    back_to_hub_from_clan_search(entered_clan=False)
+                else:
+                    for rect, tag in _clan_search_row_rects:
+                        if rect.collidepoint(pos):
+                            _join_clan(tag)
+                            break
+        clock.tick(60)
+
+
+def open_clan_search_from_hub():
+    play_sound(menu_click_sound)
+    global in_clan_hub, in_clan_search, _clan_search_query, _clan_search_results, _clan_search_msg
+    in_clan_hub = False
+    in_clan_search = True
+    _clan_search_query = ""
+    _clan_search_results = None
+    _clan_search_msg = ""
+
+
+def back_to_hub_from_clan_search(entered_clan):
+    global in_clan_search, in_clan_hub
+    in_clan_search = False
+    in_clan_hub = True
+    if entered_clan:
+        _clan_hub_refresh()
+
+
+_clan_view_tag = None
+_clan_view_data = None  # None=lädt, False=nicht gefunden, dict=geladen
+_clan_view_return_screen = "in_public_profile"
+_clan_view_msg = ""
+_clan_view_join_pending = False
+
+
+def _clan_view_start_fetch():
+    global _clan_view_data
+    _clan_view_data = None
+    tag = _clan_view_tag
+
+    def _on_done(result):
+        global _clan_view_data
+        if tag != _clan_view_tag:
+            return  # zwischenzeitlich wurde ein anderer Clan geöffnet
+        _clan_view_data = result.get("clan") if (result and result.get("ok")) else False
+
+    fetch_clan_info(tag, on_done=_on_done)
+
+
+def _join_clan_from_view():
+    global _clan_view_msg
+    play_sound(click_sound)
+    _clan_view_msg = ""
+
+    def _on_done(result):
+        global _clan_view_msg, _clan_view_join_pending
+        if result and result.get("ok"):
+            _clan_view_join_pending = True
+        else:
+            err = (result or {}).get("error")
+            _clan_view_msg = {
+                "already_in_clan": get_text("clan_already_in_one_msg"),
+                "clan_full": get_text("clan_full_msg"),
+            }.get(err, get_text("generic_error_msg"))
+
+    join_clan_online(_clan_view_tag, on_done=_on_done)
+
+
+def draw_clan_view():
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
+
+    join_rect = None
+
+    if _clan_view_data is None:
+        loading_s = font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
+        pygame.display.flip()
+        return back_rect, join_rect
+
+    if _clan_view_data is False:
+        msg_s = font.render(get_text("clan_not_found"), True, get_text_color())
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT // 2 - msg_s.get_height() // 2))
+        pygame.display.flip()
+        return back_rect, join_rect
+
+    clan = _clan_view_data
+    title_txt = f"[{clan.get('tag', '')}] {clan.get('name', '')}"
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    owner_name = clan.get("owner_name")
+    members = clan.get("members", [])
+    count_s = small_font.render(f"{get_text('clan_members_label')}: {len(members)}", True, (150, 150, 170))
+    base_surface.blit(count_s, (WIDTH // 2 - count_s.get_width() // 2, 66))
+
+    content_top = 100
+    fade_bottom = HEIGHT - 110
+    y = content_top
+    row_h = 40
+    for m in members:
+        if y + row_h > fade_bottom:
+            break
+        name = m.get("name", "")
+        row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
+        pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
+        pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+        label_txt = name + (f"  ({get_text('clan_owner_label')})" if name == owner_name else "")
+        name_s = small_font.render(label_txt, True, get_text_color())
+        base_surface.blit(name_s, (row_rect.x + 12, row_rect.centery - name_s.get_height() // 2))
+        y += row_h
+
+    already_in_clan = bool(_clan_mine_data) and _clan_mine_data.get("in_clan")
+    if not already_in_clan:
+        join_rect = pygame.Rect(WIDTH // 2 - 110, HEIGHT - 90, 220, 44)
+        draw_ui_button(base_surface, join_rect, get_text("join_clan_btn"), font=small_font,
+                        hovered=join_rect.collidepoint(mouse_pos), radius=10,
+                        border_color=(100, 150, 220), hover_border_color=(100, 150, 220), hover_border_width=2)
+    if _clan_view_msg:
+        msg_s = small_font.render(_clan_view_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT - 34))
+
+    pygame.display.flip()
+    return back_rect, join_rect
+
+
+def clan_view_loop():
+    global in_clan_view, _clan_view_join_pending
+    clock = pygame.time.Clock()
+    _clan_view_start_fetch()
+    while in_clan_view:
+        back_rect, join_rect = draw_clan_view()
+        if _clan_view_join_pending:
+            _clan_view_join_pending = False
+            _clan_hub_refresh()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_m or is_back_key(event.key):
+                    back_from_clan_view()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    back_from_clan_view()
+                elif join_rect is not None and join_rect.collidepoint(pos):
+                    _join_clan_from_view()
+        clock.tick(60)
+
+
+def open_clan_view(tag, return_screen):
+    play_sound(menu_click_sound)
+    global in_clan_view, _clan_view_tag, _clan_view_return_screen, _clan_view_msg
+    global in_public_profile, in_clan_hub, in_clan_search
+    in_public_profile = False
+    in_clan_hub = False
+    in_clan_search = False
+    in_clan_view = True
+    _clan_view_tag = tag
+    _clan_view_return_screen = return_screen
+    _clan_view_msg = ""
+
+
+def back_from_clan_view():
+    play_sound(click_back_sound)
+    global in_clan_view, in_public_profile, in_clan_hub
+    in_clan_view = False
+    if _clan_view_return_screen == "in_clan_hub":
+        in_clan_hub = True
+    else:
+        in_public_profile = True
+
+
+
+# =============================
+# Chat (Freunde-DMs + Clan-Kanal)
+# =============================
+
+_chat_conversation_type = None  # "dm" | "clan"
+_chat_target = None  # Freundesname oder Clan-Tag
+_chat_return_screen = "in_public_profile"
+_chat_messages = []
+_chat_last_id = 0
+_chat_last_poll = 0
+_chat_poll_interval_ms = 3000
+_chat_input_text = ""
+_chat_send_busy = False
+_chat_send_pending_poll = False  # von _confirm_send_chat()s on_done (Hintergrund-
+# Thread) gesetzt, im Main-Thread (chat_loop()) angewendet - löst einen
+# sofortigen Extra-Poll aus, statt die eigene Nachricht optimistisch lokal
+# anzuzeigen (siehe Kommentar in _chat_poll() - die Liste bleibt so immer
+# exakt gleich dem Server-Stand, ohne eigene Abgleich-Logik).
+_chat_msg = ""
+_chat_loading = True
+
+
+def _chat_poll(force=False):
+    """Holt neue Nachrichten, höchstens alle _chat_poll_interval_ms (ausser
+    force=True, z.B. direkt nach dem eigenen Senden). Reines Polling statt
+    Websockets/SSE - dieser Server hat keinerlei Realtime-Infrastruktur
+    (einfacher Flask-Dev-Server, siehe server/requirements.txt), Polling
+    reiht sich einfach in _online_request_async() ein wie jeder andere
+    Screen auch."""
+    global _chat_last_poll, _chat_loading
+    now = pygame.time.get_ticks()
+    if not force and now - _chat_last_poll < _chat_poll_interval_ms:
+        return
+    _chat_last_poll = now
+    conversation_type = _chat_conversation_type
+    target = _chat_target
+    since_id = _chat_last_id
+
+    def _on_done(result):
+        global _chat_messages, _chat_last_id, _chat_loading, _chat_msg
+        _chat_loading = False
+        if conversation_type != _chat_conversation_type or target != _chat_target:
+            return  # zwischenzeitlich wurde ein anderer Chat geöffnet
+        if result and result.get("ok"):
+            new_msgs = result.get("messages", [])
+            if new_msgs:
+                _chat_messages = (_chat_messages + new_msgs)[-50:]
+                _chat_last_id = max([_chat_last_id] + [m.get("id", 0) for m in new_msgs])
+        elif result:
+            err = result.get("error")
+            _chat_msg = {
+                "not_friends": get_text("chat_not_friends_msg"),
+                "not_clan_member": get_text("chat_not_clan_member_msg"),
+                "target_not_found": get_text("player_not_found"),
+            }.get(err, get_text("generic_error_msg"))
+
+    fetch_chat_messages(conversation_type, target, since_id, on_done=_on_done)
+
+
+def _confirm_send_chat():
+    global _chat_input_text, _chat_send_busy, _chat_msg
+    text = _chat_input_text.strip()
+    if not text:
+        return
+    _chat_input_text = ""
+    _chat_send_busy = True
+    _chat_msg = ""
+    conversation_type = _chat_conversation_type
+    target = _chat_target
+
+    def _on_done(result):
+        global _chat_send_busy, _chat_msg, _chat_send_pending_poll
+        _chat_send_busy = False
+        if conversation_type != _chat_conversation_type or target != _chat_target:
+            return
+        if result and result.get("ok"):
+            _chat_send_pending_poll = True
+        else:
+            err = (result or {}).get("error")
+            _chat_msg = {
+                "message_too_long": get_text("chat_message_too_long_msg"),
+                "message_filtered": get_text("chat_message_filtered_msg"),
+                "not_friends": get_text("chat_not_friends_msg"),
+                "not_clan_member": get_text("chat_not_clan_member_msg"),
+                "rate_limited": get_text("chat_rate_limited_msg"),
+            }.get(err, get_text("generic_error_msg"))
+
+    send_chat_message_online(conversation_type, target, text, on_done=_on_done)
+
+
+def draw_chat():
+    mouse_pos = get_mouse_pos_logical()
+    fill_bg(rings=True)
+
+    target_label = f"[{_chat_target}]" if _chat_conversation_type == "clan" else (_chat_target or "")
+    title_txt = f"{get_text('chat_title')} - {target_label}"
+    title_s = font.render(title_txt, True, get_text_color())
+    shadow_s = font.render(title_txt, True, (100, 100, 120))
+    base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
+    base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
+
+    back_rect = pygame.Rect(WIDTH - 120, 15, 100, 35)
+    draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
+                    hovered=back_rect.collidepoint(mouse_pos), radius=10)
+
+    panel = pygame.Rect(60, 70, WIDTH - 120, HEIGHT - 220)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=12)
+    pygame.draw.rect(base_surface, (180, 180, 180), panel, width=1, border_radius=12)
+
+    if _chat_loading and not _chat_messages:
+        loading_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(loading_s, (panel.centerx - loading_s.get_width() // 2, panel.centery - loading_s.get_height() // 2))
+    elif not _chat_messages:
+        empty_s = small_font.render(get_text("no_messages_yet"), True, get_text_color())
+        base_surface.blit(empty_s, (panel.centerx - empty_s.get_width() // 2, panel.centery - empty_s.get_height() // 2))
+    else:
+        # Neueste Nachricht unten (übliche Chat-Konvention) - von unten nach
+        # oben zeichnen, abbrechen sobald der Platz im Panel aufgebraucht ist.
+        y = panel.bottom - 12
+        for msg in reversed(_chat_messages):
+            sender = msg.get("sender_name", "")
+            body = msg.get("body", "")
+            is_me = sender == current_profile_name
+            line_s = small_font.render(f"{sender}: {body}", True, (120, 170, 255) if is_me else get_text_color())
+            line_h = line_s.get_height() + 6
+            if y - line_h < panel.top + 10:
+                break
+            y -= line_h
+            base_surface.blit(line_s, (panel.x + 14, y))
+
+    input_box = pygame.Rect(60, panel.bottom + 14, WIDTH - 220, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), input_box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), input_box, width=2, border_radius=10)
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    visible = _fit_text_tail(_chat_input_text, small_font, input_box.w - 20)
+    inp_s = small_font.render(visible + cursor, True, get_text_color())
+    base_surface.blit(inp_s, (input_box.x + 10, input_box.centery - inp_s.get_height() // 2))
+
+    send_rect = pygame.Rect(input_box.right + 12, input_box.y, 90, 46)
+    hov_send = send_rect.collidepoint(mouse_pos)
+    pygame.draw.rect(base_surface, (80, 210, 120) if hov_send else (60, 180, 100), send_rect, border_radius=10)
+    send_lbl = small_font.render(get_text("send_btn"), True, (255, 255, 255))
+    base_surface.blit(send_lbl, (send_rect.centerx - send_lbl.get_width() // 2, send_rect.centery - send_lbl.get_height() // 2))
+
+    if _chat_msg:
+        msg_s = small_font.render(_chat_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, input_box.bottom + 8))
+
+    pygame.display.flip()
+    return back_rect, input_box, send_rect
+
+
+def chat_loop():
+    global in_chat, _chat_input_text, _chat_send_pending_poll
+    clock = pygame.time.Clock()
+    while in_chat:
+        back_rect, input_box, send_rect = draw_chat()
+        if _chat_send_pending_poll:
+            _chat_send_pending_poll = False
+            _chat_poll(force=True)
+        _chat_poll()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _confirm_send_chat()
+                elif event.key == pygame.K_BACKSPACE:
+                    _chat_input_text = _chat_input_text[:-1]
+                elif event.key == pygame.K_v and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    pasted = _paste_into_field(300)
+                    if pasted is not None:
+                        _chat_input_text = pasted
+                elif is_back_key(event.key, allow_backspace=False):
+                    play_sound(click_back_sound)
+                    back_from_chat()
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_chat_input_text) < 300:
+                        _chat_input_text += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if back_rect.collidepoint(pos):
+                    play_sound(click_back_sound)
+                    back_from_chat()
+                elif send_rect.collidepoint(pos):
+                    _confirm_send_chat()
+        clock.tick(60)
+
+
+def open_chat(conversation_type, target, return_screen):
+    play_sound(menu_click_sound)
+    global in_chat, _chat_conversation_type, _chat_target, _chat_return_screen
+    global _chat_messages, _chat_last_id, _chat_last_poll, _chat_input_text, _chat_msg, _chat_loading
+    global in_public_profile, in_clan_hub
+    in_public_profile = False
+    in_clan_hub = False
+    in_chat = True
+    _chat_conversation_type = conversation_type
+    _chat_target = target
+    _chat_return_screen = return_screen
+    _chat_messages = []
+    _chat_last_id = 0
+    _chat_last_poll = 0
+    _chat_input_text = ""
+    _chat_msg = ""
+    _chat_loading = True
+
+
+def back_from_chat():
+    play_sound(click_back_sound)
+    global in_chat, in_public_profile, in_clan_hub
+    in_chat = False
+    if _chat_return_screen == "in_clan_hub":
+        in_clan_hub = True
+    else:
+        in_public_profile = True
 
 
 def _get_clipboard_text():
@@ -11124,6 +12528,12 @@ in_profile_hub = False
 in_online_leaderboard = False
 in_player_search = False
 in_public_profile = False
+in_friends_hub = False
+in_clan_hub = False
+in_clan_create = False
+in_clan_search = False
+in_clan_view = False
+in_chat = False
 in_rename_profile = False
 in_redeem_code = False
 
@@ -13725,6 +15135,7 @@ _ALL_SCREEN_FLAGS = [
     "in_admin_login", "in_admin_panel", "in_achievements_screen", "in_profile_hub",
     "in_online_leaderboard", "in_player_search", "in_public_profile",
     "in_rename_profile", "in_redeem_code",
+    "in_friends_hub", "in_clan_hub", "in_clan_create", "in_clan_search", "in_clan_view", "in_chat",
 ]
 
 
@@ -13844,6 +15255,25 @@ def _dev_cmd_set_player_color(args):
     save_section("settings", settings)
     print(f"[DEV] set_player_color({args[0].lower()})")
 
+def _dev_cmd_chat(args):
+    """Braucht Argumente (welcher Chat), kann deshalb nicht den einfachen
+    _dev_cmd_nav()-Wrapper nutzen - setzt den Chat-State direkt über
+    _dev_goto()s extra-Parameter, gleiches Prinzip wie _dev_cmd_game()."""
+    if len(args) < 2 or args[0] not in ("dm", "clan"):
+        print("[DEV] chat braucht: run chat <dm|clan> <Name-oder-Tag>")
+        return
+    _dev_goto("in_chat", {
+        "_chat_conversation_type": args[0],
+        "_chat_target": args[1],
+        "_chat_return_screen": "in_profile_hub",
+        "_chat_messages": [],
+        "_chat_last_id": 0,
+        "_chat_last_poll": 0,
+        "_chat_input_text": "",
+        "_chat_msg": "",
+        "_chat_loading": True,
+    })
+
 
 def _dev_cmd_round_action(action_name, arg_parser=None):
     """Baut einen Handler, der eine In-Runde-Aktion nur einreiht (angewendet wird
@@ -13877,6 +15307,9 @@ DEV_COMMANDS = {
     "profile_hub":        (_dev_cmd_nav("in_profile_hub"), "Profil-Hub öffnen (Avatar/Stats/Profile)"),
     "online_leaderboard": (_dev_cmd_nav("in_online_leaderboard"), "Online-Rangliste öffnen"),
     "player_search":      (_dev_cmd_nav("in_player_search"), "Spielersuche öffnen"),
+    "friends_hub":        (_dev_cmd_nav("in_friends_hub"), "Freunde-Hub öffnen (Freunde/Anfragen)"),
+    "clan_hub":           (_dev_cmd_nav("in_clan_hub"), "Clan-Hub öffnen"),
+    "chat":               (_dev_cmd_chat, "Chat öffnen, z.B.: run chat dm SomeFriend / run chat clan TAG"),
     "rename_profile":     (_dev_cmd_nav("in_rename_profile"), "Namen-ändern-Screen öffnen"),
     "redeem_code":        (_dev_cmd_nav("in_redeem_code"), "Code-Einlösen-Screen öffnen (im Mehr-Menü)"),
     "stats":              (_dev_cmd_nav("showing_stats"), "Statistik-Screen öffnen"),
@@ -14535,8 +15968,12 @@ while True:
                             elif _bidx2 == 2:
                                 open_online_leaderboard_from_hub()
                             elif _bidx2 == 3:
-                                open_rename_profile_from_hub()
+                                open_friends_hub_from_hub()
                             elif _bidx2 == 4:
+                                open_clan_hub_from_hub()
+                            elif _bidx2 == 5:
+                                open_rename_profile_from_hub()
+                            elif _bidx2 == 6:
                                 back_to_main_from_profile_hub()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = get_mouse_pos_logical()
@@ -14559,8 +15996,12 @@ while True:
                         elif idx == 2:
                             open_online_leaderboard_from_hub()
                         elif idx == 3:
-                            open_rename_profile_from_hub()
+                            open_friends_hub_from_hub()
                         elif idx == 4:
+                            open_clan_hub_from_hub()
+                        elif idx == 5:
+                            open_rename_profile_from_hub()
+                        elif idx == 6:
                             back_to_main_from_profile_hub()
                         break
         clock.tick(60)
@@ -15146,6 +16587,18 @@ while True:
         player_search_loop()
     elif in_public_profile:
         public_profile_loop()
+    elif in_friends_hub:
+        friends_hub_loop()
+    elif in_clan_hub:
+        clan_hub_loop()
+    elif in_clan_create:
+        clan_create_loop()
+    elif in_clan_search:
+        clan_search_loop()
+    elif in_clan_view:
+        clan_view_loop()
+    elif in_chat:
+        chat_loop()
     elif in_rename_profile:
         rename_profile_loop()
     elif in_redeem_code:

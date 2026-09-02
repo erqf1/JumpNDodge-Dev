@@ -97,6 +97,52 @@ def init_db():
                 PRIMARY KEY (token_hash, code)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS friend_requests (
+                from_token_hash TEXT NOT NULL,
+                to_token_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT,
+                PRIMARY KEY (from_token_hash, to_token_hash),
+                FOREIGN KEY (from_token_hash) REFERENCES players(token_hash) ON DELETE CASCADE,
+                FOREIGN KEY (to_token_hash) REFERENCES players(token_hash) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS clans (
+                clan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tag TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL UNIQUE,
+                owner_token_hash TEXT NOT NULL,
+                created_at TEXT,
+                FOREIGN KEY (owner_token_hash) REFERENCES players(token_hash)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS clan_members (
+                clan_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                joined_at TEXT,
+                PRIMARY KEY (clan_id, token_hash),
+                FOREIGN KEY (clan_id) REFERENCES clans(clan_id) ON DELETE CASCADE,
+                FOREIGN KEY (token_hash) REFERENCES players(token_hash) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_type TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                sender_token_hash TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT,
+                FOREIGN KEY (sender_token_hash) REFERENCES players(token_hash) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_conv
+            ON messages(conversation_type, conversation_id, id)
+        """)
         conn.commit()
         _seed_verified_keys_if_empty(conn)
     finally:
