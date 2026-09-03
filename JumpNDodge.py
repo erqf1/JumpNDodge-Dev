@@ -2196,15 +2196,15 @@ texts = {
         "friends_hub_title": "Freunde", "friends_tab_roster": "Meine Freunde", "friends_tab_requests": "Anfragen",
         "no_requests_yet": "Keine Anfragen", "accept_btn": "Annehmen", "decline_btn": "Ablehnen",
         "message_btn": "Nachricht", "friend_request_sent_msg": "Anfrage gesendet!", "already_friends_msg": "Ihr seid bereits befreundet",
-        "clan_hub_title": "Clan", "create_clan_btn": "Clan erstellen", "join_clan_btn": "Clan beitreten",
+        "clan_hub_title": "Squad", "create_clan_btn": "Squad erstellen", "join_clan_btn": "Squad beitreten",
         "leave_clan_btn": "Verlassen", "kick_btn": "Kick", "clan_tag_label": "Tag", "clan_name_label": "Name",
-        "clan_not_in_one": "Du bist in keinem Clan", "clan_members_label": "Mitglieder", "clan_owner_label": "Anführer",
-        "clan_search_title": "Clan-Suche", "clan_not_found": "Clan nicht gefunden",
-        "clan_fields_required_msg": "Bitte Tag und Namen eingeben", "clan_already_in_one_msg": "Du bist bereits in einem Clan",
-        "clan_tag_taken_msg": "Tag bereits vergeben", "clan_name_taken_msg": "Name bereits vergeben", "clan_full_msg": "Clan ist voll",
+        "clan_not_in_one": "Du bist in keinem Squad", "clan_members_label": "Mitglieder", "clan_owner_label": "Anführer",
+        "clan_search_title": "Squad-Suche", "clan_not_found": "Squad nicht gefunden",
+        "clan_fields_required_msg": "Bitte Tag und Namen eingeben", "clan_already_in_one_msg": "Du bist bereits in einem Squad",
+        "clan_tag_taken_msg": "Tag bereits vergeben", "clan_name_taken_msg": "Name bereits vergeben", "clan_full_msg": "Squad ist voll",
         "chat_title": "Chat", "send_btn": "Senden", "no_messages_yet": "Noch keine Nachrichten",
         "chat_message_too_long_msg": "Nachricht zu lang", "chat_message_filtered_msg": "Nachricht nicht erlaubt",
-        "chat_not_friends_msg": "Ihr seid nicht befreundet", "chat_not_clan_member_msg": "Du bist nicht in diesem Clan",
+        "chat_not_friends_msg": "Ihr seid nicht befreundet", "chat_not_clan_member_msg": "Du bist nicht in diesem Squad",
         "chat_rate_limited_msg": "Bitte kurz warten",
         "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprünge gesamt", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins gesamt verdient",
@@ -2279,7 +2279,7 @@ texts = {
         "not_migrated_hint": "Noch nicht aktiv",
         "offline_hint": "Offline - nichts wird getrackt, nur lokal gespeichert",
         "username_gate_title": "Benutzername wählen",
-        "username_gate_desc": "Wähle einen permanenten Benutzernamen, um Online-Rangliste, Clans und Freunde nutzen zu können. Er kann später nicht mehr geändert werden.",
+        "username_gate_desc": "Wähle einen permanenten Benutzernamen, um Online-Rangliste, Squads und Freunde nutzen zu können. Er kann später nicht mehr geändert werden.",
         "username_gate_checking_msg": "Verbindung wird geprüft...",
         "username_invalid_format_msg": "Ungültiges Format (3-20 Zeichen, muss mit einem Buchstaben beginnen, nur Buchstaben/Zahlen/_)",
         "username_taken_msg": "Benutzername bereits vergeben",
@@ -2313,15 +2313,15 @@ texts = {
         "friends_hub_title": "Friends", "friends_tab_roster": "My Friends", "friends_tab_requests": "Requests",
         "no_requests_yet": "No requests", "accept_btn": "Accept", "decline_btn": "Decline",
         "message_btn": "Message", "friend_request_sent_msg": "Request sent!", "already_friends_msg": "You're already friends",
-        "clan_hub_title": "Clan", "create_clan_btn": "Create Clan", "join_clan_btn": "Join Clan",
+        "clan_hub_title": "Squad", "create_clan_btn": "Create Squad", "join_clan_btn": "Join Squad",
         "leave_clan_btn": "Leave", "kick_btn": "Kick", "clan_tag_label": "Tag", "clan_name_label": "Name",
-        "clan_not_in_one": "You're not in a clan", "clan_members_label": "Members", "clan_owner_label": "Leader",
-        "clan_search_title": "Clan Search", "clan_not_found": "Clan not found",
-        "clan_fields_required_msg": "Please enter a tag and name", "clan_already_in_one_msg": "You're already in a clan",
-        "clan_tag_taken_msg": "Tag already taken", "clan_name_taken_msg": "Name already taken", "clan_full_msg": "Clan is full",
+        "clan_not_in_one": "You're not in a squad", "clan_members_label": "Members", "clan_owner_label": "Leader",
+        "clan_search_title": "Squad Search", "clan_not_found": "Squad not found",
+        "clan_fields_required_msg": "Please enter a tag and name", "clan_already_in_one_msg": "You're already in a squad",
+        "clan_tag_taken_msg": "Tag already taken", "clan_name_taken_msg": "Name already taken", "clan_full_msg": "Squad is full",
         "chat_title": "Chat", "send_btn": "Send", "no_messages_yet": "No messages yet",
         "chat_message_too_long_msg": "Message too long", "chat_message_filtered_msg": "Message not allowed",
-        "chat_not_friends_msg": "You're not friends", "chat_not_clan_member_msg": "You're not in this clan",
+        "chat_not_friends_msg": "You're not friends", "chat_not_clan_member_msg": "You're not in this squad",
         "chat_rate_limited_msg": "Please wait a moment",
         "friends_tab": "Friends", "all_tab_lb": "All", "no_friends_yet": "No friends added yet",
         "total_jumps": "Total Jumps", "total_deaths": "Game Overs", "avg_score": "Avg. Score", "total_coins_earned": "Total Coins Earned",
@@ -2397,7 +2397,7 @@ texts = {
         "not_migrated_hint": "Not yet active",
         "offline_hint": "Offline - nothing is tracked, saved locally only",
         "username_gate_title": "Choose a Username",
-        "username_gate_desc": "Choose a permanent username to use the online leaderboard, clans, and friends. It cannot be changed later.",
+        "username_gate_desc": "Choose a permanent username to use the online leaderboard, squads, and friends. It cannot be changed later.",
         "username_gate_checking_msg": "Checking connection...",
         "username_invalid_format_msg": "Invalid format (3-20 characters, must start with a letter, letters/digits/_ only)",
         "username_taken_msg": "Username already taken",
@@ -2431,15 +2431,15 @@ texts = {
         "friends_hub_title": "Друзья", "friends_tab_roster": "Мои друзья", "friends_tab_requests": "Заявки",
         "no_requests_yet": "Нет заявок", "accept_btn": "Принять", "decline_btn": "Отклонить",
         "message_btn": "Сообщение", "friend_request_sent_msg": "Заявка отправлена!", "already_friends_msg": "Вы уже друзья",
-        "clan_hub_title": "Клан", "create_clan_btn": "Создать клан", "join_clan_btn": "Вступить в клан",
+        "clan_hub_title": "Сквад", "create_clan_btn": "Создать сквад", "join_clan_btn": "Вступить в сквад",
         "leave_clan_btn": "Покинуть", "kick_btn": "Кикнуть", "clan_tag_label": "Тег", "clan_name_label": "Название",
-        "clan_not_in_one": "Вы не состоите в клане", "clan_members_label": "Участники", "clan_owner_label": "Лидер",
-        "clan_search_title": "Поиск клана", "clan_not_found": "Клан не найден",
-        "clan_fields_required_msg": "Введите тег и название", "clan_already_in_one_msg": "Вы уже состоите в клане",
-        "clan_tag_taken_msg": "Тег уже занят", "clan_name_taken_msg": "Название уже занято", "clan_full_msg": "Клан заполнен",
+        "clan_not_in_one": "Вы не состоите в скваде", "clan_members_label": "Участники", "clan_owner_label": "Лидер",
+        "clan_search_title": "Поиск сквада", "clan_not_found": "Сквад не найден",
+        "clan_fields_required_msg": "Введите тег и название", "clan_already_in_one_msg": "Вы уже состоите в скваде",
+        "clan_tag_taken_msg": "Тег уже занят", "clan_name_taken_msg": "Название уже занято", "clan_full_msg": "Сквад заполнен",
         "chat_title": "Чат", "send_btn": "Отправить", "no_messages_yet": "Пока нет сообщений",
         "chat_message_too_long_msg": "Сообщение слишком длинное", "chat_message_filtered_msg": "Сообщение не разрешено",
-        "chat_not_friends_msg": "Вы не друзья", "chat_not_clan_member_msg": "Вы не состоите в этом клане",
+        "chat_not_friends_msg": "Вы не друзья", "chat_not_clan_member_msg": "Вы не состоите в этом скваде",
         "chat_rate_limited_msg": "Пожалуйста, подождите",
         "friends_tab": "Друзья", "all_tab_lb": "Все", "no_friends_yet": "Пока нет друзей",
         "total_jumps": "Прыжков всего", "total_deaths": "Поражений", "avg_score": "Ø очки", "total_coins_earned": "Всего монет заработано",
@@ -2515,7 +2515,7 @@ texts = {
         "not_migrated_hint": "Пока не активен",
         "offline_hint": "Оффлайн - ничего не отслеживается, сохранение только локально",
         "username_gate_title": "Выберите имя пользователя",
-        "username_gate_desc": "Выберите постоянное имя пользователя, чтобы пользоваться онлайн-рейтингом, кланами и друзьями. Позже его нельзя будет изменить.",
+        "username_gate_desc": "Выберите постоянное имя пользователя, чтобы пользоваться онлайн-рейтингом, сквадами и друзьями. Позже его нельзя будет изменить.",
         "username_gate_checking_msg": "Проверка соединения...",
         "username_invalid_format_msg": "Неверный формат (3-20 символов, должно начинаться с буквы, только буквы/цифры/_)",
         "username_taken_msg": "Имя пользователя уже занято",
@@ -2549,15 +2549,15 @@ texts = {
         "friends_hub_title": "Arkadaşlar", "friends_tab_roster": "Arkadaşlarım", "friends_tab_requests": "İstekler",
         "no_requests_yet": "İstek yok", "accept_btn": "Kabul Et", "decline_btn": "Reddet",
         "message_btn": "Mesaj", "friend_request_sent_msg": "İstek gönderildi!", "already_friends_msg": "Zaten arkadaşsınız",
-        "clan_hub_title": "Klan", "create_clan_btn": "Klan Kur", "join_clan_btn": "Klana Katıl",
+        "clan_hub_title": "Squad", "create_clan_btn": "Squad Kur", "join_clan_btn": "Squad'a Katıl",
         "leave_clan_btn": "Ayrıl", "kick_btn": "At", "clan_tag_label": "Etiket", "clan_name_label": "İsim",
-        "clan_not_in_one": "Bir klanda değilsin", "clan_members_label": "Üyeler", "clan_owner_label": "Lider",
-        "clan_search_title": "Klan Arama", "clan_not_found": "Klan bulunamadı",
-        "clan_fields_required_msg": "Lütfen etiket ve isim gir", "clan_already_in_one_msg": "Zaten bir klandasın",
-        "clan_tag_taken_msg": "Etiket zaten alınmış", "clan_name_taken_msg": "İsim zaten alınmış", "clan_full_msg": "Klan dolu",
+        "clan_not_in_one": "Bir squadda değilsin", "clan_members_label": "Üyeler", "clan_owner_label": "Lider",
+        "clan_search_title": "Squad Arama", "clan_not_found": "Squad bulunamadı",
+        "clan_fields_required_msg": "Lütfen etiket ve isim gir", "clan_already_in_one_msg": "Zaten bir squaddasın",
+        "clan_tag_taken_msg": "Etiket zaten alınmış", "clan_name_taken_msg": "İsim zaten alınmış", "clan_full_msg": "Squad dolu",
         "chat_title": "Sohbet", "send_btn": "Gönder", "no_messages_yet": "Henüz mesaj yok",
         "chat_message_too_long_msg": "Mesaj çok uzun", "chat_message_filtered_msg": "Mesaja izin verilmiyor",
-        "chat_not_friends_msg": "Arkadaş değilsiniz", "chat_not_clan_member_msg": "Bu klanda değilsin",
+        "chat_not_friends_msg": "Arkadaş değilsiniz", "chat_not_clan_member_msg": "Bu squadda değilsin",
         "chat_rate_limited_msg": "Lütfen biraz bekle",
         "friends_tab": "Arkadaşlar", "all_tab_lb": "Tümü", "no_friends_yet": "Henüz arkadaş eklenmedi",
         "total_jumps": "Toplam Zıplama", "total_deaths": "Kaybedilen Oyunlar", "avg_score": "Ø Skor", "total_coins_earned": "Toplam Kazanılan Coin",
@@ -2633,7 +2633,7 @@ texts = {
         "not_migrated_hint": "Henüz aktif değil",
         "offline_hint": "Çevrimdışı - hiçbir şey izlenmiyor, yalnızca yerel olarak kaydediliyor",
         "username_gate_title": "Kullanıcı Adı Seç",
-        "username_gate_desc": "Çevrimiçi sıralama, klanlar ve arkadaşları kullanmak için kalıcı bir kullanıcı adı seç. Daha sonra değiştirilemez.",
+        "username_gate_desc": "Çevrimiçi sıralama, squad'lar ve arkadaşları kullanmak için kalıcı bir kullanıcı adı seç. Daha sonra değiştirilemez.",
         "username_gate_checking_msg": "Bağlantı kontrol ediliyor...",
         "username_invalid_format_msg": "Geçersiz format (3-20 karakter, bir harfle başlamalı, yalnızca harf/rakam/_)",
         "username_taken_msg": "Kullanıcı adı zaten alınmış",
@@ -2667,15 +2667,15 @@ texts = {
         "friends_hub_title": "Fründe", "friends_tab_roster": "Mini Fründe", "friends_tab_requests": "Aafrage",
         "no_requests_yet": "Kei Aafrage", "accept_btn": "Aaneh", "decline_btn": "Ablehne",
         "message_btn": "Nachricht", "friend_request_sent_msg": "Aafrag gschickt!", "already_friends_msg": "Ihr sind scho befründet",
-        "clan_hub_title": "Clan", "create_clan_btn": "Clan erstelle", "join_clan_btn": "Clan bitrete",
+        "clan_hub_title": "Squad", "create_clan_btn": "Squad erstelle", "join_clan_btn": "Squad bitrete",
         "leave_clan_btn": "Verlah", "kick_btn": "Chick", "clan_tag_label": "Tag", "clan_name_label": "Name",
-        "clan_not_in_one": "Du bisch i keim Clan", "clan_members_label": "Mitglieder", "clan_owner_label": "Aafüehrer",
-        "clan_search_title": "Clan-Suech", "clan_not_found": "Clan nid gfunde",
-        "clan_fields_required_msg": "Bitte Tag und Name igäh", "clan_already_in_one_msg": "Du bisch scho i eim Clan",
-        "clan_tag_taken_msg": "Tag scho vergäbe", "clan_name_taken_msg": "Name scho vergäbe", "clan_full_msg": "Clan isch voll",
+        "clan_not_in_one": "Du bisch i keim Squad", "clan_members_label": "Mitglieder", "clan_owner_label": "Aafüehrer",
+        "clan_search_title": "Squad-Suech", "clan_not_found": "Squad nid gfunde",
+        "clan_fields_required_msg": "Bitte Tag und Name igäh", "clan_already_in_one_msg": "Du bisch scho i eim Squad",
+        "clan_tag_taken_msg": "Tag scho vergäbe", "clan_name_taken_msg": "Name scho vergäbe", "clan_full_msg": "Squad isch voll",
         "chat_title": "Chat", "send_btn": "Schicke", "no_messages_yet": "No kei Nachrichte",
         "chat_message_too_long_msg": "Nachricht z'lang", "chat_message_filtered_msg": "Nachricht nid erlaubt",
-        "chat_not_friends_msg": "Ihr sind nid befründet", "chat_not_clan_member_msg": "Du bisch nid i däm Clan",
+        "chat_not_friends_msg": "Ihr sind nid befründet", "chat_not_clan_member_msg": "Du bisch nid i däm Squad",
         "chat_rate_limited_msg": "Bitte churz warte",
         "friends_tab": "Freunde", "all_tab_lb": "Alle", "no_friends_yet": "Noch keine Freunde markiert",
         "total_jumps": "Sprüng total", "total_deaths": "Game Overs", "avg_score": "Ø Score", "total_coins_earned": "Coins total verdiänt",
@@ -2751,7 +2751,7 @@ texts = {
         "not_migrated_hint": "No nid aktiv",
         "offline_hint": "Offline - nüt wird getrackt, nur lokal gspeicheret",
         "username_gate_title": "Benutzername wähle",
-        "username_gate_desc": "Wähl en permanente Benutzername, zum Online-Rangliste, Clans und Fründe nutze. Cha später nid me gänderet werde.",
+        "username_gate_desc": "Wähl en permanente Benutzername, zum Online-Rangliste, Squads und Fründe nutze. Cha später nid me gänderet werde.",
         "username_gate_checking_msg": "Verbindig wird gprüeft...",
         "username_invalid_format_msg": "Ungültigs Format (3-20 Zeiche, muess mit emene Buechstabe aafange, nur Buechstabe/Zahle/_)",
         "username_taken_msg": "Benutzername scho vergäbe",
@@ -4352,20 +4352,28 @@ def back_to_hub_from_online_leaderboard():
     in_online_leaderboard = False
     in_profile_hub = True
 
-def open_player_search_from_leaderboard():
+def open_player_search(return_screen):
+    """return_screen: 'in_online_leaderboard' oder 'in_friends_hub' - gleiches
+    Rückkehr-Musters wie open_public_profile()/open_clan_view()."""
     play_sound(menu_click_sound)
-    global in_online_leaderboard, in_player_search, _search_query, _search_results, _search_loading
+    global in_online_leaderboard, in_friends_hub, in_player_search
+    global _search_query, _search_results, _search_loading, _player_search_return_screen
     in_online_leaderboard = False
+    in_friends_hub = False
     in_player_search = True
     _search_query = ""
     _search_results = None
     _search_loading = False
+    _player_search_return_screen = return_screen
 
 def back_from_player_search():
     play_sound(click_back_sound)
-    global in_player_search, in_online_leaderboard
+    global in_player_search, in_online_leaderboard, in_friends_hub
     in_player_search = False
-    in_online_leaderboard = True
+    if _player_search_return_screen == "in_friends_hub":
+        in_friends_hub = True
+    else:
+        in_online_leaderboard = True
 
 def open_public_profile(username, return_screen):
     play_sound(menu_click_sound)
@@ -6634,6 +6642,16 @@ def draw_online_leaderboard():
     fill_bg(rings=True)
     _lb_row_rects = []
 
+    # Score/Powers-Spalten rutschen bei genug Platz um bis zu 70px nach rechts,
+    # damit vor der Score-Spalte Platz für "@username" hinter Name/Verified/Clan-Tag
+    # bleibt (sonst reichte selbst bei normal langen Namen kaum was). Rampe startet
+    # erst bei WIDTH=500 statt schon bei der erzwungenen Mindestbreite 400 - darunter
+    # ist die Score-Spalte (fixer Offset, bewusst NICHT verschoben) schon im
+    # ursprünglichen Layout zu eng für echte Punktzahlen wie "123.456" (weniger als
+    # 61px Platz), unabhängig von diesem Feature. Ab WIDTH=500 aufwärts war die
+    # Score-Spalte im alten Layout nachweislich nie zu eng, dort also unbedenklich.
+    _col_shift = int(70 * max(0.0, min(1.0, (WIDTH - 500) / 300)))
+
     title_txt = get_text("online_leaderboard_btn")
     title_s = font.render(title_txt, True, get_text_color())
     shadow_s = font.render(title_txt, True, (100, 100, 120))
@@ -6686,8 +6704,8 @@ def draw_online_leaderboard():
     header_y = 112
     base_surface.blit(small_font.render("#", True, (140, 140, 160)), (72, header_y))
     base_surface.blit(small_font.render("Name", True, (140, 140, 160)), (120, header_y))
-    base_surface.blit(small_font.render(get_text("table_highscore"), True, (140, 140, 160)), (330, header_y))
-    base_surface.blit(small_font.render(get_text("powers_used_label"), True, (140, 140, 160)), (420, header_y))
+    base_surface.blit(small_font.render(get_text("table_highscore"), True, (140, 140, 160)), (330 + _col_shift, header_y))
+    base_surface.blit(small_font.render(get_text("powers_used_label"), True, (140, 140, 160)), (420 + _col_shift, header_y))
 
     content_top = 136
     fade_bottom = HEIGHT - 90  # Platz fürs Rang-Dock am unteren Rand lassen
@@ -6731,18 +6749,31 @@ def draw_online_leaderboard():
             if entry.get("clan_tag"):
                 clan_tag_s = small_font.render(f"[{entry['clan_tag']}]", True, (120, 160, 220))
                 base_surface.blit(clan_tag_s, (tag_x + 6, row_rect.centery - clan_tag_s.get_height() // 2))
+                tag_x += 6 + clan_tag_s.get_width()
+            # @username hinter Name/Badge/Tag, in den verbleibenden Platz vor der Score-
+            # Spalte reingequetscht - _fit_surf() statt hart abzuschneiden, gleiches Muster
+            # wie beim Profil-Hub-Button-Namen. Wird bei sehr wenig Restplatz komplett
+            # weggelassen statt eine unlesbare 5px-Scherbe zu zeigen (siehe _col_shift oben -
+            # bei der Fenster-Mindestbreite ist das praktisch immer der Fall, unverändert
+            # zum alten Verhalten ohne Username-Anzeige).
+            if entry.get("username"):
+                uname_avail = (row_rect.x + 262 + _col_shift) - (tag_x + 8)
+                if uname_avail > 24:
+                    uname_s = badge_font.render(f"@{entry['username']}", True, (140, 140, 165))
+                    uname_s = _fit_surf(uname_s, uname_avail)
+                    base_surface.blit(uname_s, (tag_x + 8, row_rect.centery - uname_s.get_height() // 2))
 
             score_s = small_font.render(str(entry.get("score", 0)), True, get_text_color())
-            base_surface.blit(score_s, (row_rect.x + 270, row_rect.centery - score_s.get_height() // 2))
+            base_surface.blit(score_s, (row_rect.x + 270 + _col_shift, row_rect.centery - score_s.get_height() // 2))
 
             powers_txt = ", ".join(entry.get("powers_used") or []) or "-"
-            max_w = row_rect.right - (row_rect.x + 360) - 10
+            max_w = row_rect.right - (row_rect.x + 360 + _col_shift) - 10
             if small_font.size(powers_txt)[0] > max_w:
                 while powers_txt and small_font.size(powers_txt + "…")[0] > max_w:
                     powers_txt = powers_txt[:-1]
                 powers_txt += "…"
             powers_s = small_font.render(powers_txt, True, (150, 150, 170))
-            base_surface.blit(powers_s, (row_rect.x + 360, row_rect.centery - powers_s.get_height() // 2))
+            base_surface.blit(powers_s, (row_rect.x + 360 + _col_shift, row_rect.centery - powers_s.get_height() // 2))
 
             y += row_h
 
@@ -6788,7 +6819,7 @@ def online_leaderboard_loop():
                 if back_rect.collidepoint(pos):
                     back_to_hub_from_online_leaderboard()
                 elif search_rect.collidepoint(pos):
-                    open_player_search_from_leaderboard()
+                    open_player_search("in_online_leaderboard")
                 elif all_tab_rect.collidepoint(pos):
                     _lb_friends_only = False
                     play_sound(click_sound)
@@ -6888,6 +6919,13 @@ def draw_player_search():
             if entry.get("clan_tag"):
                 clan_tag_s = small_font.render(f"[{entry['clan_tag']}]", True, (120, 160, 220))
                 base_surface.blit(clan_tag_s, (tag_x + 6, row_rect.centery - clan_tag_s.get_height() // 2))
+                tag_x += 6 + clan_tag_s.get_width()
+            if entry.get("username"):
+                uname_avail = (row_rect.right - 10) - (tag_x + 8)
+                if uname_avail > 24:
+                    uname_s = badge_font.render(f"@{entry['username']}", True, (140, 140, 165))
+                    uname_s = _fit_surf(uname_s, uname_avail)
+                    base_surface.blit(uname_s, (tag_x + 8, row_rect.centery - uname_s.get_height() // 2))
             y += row_h
 
     pygame.display.flip()
@@ -7032,12 +7070,34 @@ def draw_public_profile():
     title_txt = player.get("name") or "-"
     title_s = font.render(title_txt, True, get_text_color())
     shadow_s = font.render(title_txt, True, (100, 100, 120))
+    # @username inline hinter Name (+Verified-Häkchen) auf derselben Zeile, unten
+    # bündig mit title_s statt einer eigenen Zeile - vermeidet die vertikale
+    # Kaskade, die beim ersten Versuch im Profil-Hub-Button einen echten
+    # Overflow-Bug verursacht hat (siehe dortiger Kommentar/Render-Verifikation).
+    viewed_username_title = player.get("username")
+    uname_title_s = small_font.render(f"@{viewed_username_title}", True, (150, 150, 170)) if viewed_username_title else None
+    verified_extra_w = 34 if player.get("verified") else 0
+    uname_extra_w = (10 + uname_title_s.get_width()) if uname_title_s else 0
+    combined_w = title_s.get_width() + verified_extra_w + uname_extra_w
+    if combined_w > WIDTH - 20:
+        # Reicht der Platz nicht (langer Name + schmales Fenster), Username ganz
+        # weglassen statt zu überlappen - Name (+Häkchen) bleibt Priorität, das
+        # gab's schon vor diesem Feature. Kein _fit_surf()-Schrumpfen hier wie bei
+        # den Listenzeilen, eine gequetschte @Zeile unter einem grossen Titel sieht
+        # schnell kaputt aus statt nur klein.
+        uname_title_s = None
+        uname_extra_w = 0
+        combined_w = title_s.get_width() + verified_extra_w
     title_y = avatar_rect.bottom + 12
-    title_x = WIDTH // 2 - title_s.get_width() // 2
+    title_x = WIDTH // 2 - combined_w // 2
     base_surface.blit(shadow_s, (title_x + 2, title_y + 2))
     base_surface.blit(title_s, (title_x, title_y))
+    cursor_x = title_x + title_s.get_width()
     if player.get("verified"):
-        _draw_verified_badge(base_surface, title_x + title_s.get_width() + 18, title_y + title_s.get_height() // 2, radius=12)
+        _draw_verified_badge(base_surface, cursor_x + 18, title_y + title_s.get_height() // 2, radius=12)
+        cursor_x += verified_extra_w
+    if uname_title_s:
+        base_surface.blit(uname_title_s, (cursor_x + 10, title_y + title_s.get_height() - uname_title_s.get_height()))
 
     clan_tag_rect = None
     clan_tag = player.get("clan_tag")
@@ -7462,6 +7522,16 @@ def draw_friends_hub():
     draw_ui_button(base_surface, back_rect, get_text("back"), font=small_font,
                     hovered=back_rect.collidepoint(mouse_pos), radius=10)
 
+    # Spielersuche direkt aus dem Freunde-Hub - vorher nur über den Umweg Rangliste
+    # -> Suche erreichbar, gleicher open_player_search()-Einstiegspunkt, nur mit
+    # anderem return_screen. Exakt dieselbe Position wie der Suche-Button auf der
+    # Rangliste (oben links, Gegenecke zu Back) - eine dritte Schaltfläche in der
+    # Tab-Reihe daneben würde bei der erzwungenen Fenster-Mindestbreite (400) mit
+    # dem Back-Button kollidieren, der schon mit den 2 Tabs allein dort eng ist.
+    search_rect = pygame.Rect(20, 15, 110, 35)
+    draw_ui_button(base_surface, search_rect, get_text("search"), font=small_font,
+                    hovered=search_rect.collidepoint(mouse_pos), radius=10)
+
     # Roster/Requests-Umschalter - gleiches Muster wie Alle/Freunde auf der Rangliste.
     roster_tab_rect = pygame.Rect(60, 65, 160, 36)
     requests_tab_rect = pygame.Rect(226, 65, 160, 36)
@@ -7552,7 +7622,7 @@ def draw_friends_hub():
                 y += row_h
 
     pygame.display.flip()
-    return back_rect, roster_tab_rect, requests_tab_rect
+    return back_rect, roster_tab_rect, requests_tab_rect, search_rect
 
 
 def friends_hub_loop():
@@ -7561,7 +7631,7 @@ def friends_hub_loop():
     _refresh_friends_local()
     _friends_hub_refresh_requests()
     while in_friends_hub:
-        back_rect, roster_tab_rect, requests_tab_rect = draw_friends_hub()
+        back_rect, roster_tab_rect, requests_tab_rect, search_rect = draw_friends_hub()
         _apply_friends_local_pending()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -7573,6 +7643,8 @@ def friends_hub_loop():
                 pos = get_mouse_pos_logical()
                 if back_rect.collidepoint(pos):
                     back_to_hub_from_friends_hub()
+                elif search_rect.collidepoint(pos):
+                    open_player_search("in_friends_hub")
                 elif roster_tab_rect.collidepoint(pos):
                     _friends_hub_tab = "roster"
                     play_sound(click_sound)
@@ -7892,6 +7964,13 @@ def draw_clan_hub():
 
                     decline_rect = pygame.Rect(row_rect.right - 96, row_rect.y + 4, 88, row_rect.h - 8)
                     accept_rect = pygame.Rect(decline_rect.x - 96, row_rect.y + 4, 88, row_rect.h - 8)
+                    if from_username:
+                        uname_avail = accept_rect.x - 10 - (row_rect.x + 14 + name_s.get_width() + 10)
+                        if uname_avail > 24:
+                            uname_s = badge_font.render(f"@{from_username}", True, (140, 140, 165))
+                            uname_s = _fit_surf(uname_s, uname_avail)
+                            base_surface.blit(uname_s, (row_rect.x + 14 + name_s.get_width() + 10,
+                                                         row_rect.centery - uname_s.get_height() // 2))
                     hov_a = accept_rect.collidepoint(mouse_pos)
                     hov_d = decline_rect.collidepoint(mouse_pos)
                     pygame.draw.rect(base_surface, (120, 200, 140) if hov_a else (100, 180, 120), accept_rect, border_radius=8)
@@ -7930,6 +8009,14 @@ def draw_clan_hub():
                     pygame.draw.rect(base_surface, (220, 120, 120) if hov_k else (200, 100, 100), kick_rect, border_radius=6)
                     k_lbl = small_font.render(get_text("kick_btn"), True, (255, 255, 255))
                     base_surface.blit(k_lbl, (kick_rect.centerx - k_lbl.get_width() // 2, kick_rect.centery - k_lbl.get_height() // 2))
+                if username:
+                    uname_right_edge = (kick_rect.x - 10) if kick_rect is not None else (row_rect.right - 10)
+                    uname_avail = uname_right_edge - (row_rect.x + 12 + name_s.get_width() + 10)
+                    if uname_avail > 24:
+                        uname_s = badge_font.render(f"@{username}", True, (140, 140, 165))
+                        uname_s = _fit_surf(uname_s, uname_avail)
+                        base_surface.blit(uname_s, (row_rect.x + 12 + name_s.get_width() + 10,
+                                                     row_rect.centery - uname_s.get_height() // 2))
                 _clan_hub_row_rects.append((pygame.Rect(row_rect), username, kick_rect))
                 y += row_h
 
@@ -8658,14 +8745,29 @@ def draw_chat():
         y = panel.bottom - 12
         for msg in reversed(_chat_messages):
             sender = msg.get("sender_name", "")
+            sender_username = msg.get("sender_username")
             body = msg.get("body", "")
-            is_me = sender == current_profile_name
-            line_s = small_font.render(f"{sender}: {body}", True, (120, 170, 255) if is_me else get_text_color())
-            line_h = line_s.get_height() + 6
+            is_me = (sender_username == current_profile_username) if current_profile_username else (sender == current_profile_name)
+            color = (120, 170, 255) if is_me else get_text_color()
+            # @username nur im Clan-Chat (mehrere Absender, Verwechslungsgefahr bei
+            # gleichen/ähnlichen Anzeigenamen) - im DM ist der Absender durch das
+            # Chat-Ziel selbst schon eindeutig, ein zusätzliches @username wäre
+            # dort nur Redundanz.
+            show_uname = _chat_conversation_type == "clan" and sender_username
+            prefix_s = small_font.render(sender, True, color)
+            uname_s = badge_font.render(f" @{sender_username}", True, (150, 150, 170)) if show_uname else None
+            body_s = small_font.render(f": {body}", True, color)
+            line_h = max(prefix_s.get_height(), body_s.get_height()) + 6
             if y - line_h < panel.top + 10:
                 break
             y -= line_h
-            base_surface.blit(line_s, (panel.x + 14, y))
+            x = panel.x + 14
+            base_surface.blit(prefix_s, (x, y))
+            x += prefix_s.get_width()
+            if uname_s:
+                base_surface.blit(uname_s, (x, y + prefix_s.get_height() - uname_s.get_height()))
+                x += uname_s.get_width()
+            base_surface.blit(body_s, (x, y))
 
     input_box = pygame.Rect(60, panel.bottom + 14, WIDTH - 220, 46)
     pygame.draw.rect(base_surface, get_bg_color(), input_box, border_radius=10)
@@ -13295,6 +13397,7 @@ _search_results = None
 _search_loading = False
 _search_request_id = 0
 _search_row_rects = []
+_player_search_return_screen = "in_online_leaderboard"  # "in_online_leaderboard" | "in_friends_hub"
 
 _public_profile_username = None
 _public_profile_data = None
