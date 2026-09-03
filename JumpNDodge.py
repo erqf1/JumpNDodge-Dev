@@ -291,6 +291,8 @@ font = pygame.font.SysFont(None, 64)        # Große Schrift für Titel
 menu_font = pygame.font.SysFont(None, 40)   # Mittlere Schrift für Menüs
 small_font = pygame.font.SysFont(None, 26)  # Kleine Schrift für Details
 mono_font = pygame.font.SysFont("consolas", 22)  # Monospace-Schrift für Code/Hints
+badge_font = pygame.font.SysFont(None, 18)  # Für die Zahl im Benachrichtigungs-Kreis (siehe _draw_notification_badge()) -
+                                             # small_font (26) wäre für einen ~22px-Kreis zu gross gewesen.
 tooltip_font = pygame.font.SysFont(None, 32)  # Schrift für Hover-Tooltips (besser lesbar als small_font)
 tab_font = pygame.font.SysFont(None, 20)  # Kompakte Schrift für die Kosmetik-Tab-Leiste (6 Tabs müssen nebeneinander passen)
 
@@ -508,6 +510,22 @@ def _online_normalize_name(text):
     return "".join(c for c in text if c.isalnum())
 
 
+_server_reachable = None  # None = noch nie geprüft. True/False je nach letztem
+# _online_request()-Ausgang (siehe _mark_server_reachable()) - bewusst nur ein
+# opportunistischer, evtl. veralteter Hintergrund-Status (kein Heartbeat-Loop
+# in diesem Spiel, Requests feuern nur wenn ein Screen sie ohnehin braucht).
+# Fürs Zwangs-Onboarding-Gate (draw_username_gate()) reicht das nicht als
+# alleinige Grundlage - dort wird stattdessen bei jedem Öffnen einmal frisch
+# via /api/ping geprüft, dieser Cache dient nur der "Defense in depth"-Prüfung
+# beim Öffnen von Freunde/Clan/Rangliste weiter unten im Programm und den
+# Offline-Hinweisen auf Profil-/Game-Over-Screens.
+
+
+def _mark_server_reachable(ok):
+    global _server_reachable
+    _server_reachable = ok
+
+
 def _online_request(method, path, payload=None, timeout=5):
     """Führt einen HTTP-Request gegen ONLINE_SERVER_URL aus. Gibt bei jedem
     Fehler (kein Internet, Server offline, Timeout, ungültige Antwort) None
@@ -526,13 +544,20 @@ def _online_request(method, path, payload=None, timeout=5):
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with _online_urlopen(req, timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            result = json.loads(response.read().decode("utf-8"))
+        _mark_server_reachable(True)
+        return result
     except urllib.error.HTTPError as e:
+        # Server hat geantwortet (wenn auch mit einem Fehlerstatus) - er ist
+        # also erreichbar, das ist etwas ganz anderes als URLError/OSError
+        # unten (kein Internet, Server komplett down, Timeout).
+        _mark_server_reachable(True)
         try:
             return json.loads(e.read().decode("utf-8"))
         except Exception:
             return None
     except (urllib.error.URLError, OSError, ValueError):
+        _mark_server_reachable(False)
         return None
 
 
@@ -640,13 +665,14 @@ def submit_score_online(mode, difficulty, score):
     _online_request_async("POST", "/api/submit", payload, on_done=_on_done)
 
 
-def fetch_leaderboard(mode, difficulty, limit=50, names=None, on_done=None):
+def fetch_leaderboard(mode, difficulty, limit=50, usernames=None, on_done=None):
     """Holt die Rangliste für einen (Modus, Schwierigkeit)-Bucket asynchron.
-    names (optional): nur diese Spielernamen zurückgeben (Freunde-Filter) -
-    Rang wird dann relativ zu dieser Teilliste vergeben, nicht global."""
+    usernames (optional): nur diese Spieler (per stabilem Username, nicht
+    Anzeigename) zurückgeben (Freunde-Filter) - Rang wird dann relativ zu
+    dieser Teilliste vergeben, nicht global."""
     path = f"/api/leaderboard?mode={urllib.parse.quote(mode)}&difficulty={urllib.parse.quote(difficulty)}&limit={limit}"
-    if names:
-        path += f"&names={urllib.parse.quote(','.join(names))}"
+    if usernames:
+        path += f"&usernames={urllib.parse.quote(','.join(usernames))}"
     _online_request_async("GET", path, on_done=on_done)
 
 
@@ -666,10 +692,10 @@ def search_players_online(query, on_done=None):
     _online_request_async("GET", path, on_done=on_done)
 
 
-def fetch_public_profile(name, on_done=None):
+def fetch_public_profile(username, on_done=None):
     """Holt das öffentliche Profil (Stats/Powers/Cosmetics/Bucket-Highscores)
-    eines Spielers asynchron."""
-    path = f"/api/players/{urllib.parse.quote(name)}"
+    eines Spielers asynchron - per stabilem Username, nicht Anzeigename."""
+    path = f"/api/players/{urllib.parse.quote(username)}"
     _online_request_async("GET", path, on_done=on_done)
 
 
@@ -708,18 +734,41 @@ def rename_profile_online(new_name, on_done=None):
     _online_request_async("POST", "/api/rename", payload, on_done=on_done)
 
 
-def send_friend_request_online(to_name, on_done=None):
-    """Schickt eine Freundschaftsanfrage. Ergebnis über on_done(result);
-    result['status'] ('pending'/'accepted') bei Erfolg, sonst result['error']
-    ('already_friends', 'target_not_found', 'unknown_player')."""
+def set_username_online(username, on_done=None):
+    """Setzt den stabilen, einmaligen Username (siehe current_profile_username-
+    Kommentar). name wird mitgeschickt, falls dies der allererste Online-
+    Kontakt dieses Profils ist - der Server legt dann die players-Zeile gleich
+    mit an (siehe server/app.py set_username(), gleiches Upsert-Prinzip wie
+    submit_score_online())."""
     if not current_profile_name:
         return
     token = ensure_online_token()
-    payload = {"token": token, "to_name": to_name}
+    payload = {"token": token, "name": current_profile_name, "username": username.strip()}
+    _online_request_async("POST", "/api/set_username", payload, on_done=on_done)
+
+
+def ping_server_online(on_done=None):
+    """Reiner Erreichbarkeits-Check ohne DB-Zugriff (server/app.py ping()) -
+    braucht keinen Token, wird u.a. vom Zwangs-Onboarding-Gate genutzt, um vor
+    dem Anzeigen des Username-Formulars einmal frisch zu prüfen statt sich auf
+    den ggf. veralteten _server_reachable-Hintergrund-Status zu verlassen."""
+    _online_request_async("GET", "/api/ping", on_done=on_done)
+
+
+def send_friend_request_online(to_username, on_done=None):
+    """Schickt eine Freundschaftsanfrage per stabilem Username (nicht per
+    Anzeigename - siehe current_profile_username-Kommentar). Ergebnis über
+    on_done(result); result['status'] ('pending'/'accepted') bei Erfolg,
+    sonst result['error'] ('already_friends', 'target_not_found',
+    'unknown_player')."""
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "to_username": to_username}
     _online_request_async("POST", "/api/friends/request", payload, on_done=on_done)
 
 
-def respond_friend_request_online(from_name, accept, on_done=None):
+def respond_friend_request_online(from_username, accept, on_done=None):
     """Nimmt eine eingehende Anfrage an oder lehnt sie ab. Ablehnen räumt
     serverseitig in beide Richtungen auf, deckt also auch "eigene gesendete
     Anfrage zurückziehen" mit demselben Aufruf ab (siehe server/app.py
@@ -728,22 +777,24 @@ def respond_friend_request_online(from_name, accept, on_done=None):
         return
     token = ensure_online_token()
     if accept:
-        _online_request_async("POST", "/api/friends/accept", {"token": token, "from_name": from_name}, on_done=on_done)
+        _online_request_async("POST", "/api/friends/accept",
+                               {"token": token, "from_username": from_username}, on_done=on_done)
     else:
-        _online_request_async("POST", "/api/friends/decline", {"token": token, "other_name": from_name}, on_done=on_done)
+        _online_request_async("POST", "/api/friends/decline",
+                               {"token": token, "other_username": from_username}, on_done=on_done)
 
 
-def remove_friend_online(name, on_done=None):
+def remove_friend_online(username, on_done=None):
     if not current_profile_name:
         return
     token = ensure_online_token()
-    _online_request_async("POST", "/api/friends/remove", {"token": token, "other_name": name}, on_done=on_done)
+    _online_request_async("POST", "/api/friends/remove", {"token": token, "other_username": username}, on_done=on_done)
 
 
-def fetch_friends_list(name, on_done=None):
+def fetch_friends_list(username, on_done=None):
     """Holt die bestätigte Freundesliste eines Spielers asynchron - öffentlich
-    lesbar wie alles unter /api/players/<name>, kein Token nötig."""
-    path = f"/api/friends/list?name={urllib.parse.quote(name)}"
+    lesbar wie alles unter /api/players/<username>, kein Token nötig."""
+    path = f"/api/friends/list?username={urllib.parse.quote(username)}"
     _online_request_async("GET", path, on_done=on_done)
 
 
@@ -762,11 +813,42 @@ def create_clan_online(tag, name, on_done=None):
     _online_request_async("POST", "/api/clans/create", payload, on_done=on_done)
 
 
-def join_clan_online(tag, on_done=None):
+def request_join_clan_online(tag, on_done=None):
+    """Ersetzt das frühere sofortige join_clan_online() - Beitritt braucht
+    jetzt die Zustimmung des Clan-Owners."""
     if not current_profile_name:
         return
     token = ensure_online_token()
-    _online_request_async("POST", "/api/clans/join", {"token": token, "tag": tag.strip()}, on_done=on_done)
+    _online_request_async("POST", "/api/clans/join_request", {"token": token, "tag": tag.strip()}, on_done=on_done)
+
+
+def cancel_join_clan_online(tag, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/join_cancel", {"token": token, "tag": tag.strip()}, on_done=on_done)
+
+
+def fetch_my_clan_join_requests(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/join_requests_mine", {"token": token}, on_done=on_done)
+
+
+def fetch_clan_incoming_join_requests(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/clans/join_requests_incoming", {"token": token}, on_done=on_done)
+
+
+def respond_clan_join_request_online(from_username, accept, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    path = "/api/clans/join_accept" if accept else "/api/clans/join_decline"
+    _online_request_async("POST", path, {"token": token, "from_username": from_username}, on_done=on_done)
 
 
 def leave_clan_online(on_done=None):
@@ -776,11 +858,12 @@ def leave_clan_online(on_done=None):
     _online_request_async("POST", "/api/clans/leave", {"token": token}, on_done=on_done)
 
 
-def kick_clan_member_online(target_name, on_done=None):
+def kick_clan_member_online(target_username, on_done=None):
     if not current_profile_name:
         return
     token = ensure_online_token()
-    _online_request_async("POST", "/api/clans/kick", {"token": token, "target_name": target_name}, on_done=on_done)
+    _online_request_async("POST", "/api/clans/kick",
+                           {"token": token, "target_username": target_username}, on_done=on_done)
 
 
 def fetch_clan_info(tag, on_done=None):
@@ -801,6 +884,8 @@ def search_clans_online(query, on_done=None):
 
 
 def send_chat_message_online(conversation_type, target, body, on_done=None):
+    """target ist bei conversation_type="dm" ein Username (stabil), bei "clan"
+    ein Clan-Tag - beides schon stabile Identifier, keine Anzeigenamen."""
     if not current_profile_name:
         return
     token = ensure_online_token()
@@ -818,6 +903,61 @@ def fetch_chat_messages(conversation_type, target, since_id=0, on_done=None):
     token = ensure_online_token()
     payload = {"token": token, "conversation_type": conversation_type, "target": target, "since_id": since_id}
     _online_request_async("POST", "/api/messages/list", payload, on_done=on_done)
+
+
+def mark_chat_read_online(conversation_type, target, on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    payload = {"token": token, "conversation_type": conversation_type, "target": target}
+    _online_request_async("POST", "/api/messages/mark_read", payload, on_done=on_done)
+
+
+def fetch_notifications_summary(on_done=None):
+    if not current_profile_name:
+        return
+    token = ensure_online_token()
+    _online_request_async("POST", "/api/notifications/summary", {"token": token}, on_done=on_done)
+
+
+_notif_pending_friend_requests = 0
+_notif_unread_conversations = 0
+_notif_last_checked_ms = 0
+_NOTIF_POLL_INTERVAL_MS = 15000  # gleiches Intervall-Muster wie _refresh_time_cache_if_needed()
+
+
+def _refresh_notifications_if_due():
+    """Pollt /api/notifications/summary höchstens alle 15s - von draw_menu() aus
+    aufgerufen, das jeden Frame läuft, daher das Cache-Intervall (sonst ein
+    Request pro Frame). Setzt die Zähler direkt im on_done, da es sich um reinen,
+    nicht persistierten Anzeige-State handelt (siehe Async-Regel oben)."""
+    global _notif_last_checked_ms
+    if current_profile_username is None:
+        return
+    now = pygame.time.get_ticks()
+    if now - _notif_last_checked_ms < _NOTIF_POLL_INTERVAL_MS:
+        return
+    _notif_last_checked_ms = now
+
+    def _on_done(result):
+        global _notif_pending_friend_requests, _notif_unread_conversations
+        if result and result.get("ok"):
+            _notif_pending_friend_requests = result.get("pending_friend_requests", 0)
+            _notif_unread_conversations = result.get("unread_conversations", 0)
+
+    fetch_notifications_summary(on_done=_on_done)
+
+
+def _draw_notification_badge(surface, cx, cy, count):
+    """Roter Kreis mit Zahl (Freundschaftsanfragen + ungelesene Nachrichten) auf
+    dem Profil-Button im Hauptmenü - gleiche Kreis-Bauweise wie
+    _draw_verified_badge(), aber mit Zahl statt Häkchen."""
+    radius = 11
+    pygame.draw.circle(surface, (220, 60, 60), (cx, cy), radius)
+    pygame.draw.circle(surface, (255, 255, 255), (cx, cy), radius, width=2)
+    txt = str(count) if count < 10 else "9+"
+    txt_s = badge_font.render(txt, True, (255, 255, 255))
+    surface.blit(txt_s, (cx - txt_s.get_width() // 2, cy - txt_s.get_height() // 2))
 
 
 _confirmed_online_deletions = []  # von _flush_pending_online_deletions()s on_done (Hintergrund-
@@ -1236,9 +1376,13 @@ def save_modded_section(section, data):
 current_profile_name = None
 _profile_save_lock = False
 online_token = None  # geheimer Pro-Profil-Token fürs Online-Leaderboard, siehe ensure_online_token()
+current_profile_username = None  # stabiler, einmalig gesetzter Username (siehe set_username_online()) -
+# anders als current_profile_name (Anzeigename, jederzeit änderbar über /api/rename) NIE änderbar, sobald
+# gesetzt. Pro Profil wie online_token, nicht global - jedes lokale Profil hat seine eigene Online-Identität.
 redeemed_codes_local = []  # lokale Kopie der schon eingelösten Redeem-Codes (Grossbuchstaben), siehe redeem_code_loop()
-friends_local = []  # Namen, die dieses Profil als "Freund" markiert hat - rein lokal/client-seitig,
-                    # da es keine Server-Validierung braucht (reine Anzeige-Präferenz, kein Anti-Cheat-Thema)
+friends_local = []  # Cache-Kopie der serverseitig bestätigten Freundesliste dieses Profils (siehe
+                    # _refresh_friends_local()) - jeweils {"username":..., "name":...}-Dicts, kein reines
+                    # Namens-Array mehr, seit Freundschaften eine echte Server-Bestätigung brauchen.
 
 def _load_profiles_file():
     _ensure_gamedata_loaded()
@@ -1269,6 +1413,7 @@ def save_current_profile():
             "powers": powers_state,
             "cosmetics": cosmetics_state,
             "online_token": online_token,
+            "username": current_profile_username,
             "redeemed_codes": redeemed_codes_local,
             "friends": friends_local,
         }
@@ -1278,12 +1423,16 @@ def save_current_profile():
 
 def load_profile(name):
     global current_profile_name, stats, achievements, saved_scores, online_token, redeemed_codes_local, friends_local
-    global settings, powers_state, cosmetics_state, language_index, sound_enabled
+    global settings, powers_state, cosmetics_state, language_index, sound_enabled, current_profile_username
+    global _notif_pending_friend_requests, _notif_unread_conversations, _notif_last_checked_ms
     pdata = _load_profiles_file()
     p = pdata.get("profiles", {}).get(name)
     if p is None:
         return False
     current_profile_name = name
+    _notif_pending_friend_requests = 0
+    _notif_unread_conversations = 0
+    _notif_last_checked_ms = 0
     stats           = {**default_stats,        **p.get("stats", {})}
     achievements    = {**default_achievements, **p.get("achievements", {})}
     saved_scores    = {**default_highscores,   **p.get("highscores", {})}
@@ -1292,8 +1441,16 @@ def load_profile(name):
     powers_state    = {**default_powers,       **p.get("powers", {})}
     cosmetics_state = {**default_cosmetics,    **p.get("cosmetics", {})}
     online_token    = p.get("online_token")
+    current_profile_username = p.get("username")
     redeemed_codes_local = list(p.get("redeemed_codes", []))
-    friends_local = list(p.get("friends", []))
+    # Migration: vor diesem Feature war ein Eintrag ein reiner Namens-String,
+    # jetzt ein {"username":..., "name":...}-Dict - alte Strings werden zu
+    # Platzhaltern mit username=None, bis der nächste _refresh_friends_local()
+    # (Online-Rangliste/Freunde-Hub öffnen) die echte Liste vom Server holt.
+    friends_local = [
+        (f if isinstance(f, dict) else {"username": None, "name": f})
+        for f in p.get("friends", [])
+    ]
     _migrate_cosmetics_equipped_player(cosmetics_state)
     powers_state, _powers_changed = _strip_unknown_powers(powers_state)
     _gamedata_cache.update({
@@ -1321,7 +1478,12 @@ def load_profile(name):
 def create_profile(name):
     global current_profile_name, stats, achievements, saved_scores, best_times
     global settings, powers_state, cosmetics_state, online_token, redeemed_codes_local, friends_local
+    global current_profile_username
+    global _notif_pending_friend_requests, _notif_unread_conversations, _notif_last_checked_ms
     current_profile_name = name
+    _notif_pending_friend_requests = 0
+    _notif_unread_conversations = 0
+    _notif_last_checked_ms = 0
     stats           = dict(default_stats)
     achievements    = dict(default_achievements)
     saved_scores    = dict(default_highscores)
@@ -1330,6 +1492,7 @@ def create_profile(name):
     powers_state    = dict(default_powers)
     cosmetics_state = dict(default_cosmetics)
     online_token    = None  # wird bei Bedarf von ensure_online_token() erzeugt
+    current_profile_username = None
     redeemed_codes_local = []
     friends_local = []
     _gamedata_cache.update({
@@ -2108,6 +2271,18 @@ texts = {
         "controls_title": "Steuerung anpassen", "controls_hint_legend": "Klicke eine Taste zum Entfernen  ·  [+] zum Hinzufügen  ·  ⚠ = Taste auch anderswo belegt",
         "controls_scroll_hint": "↑/↓ oder Mausrad: Scrollen",
         "controls_tab_standard": "Standard", "controls_tab_2p": "2-Spieler", "controls_tab_menu": "Menü",
+        "cancel_btn": "Abbrechen",
+        "clan_my_requests_label": "Deine offenen Anfragen", "clan_request_sent_msg": "Anfrage gesendet!",
+        "clan_requested_label": "Angefragt", "confirm_leave_clan_msg": "Willst du das wirklich tun?",
+        "confirm_yes_btn": "Ja", "confirm_no_btn": "Nein",
+        "equip": "Ausrüsten", "unequip": "Ablegen",
+        "not_migrated_hint": "Noch nicht aktiv",
+        "offline_hint": "Offline - nichts wird getrackt, nur lokal gespeichert",
+        "username_gate_title": "Benutzername wählen",
+        "username_gate_desc": "Wähle einen permanenten Benutzernamen, um Online-Rangliste, Clans und Freunde nutzen zu können. Er kann später nicht mehr geändert werden.",
+        "username_gate_checking_msg": "Verbindung wird geprüft...",
+        "username_invalid_format_msg": "Ungültiges Format (3-20 Zeichen, muss mit einem Buchstaben beginnen, nur Buchstaben/Zahlen/_)",
+        "username_taken_msg": "Benutzername bereits vergeben",
     },
     "English": {
         "ice_trail": "Ice Trail",
@@ -2214,6 +2389,18 @@ texts = {
         "controls_title": "Customize Controls", "controls_hint_legend": "Click a key to remove  ·  [+] to add  ·  ⚠ = key also bound elsewhere",
         "controls_scroll_hint": "↑/↓ or mouse wheel: Scroll",
         "controls_tab_standard": "Standard", "controls_tab_2p": "2-Player", "controls_tab_menu": "Menu",
+        "cancel_btn": "Cancel",
+        "clan_my_requests_label": "Your pending requests", "clan_request_sent_msg": "Request sent!",
+        "clan_requested_label": "Requested", "confirm_leave_clan_msg": "Are you sure you want to do this?",
+        "confirm_yes_btn": "Yes", "confirm_no_btn": "No",
+        "equip": "Equip", "unequip": "Unequip",
+        "not_migrated_hint": "Not yet active",
+        "offline_hint": "Offline - nothing is tracked, saved locally only",
+        "username_gate_title": "Choose a Username",
+        "username_gate_desc": "Choose a permanent username to use the online leaderboard, clans, and friends. It cannot be changed later.",
+        "username_gate_checking_msg": "Checking connection...",
+        "username_invalid_format_msg": "Invalid format (3-20 characters, must start with a letter, letters/digits/_ only)",
+        "username_taken_msg": "Username already taken",
     },
     "Русский": {
         "ice_trail": "ледяной след",
@@ -2320,6 +2507,18 @@ texts = {
         "controls_title": "Настроить управление", "controls_hint_legend": "Нажми клавишу, чтобы удалить  ·  [+] чтобы добавить  ·  ⚠ = клавиша занята также в другом месте",
         "controls_scroll_hint": "↑/↓ или колесо мыши: Прокрутка",
         "controls_tab_standard": "Стандарт", "controls_tab_2p": "2 игрока", "controls_tab_menu": "Меню",
+        "cancel_btn": "Отменить",
+        "clan_my_requests_label": "Ваши заявки в ожидании", "clan_request_sent_msg": "Заявка отправлена!",
+        "clan_requested_label": "Запрошено", "confirm_leave_clan_msg": "Вы уверены, что хотите это сделать?",
+        "confirm_yes_btn": "Да", "confirm_no_btn": "Нет",
+        "equip": "Надеть", "unequip": "Снять",
+        "not_migrated_hint": "Пока не активен",
+        "offline_hint": "Оффлайн - ничего не отслеживается, сохранение только локально",
+        "username_gate_title": "Выберите имя пользователя",
+        "username_gate_desc": "Выберите постоянное имя пользователя, чтобы пользоваться онлайн-рейтингом, кланами и друзьями. Позже его нельзя будет изменить.",
+        "username_gate_checking_msg": "Проверка соединения...",
+        "username_invalid_format_msg": "Неверный формат (3-20 символов, должно начинаться с буквы, только буквы/цифры/_)",
+        "username_taken_msg": "Имя пользователя уже занято",
     },
     "Türkçe": {
         "ice_trail": "Buz İz",
@@ -2426,6 +2625,18 @@ texts = {
         "controls_title": "Kontrolleri Özelleştir", "controls_hint_legend": "Kaldırmak için bir tuşa tıkla  ·  Eklemek için [+]  ·  ⚠ = tuş başka yerde de kullanılıyor",
         "controls_scroll_hint": "↑/↓ veya fare tekerleği: Kaydır",
         "controls_tab_standard": "Standart", "controls_tab_2p": "2 Oyuncu", "controls_tab_menu": "Menü",
+        "cancel_btn": "İptal",
+        "clan_my_requests_label": "Bekleyen isteklerin", "clan_request_sent_msg": "İstek gönderildi!",
+        "clan_requested_label": "İstek gönderildi", "confirm_leave_clan_msg": "Bunu yapmak istediğine emin misin?",
+        "confirm_yes_btn": "Evet", "confirm_no_btn": "Hayır",
+        "equip": "Tak", "unequip": "Çıkar",
+        "not_migrated_hint": "Henüz aktif değil",
+        "offline_hint": "Çevrimdışı - hiçbir şey izlenmiyor, yalnızca yerel olarak kaydediliyor",
+        "username_gate_title": "Kullanıcı Adı Seç",
+        "username_gate_desc": "Çevrimiçi sıralama, klanlar ve arkadaşları kullanmak için kalıcı bir kullanıcı adı seç. Daha sonra değiştirilemez.",
+        "username_gate_checking_msg": "Bağlantı kontrol ediliyor...",
+        "username_invalid_format_msg": "Geçersiz format (3-20 karakter, bir harfle başlamalı, yalnızca harf/rakam/_)",
+        "username_taken_msg": "Kullanıcı adı zaten alınmış",
     },
     "Schwiizerdütsch": {
         "ice_trail": "Iis Spur",
@@ -2532,6 +2743,18 @@ texts = {
         "controls_title": "Steurig aapasse", "controls_hint_legend": "Klick e Tascht zum Entferne  ·  [+] zum Dezuefüege  ·  ⚠ = Tascht au anderswo belegt",
         "controls_scroll_hint": "↑/↓ oder Muusrad: Scrolle",
         "controls_tab_standard": "Standard", "controls_tab_2p": "2-Spieler", "controls_tab_menu": "Menü",
+        "cancel_btn": "Abbreche",
+        "clan_my_requests_label": "Dini offene Aafrage", "clan_request_sent_msg": "Aafrag gschickt!",
+        "clan_requested_label": "Aagfragt", "confirm_leave_clan_msg": "Wottsch das würklich mache?",
+        "confirm_yes_btn": "Ja", "confirm_no_btn": "Nei",
+        "equip": "Aalegge", "unequip": "Ablegge",
+        "not_migrated_hint": "No nid aktiv",
+        "offline_hint": "Offline - nüt wird getrackt, nur lokal gspeicheret",
+        "username_gate_title": "Benutzername wähle",
+        "username_gate_desc": "Wähl en permanente Benutzername, zum Online-Rangliste, Clans und Fründe nutze. Cha später nid me gänderet werde.",
+        "username_gate_checking_msg": "Verbindig wird gprüeft...",
+        "username_invalid_format_msg": "Ungültigs Format (3-20 Zeiche, muess mit emene Buechstabe aafange, nur Buechstabe/Zahle/_)",
+        "username_taken_msg": "Benutzername scho vergäbe",
     },
 }
 
@@ -4098,6 +4321,10 @@ def open_profile_hub():
     global in_menu, in_profile_hub
     in_menu = False
     in_profile_hub = True
+    # Frischt _server_reachable an, rein für den Offline-Hinweis unten in
+    # draw_profile_hub() - fire-and-forget, kein on_done nötig, da schon
+    # _online_request() selbst den Status setzt (siehe _mark_server_reachable()).
+    ping_server_online()
 
 def back_to_main_from_profile_hub():
     play_sound(click_back_sound)
@@ -4115,6 +4342,8 @@ def open_online_leaderboard_from_hub():
     play_sound(menu_click_sound)
     global in_profile_hub, in_online_leaderboard
     in_profile_hub = False
+    if _gate_blocks_online_access():
+        return
     in_online_leaderboard = True
 
 def back_to_hub_from_online_leaderboard():
@@ -4138,17 +4367,17 @@ def back_from_player_search():
     in_player_search = False
     in_online_leaderboard = True
 
-def open_public_profile(name, return_screen):
+def open_public_profile(username, return_screen):
     play_sound(menu_click_sound)
     global in_online_leaderboard, in_player_search, in_public_profile, in_friends_hub, in_clan_hub
-    global _public_profile_name, _public_profile_data, _public_profile_loading, _public_profile_return_screen
+    global _public_profile_username, _public_profile_data, _public_profile_loading, _public_profile_return_screen
     global _friend_action_pending, _public_profile_friend_msg
     in_online_leaderboard = False
     in_player_search = False
     in_friends_hub = False
     in_clan_hub = False
     in_public_profile = True
-    _public_profile_name = name
+    _public_profile_username = username
     _public_profile_data = None
     _public_profile_loading = False
     _public_profile_return_screen = return_screen
@@ -4470,6 +4699,10 @@ def draw_menu():
     _pb_name_surf = _fit_surf(_pb_name_surf, _profile_hub_btn_rect.width - _pb_avatar_rect.width - 20)
     base_surface.blit(_pb_name_surf, (_pb_avatar_rect.right + 10,
                                        _profile_hub_btn_rect.centery - _pb_name_surf.get_height() // 2))
+    _refresh_notifications_if_due()
+    _notif_total = _notif_pending_friend_requests + _notif_unread_conversations
+    if _notif_total > 0:
+        _draw_notification_badge(base_surface, _profile_hub_btn_rect.right, _profile_hub_btn_rect.top, _notif_total)
 
     # Buttons mit verbessertem Design
     for i, button in enumerate(buttons):
@@ -5649,11 +5882,11 @@ def draw_tutorial():
 
 
 def _finish_tutorial():
-    global in_tutorial, in_menu, tutorial_step
+    global in_tutorial, tutorial_step
     stats["tutorial_seen"] = True
     save_section("stats", stats)
     in_tutorial = False
-    in_menu = True
+    _route_to_menu_or_gate()
     tutorial_step = 0
 
 
@@ -5965,7 +6198,7 @@ _profile_name_msg = ""
 _profile_from_settings = False
 
 def _enter_profile(name):
-    global in_profile_select, in_menu, in_language_select, in_profile_name_input
+    global in_profile_select, in_language_select, in_profile_name_input
     load_profile(name)
     check_local_verified_key_file()
     _flush_pending_online_deletions()
@@ -5973,7 +6206,7 @@ def _enter_profile(name):
     if not stats.get("tutorial_seen", False):
         in_language_select = True
     else:
-        in_menu = True
+        _route_to_menu_or_gate()
     update_button_texts()
 
 def _open_new_profile_input(from_settings=False):
@@ -6208,6 +6441,13 @@ def draw_profile_hub():
     coin_text = small_font.render(f"{get_text('coins')}: {stats.get('coins', 0)}", True, get_text_color())
     base_surface.blit(coin_text, (25, 22))
 
+    # Offline-Hinweis - nur wenn _server_reachable sicher False ist (nicht bei
+    # None/noch nie geprüft, sonst würde er kurz nach jedem Öffnen aufblitzen
+    # bevor der erste Ping überhaupt zurück ist).
+    if _server_reachable is False:
+        off_s = small_font.render(get_text("offline_hint"), True, (210, 150, 70))
+        base_surface.blit(off_s, (WIDTH // 2 - off_s.get_width() // 2, 60))
+
     # Avatar-Vorschau (Block in Wunschfarbe + ausgerüstete Kopfbedeckung/Augen/Nase/Mund).
     # Größe bewusst identisch zum echten Gameplay-Spieler (50x50, siehe run_game()) -
     # draw_player_cosmetics() positioniert Hüte/Augen/etc. mit absoluten Pixel-Offsets,
@@ -6218,9 +6458,20 @@ def draw_profile_hub():
     pygame.draw.rect(base_surface, (100, 100, 150), avatar_shadow, border_radius=10)
     draw_avatar(base_surface, avatar_rect)
 
-    # Profilname
-    name_surf = menu_font.render(current_profile_name or "-", True, get_text_color())
-    base_surface.blit(name_surf, (WIDTH // 2 - name_surf.get_width() // 2, avatar_rect.bottom + 8))
+    # Profilname (Anzeigename); direkt daneben (nicht darunter - vertikaler
+    # Platz ist hier bereits knapp bemessen für die Buttons weiter unten, ein
+    # zweiter Zeilenumbruch hätte hier fast exakt den gleichen Überlappungs-
+    # Fehler riskiert wie vorhin schon bei den Profil-Hub-Buttons selbst),
+    # kleiner und gedimmt, der stabile @Username (falls gesetzt).
+    name_txt = current_profile_name or "-"
+    name_surf = menu_font.render(name_txt, True, get_text_color())
+    name_y = avatar_rect.bottom + 8
+    uname_surf = small_font.render(f" @{current_profile_username}", True, (150, 150, 170)) if current_profile_username else None
+    combined_w = name_surf.get_width() + (uname_surf.get_width() if uname_surf else 0)
+    name_x = WIDTH // 2 - combined_w // 2
+    base_surface.blit(name_surf, (name_x, name_y))
+    if uname_surf:
+        base_surface.blit(uname_surf, (name_x + name_surf.get_width(), name_y + name_surf.get_height() - uname_surf.get_height()))
 
     # Farb-Swatches
     swatch_names = ["blue", "darkgreen", "lightblue", "pink", "orange", "yellow"]
@@ -6337,12 +6588,12 @@ def _lb_start_fetch():
         else:
             _lb_my_rank = (None, None)
 
-    names = None
+    usernames = None
     if _lb_friends_only:
-        names = list(friends_local)
-        if current_profile_name and current_profile_name not in names:
-            names.append(current_profile_name)
-    fetch_leaderboard(mode, difficulty, names=names, on_done=_on_done)
+        usernames = [f["username"] for f in friends_local if f.get("username")]
+        if current_profile_username and current_profile_username not in usernames:
+            usernames.append(current_profile_username)
+    fetch_leaderboard(mode, difficulty, usernames=usernames, on_done=_on_done)
     fetch_my_rank(mode, difficulty, on_done=_on_rank_done)
 
 
@@ -6455,7 +6706,7 @@ def draw_online_leaderboard():
             if y + row_h > fade_bottom:
                 break
             row_rect = pygame.Rect(60, y, WIDTH - 120, row_h - 6)
-            _lb_row_rects.append((pygame.Rect(row_rect), entry.get("name", "")))
+            _lb_row_rects.append((pygame.Rect(row_rect), entry.get("username")))
             hov = row_rect.collidepoint(mouse_pos)
             pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
@@ -6550,12 +6801,12 @@ def online_leaderboard_loop():
                 elif diff_right.collidepoint(pos):
                     _lb_difficulty_idx = (_lb_difficulty_idx + 1) % len(difficulties)
                     play_sound(click_sound)
-                elif dock_rect.collidepoint(pos) and current_profile_name:
-                    open_public_profile(current_profile_name, "in_online_leaderboard")
+                elif dock_rect.collidepoint(pos) and current_profile_username:
+                    open_public_profile(current_profile_username, "in_online_leaderboard")
                 else:
-                    for rect, name in _lb_row_rects:
-                        if rect.collidepoint(pos):
-                            open_public_profile(name, "in_online_leaderboard")
+                    for rect, username in _lb_row_rects:
+                        if rect.collidepoint(pos) and username:
+                            open_public_profile(username, "in_online_leaderboard")
                             break
         new_key = (_lb_difficulty_idx, _lb_friends_only)
         if new_key != _last_key and in_online_leaderboard:
@@ -6624,7 +6875,7 @@ def draw_player_search():
                 break
             name = entry.get("name", "")
             row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
-            _search_row_rects.append((pygame.Rect(row_rect), name))
+            _search_row_rects.append((pygame.Rect(row_rect), entry.get("username")))
             hov = row_rect.collidepoint(mouse_pos)
             pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
@@ -6667,9 +6918,9 @@ def player_search_loop():
                 if back_rect.collidepoint(pos):
                     back_from_player_search()
                 else:
-                    for rect, name in _search_row_rects:
-                        if rect.collidepoint(pos):
-                            open_public_profile(name, "in_player_search")
+                    for rect, username in _search_row_rects:
+                        if rect.collidepoint(pos) and username:
+                            open_public_profile(username, "in_player_search")
                             break
         clock.tick(60)
 
@@ -6678,16 +6929,16 @@ def _public_profile_start_fetch():
     global _public_profile_loading, _public_profile_data
     _public_profile_loading = True
     _public_profile_data = None
-    name = _public_profile_name
+    username = _public_profile_username
 
     def _on_done(result):
         global _public_profile_loading, _public_profile_data
-        if name != _public_profile_name:
+        if username != _public_profile_username:
             return  # zwischenzeitlich wurde ein anderes Profil geöffnet
         _public_profile_loading = False
         _public_profile_data = result if (result and result.get("ok")) else False
 
-    fetch_public_profile(name, on_done=_on_done)
+    fetch_public_profile(username, on_done=_on_done)
 
 
 def _format_playtime(seconds):
@@ -6735,12 +6986,16 @@ def draw_public_profile():
 
     player = _public_profile_data.get("player", {})
 
-    # Freund hinzufügen/entfernen - nicht beim eigenen Profil
+    # Freund hinzufügen/entfernen - nicht beim eigenen Profil. Gated auf
+    # viewed_username statt viewed_name - ein Spieler ohne Username (noch
+    # nicht migriert, siehe current_profile_username-Kommentar) kann gar
+    # nicht angefragt werden, daher zeigt sich der Block dann gar nicht erst.
     friend_rect = None
     message_rect = None
     viewed_name = player.get("name")
-    if viewed_name and viewed_name != current_profile_name:
-        is_friend = viewed_name in friends_local
+    viewed_username = player.get("username")
+    if viewed_username and viewed_username != current_profile_username:
+        is_friend = any(f.get("username") == viewed_username for f in friends_local)
         friend_rect = pygame.Rect(20, 15, 130, 35)
         hov_friend = friend_rect.collidepoint(mouse_pos)
         base_col = (200, 100, 100) if is_friend else (100, 180, 120)
@@ -6854,9 +7109,9 @@ def draw_public_profile():
     return back_rect, friend_rect, message_rect, clan_tag_rect
 
 
-_friend_action_pending = None  # Name von send_friend_request_online()s on_done
-# (Hintergrund-Thread) gesetzt, im Main-Thread (public_profile_loop()) via
-# _add_friend_local() angewendet - gleiches Race-Condition-Muster wie
+_friend_action_pending = None  # (username, name)-Tupel von send_friend_request_online()s
+# on_done (Hintergrund-Thread) gesetzt, im Main-Thread (public_profile_loop())
+# via _add_friend_local() angewendet - gleiches Race-Condition-Muster wie
 # _rename_pending_local_name. Wird nur gesetzt, wenn der Server sofort
 # "accepted" zurückgibt (symmetrisches Auto-Accept, siehe server/app.py
 # friend_request()) - bei "pending" bleibt friends_local bewusst unverändert,
@@ -6866,21 +7121,21 @@ _friend_action_pending = None  # Name von send_friend_request_online()s on_done
 _public_profile_friend_msg = ""
 
 
-def _add_friend_local(name):
+def _add_friend_local(username, name):
     global friends_local
-    if name not in friends_local:
-        friends_local.append(name)
+    if not any(f.get("username") == username for f in friends_local):
+        friends_local.append({"username": username, "name": name})
         save_current_profile()
 
 
-def _remove_friend_local(name):
+def _remove_friend_local(username):
     global friends_local
-    if name in friends_local:
-        friends_local.remove(name)
+    if any(f.get("username") == username for f in friends_local):
+        friends_local = [f for f in friends_local if f.get("username") != username]
         save_current_profile()
 
 
-def _send_friend_request(name):
+def _send_friend_request(username, name):
     global _public_profile_friend_msg
     _public_profile_friend_msg = ""
     play_sound(click_sound)
@@ -6889,7 +7144,7 @@ def _send_friend_request(name):
         global _friend_action_pending, _public_profile_friend_msg
         if result and result.get("ok"):
             if result.get("status") == "accepted":
-                _friend_action_pending = name
+                _friend_action_pending = (username, name)
             else:
                 _public_profile_friend_msg = get_text("friend_request_sent_msg")
         else:
@@ -6899,16 +7154,16 @@ def _send_friend_request(name):
                 "target_not_found": get_text("player_not_found"),
             }.get(err, get_text("generic_error_msg"))
 
-    send_friend_request_online(name, on_done=_on_done)
+    send_friend_request_online(username, on_done=_on_done)
 
 
-def _remove_friend(name):
+def _remove_friend(username):
     # Entfernen bleibt bewusst sofort/optimistisch (keine Bestätigung durch
     # die Gegenseite nötig) - anders als beim Hinzufügen gibt es hier niemanden,
     # der zustimmen müsste, und es entspricht der bisherigen Instant-Unfriend-UX.
-    _remove_friend_local(name)
+    _remove_friend_local(username)
     play_sound(click_sound)
-    remove_friend_online(name)
+    remove_friend_online(username)
 
 
 def public_profile_loop():
@@ -6918,7 +7173,7 @@ def public_profile_loop():
     while in_public_profile:
         back_rect, friend_rect, message_rect, clan_tag_rect = draw_public_profile()
         if _friend_action_pending is not None:
-            _add_friend_local(_friend_action_pending)
+            _add_friend_local(*_friend_action_pending)
             _friend_action_pending = None
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -6932,17 +7187,17 @@ def public_profile_loop():
                     back_from_public_profile()
                 elif friend_rect is not None and friend_rect.collidepoint(pos):
                     player = (_public_profile_data or {}).get("player", {})
-                    name = player.get("name")
-                    if name:
-                        if name in friends_local:
-                            _remove_friend(name)
+                    username = player.get("username")
+                    if username:
+                        if any(f.get("username") == username for f in friends_local):
+                            _remove_friend(username)
                         else:
-                            _send_friend_request(name)
+                            _send_friend_request(username, player.get("name"))
                 elif message_rect is not None and message_rect.collidepoint(pos):
                     player = (_public_profile_data or {}).get("player", {})
-                    name = player.get("name")
-                    if name:
-                        open_chat("dm", name, "in_public_profile")
+                    username = player.get("username")
+                    if username:
+                        open_chat("dm", username, "in_public_profile", display_label=player.get("name"))
                 elif clan_tag_rect is not None and clan_tag_rect.collidepoint(pos):
                     player = (_public_profile_data or {}).get("player", {})
                     tag = player.get("clan_tag")
@@ -6952,14 +7207,216 @@ def public_profile_loop():
 
 
 # =============================
+# Zwangs-Onboarding: Username-Gate
+# =============================
+
+_username_gate_checking = True  # True bis der Erreichbarkeits-Check zurück ist
+_username_gate_reachable = None  # Pending-Flag von ping_server_online()s on_done
+# (Hintergrund-Thread) gesetzt, im Main-Thread angewendet - gleiches Race-
+# Condition-Muster wie überall sonst (in_X-Flags/save_current_profile() nie
+# direkt aus einem Hintergrund-Thread).
+_username_gate_text = ""
+_username_gate_msg = ""
+_username_gate_busy = False
+_username_gate_pending_success = None  # Username-String von set_username_online()s
+# on_done (Hintergrund-Thread) gesetzt, im Main-Thread angewendet.
+
+
+def _is_valid_username_format(username):
+    """Client-seitige Vorprüfung, spiegelt server/app.py _USERNAME_RE - nur
+    für sofortiges Feedback, die verbindliche Prüfung bleibt serverseitig."""
+    if not (3 <= len(username) <= 20):
+        return False
+    if not (username[0].isascii() and username[0].isalpha()):
+        return False
+    return all(c.isascii() and (c.isalnum() or c == "_") for c in username)
+
+
+def _username_gate_start_check():
+    global _username_gate_checking, _username_gate_reachable
+    _username_gate_checking = True
+    _username_gate_reachable = None
+
+    def _on_done(result):
+        global _username_gate_reachable
+        _username_gate_reachable = bool(result and result.get("ok"))
+
+    ping_server_online(on_done=_on_done)
+
+
+def _confirm_username_gate():
+    global _username_gate_msg, _username_gate_busy
+    username = _username_gate_text.strip()
+    if not _is_valid_username_format(username):
+        _username_gate_msg = get_text("username_invalid_format_msg")
+        return
+    if not is_name_allowed(username):
+        _username_gate_msg = get_text("name_filtered")
+        return
+    _username_gate_busy = True
+    _username_gate_msg = ""
+
+    def _on_done(result):
+        global _username_gate_busy, _username_gate_msg, _username_gate_pending_success
+        _username_gate_busy = False
+        if result and result.get("ok"):
+            _username_gate_pending_success = result.get("username", username)
+        else:
+            err = (result or {}).get("error")
+            _username_gate_msg = {
+                "username_taken": get_text("username_taken_msg"),
+                "invalid_format": get_text("username_invalid_format_msg"),
+                "name_filtered": get_text("name_filtered"),
+            }.get(err, get_text("generic_error_msg"))
+
+    set_username_online(username, on_done=_on_done)
+
+
+def draw_username_gate():
+    fill_bg(rings=True)
+    dark = is_dark_mode()
+    pw, ph = 560, 300
+    px = WIDTH // 2 - pw // 2
+    py = HEIGHT // 2 - ph // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=18)
+    pygame.draw.rect(base_surface, (100, 160, 255) if not dark else (80, 120, 200), panel, width=3, border_radius=18)
+
+    title = menu_font.render(get_text("username_gate_title"), True, (80, 140, 255) if not dark else (120, 170, 255))
+    base_surface.blit(title, (px + pw // 2 - title.get_width() // 2, py + 22))
+
+    confirm_rect = None
+    if _username_gate_checking:
+        msg_s = small_font.render(get_text("username_gate_checking_msg"), True, get_text_color())
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, py + 120))
+        pygame.display.flip()
+        return confirm_rect
+
+    desc_bottom = _draw_wrapped_text(get_text("username_gate_desc"), px + 40, py + 70, pw - 80, small_font, get_text_color())
+
+    mp = get_mouse_pos_logical()
+    cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
+    box = pygame.Rect(px + 40, max(desc_bottom + 14, py + 140), pw - 80, 46)
+    pygame.draw.rect(base_surface, get_bg_color(), box, border_radius=10)
+    pygame.draw.rect(base_surface, (120, 180, 255), box, width=2, border_radius=10)
+    inp = menu_font.render(_username_gate_text + cursor, True, get_text_color())
+    base_surface.blit(inp, (box.x + 10, box.centery - inp.get_height() // 2))
+
+    if _username_gate_busy:
+        msg_s = small_font.render(get_text("loading"), True, get_text_color())
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, box.bottom + 12))
+    elif _username_gate_msg:
+        msg_s = small_font.render(_username_gate_msg, True, (220, 60, 60))
+        base_surface.blit(msg_s, (px + pw // 2 - msg_s.get_width() // 2, box.bottom + 12))
+
+    confirm_rect = pygame.Rect(px + pw // 2 - 90, py + ph - 62, 180, 44)
+    hov_c = confirm_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, (60, 180, 100) if not hov_c else (80, 210, 120), confirm_rect, border_radius=12)
+    cl = small_font.render(get_text("confirm"), True, (255, 255, 255))
+    base_surface.blit(cl, (confirm_rect.centerx - cl.get_width() // 2, confirm_rect.centery - cl.get_height() // 2))
+    # Bewusst KEIN Zurück/Abbrechen-Button - dieser Screen ist der einzige im
+    # ganzen Spiel, der sich (solange online) nicht überspringen lässt, siehe
+    # username_gate_loop().
+
+    pygame.display.flip()
+    return confirm_rect
+
+
+def username_gate_loop():
+    global in_username_gate, _username_gate_text, _username_gate_checking, _username_gate_reachable
+    global in_menu, _username_gate_pending_success, current_profile_username
+    clock = pygame.time.Clock()
+    _username_gate_start_check()
+    while in_username_gate:
+        confirm_rect = draw_username_gate()
+        if _username_gate_checking and _username_gate_reachable is not None:
+            _username_gate_checking = False
+            if not _username_gate_reachable:
+                # Offline - Zwang entfällt, einfach normal weiterspielen (siehe
+                # Kommentar bei _route_to_menu_or_gate()).
+                in_username_gate = False
+                in_menu = True
+        if _username_gate_pending_success is not None:
+            current_profile_username = _username_gate_pending_success
+            _username_gate_pending_success = None
+            save_current_profile()
+            in_username_gate = False
+            in_menu = True
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if _username_gate_checking:
+                continue  # noch am prüfen - keine Eingabe verarbeiten
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _confirm_username_gate()
+                elif event.key == pygame.K_BACKSPACE:
+                    _username_gate_text = _username_gate_text[:-1]
+                else:
+                    ch = event.unicode
+                    if ch and 32 <= ord(ch) <= 126 and len(_username_gate_text) < 20:
+                        _username_gate_text += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = get_mouse_pos_logical()
+                if confirm_rect is not None and confirm_rect.collidepoint(pos):
+                    _confirm_username_gate()
+        clock.tick(60)
+
+
+def _route_to_menu_or_gate():
+    """Gemeinsamer Nachfolger von 'in_menu = True' an beiden Stellen, wo bisher
+    unbedingt ins Hauptmenü gesprungen wurde (_enter_profile()s else-Zweig und
+    _finish_tutorial()) - zwingt zum Username-Gate, falls dieses Profil noch
+    keinen Username hat. Entscheidet NICHT selbst über online/offline (beide
+    Aufrufstellen laufen zu früh dafür, ein Blocken auf die Netzwerk-Antwort
+    sähe wie ein Hänger aus) - das übernimmt der Gate-Screen selbst beim
+    Öffnen (siehe _username_gate_start_check())."""
+    global in_menu, in_username_gate
+    if current_profile_username is None:
+        in_username_gate = True
+        _username_gate_reset()
+    else:
+        in_menu = True
+
+
+def _gate_blocks_online_access():
+    """Defense-in-depth für den Fall, dass ein Profil beim Eintritt offline war
+    (Gate wurde da still übersprungen, siehe _route_to_menu_or_gate()) und
+    später im selben Programmlauf doch online geht, dann aber direkt in
+    Freunde/Clan/Rangliste klickt. Nutzt bewusst nur den günstigen, evtl.
+    veralteten _server_reachable-Hintergrund-Status statt eines eigenen
+    frischen Checks - diese Aufrufstellen sind synchrone Klick-Handler, keine
+    eigene Schleife, könnten also nicht auf eine Async-Antwort warten, ohne
+    das Spiel kurz einfrieren zu lassen. Gibt True zurück (und leitet zum
+    Gate um), wenn der Zugriff blockiert werden soll."""
+    global in_username_gate
+    if current_profile_username is None and _server_reachable:
+        in_username_gate = True
+        _username_gate_reset()
+        return True
+    return False
+
+
+def _username_gate_reset():
+    global _username_gate_checking, _username_gate_reachable, _username_gate_text
+    global _username_gate_msg, _username_gate_busy, _username_gate_pending_success
+    _username_gate_checking = True
+    _username_gate_reachable = None
+    _username_gate_text = ""
+    _username_gate_msg = ""
+    _username_gate_busy = False
+    _username_gate_pending_success = None
+
+
+# =============================
 # Freunde-Hub
 # =============================
 
 _friends_hub_tab = "roster"  # "roster" | "requests"
 _friends_hub_requests = []
 _friends_hub_requests_loading = False
-_friends_hub_row_rects = []  # [(rect, name)] - Roster-Tab
-_friends_hub_request_rects = []  # [(accept_rect, decline_rect, from_name)] - Requests-Tab
+_friends_hub_row_rects = []  # [(rect, username)] - Roster-Tab, nur migrierte (username != None) Freunde
+_friends_hub_request_rects = []  # [(accept_rect, decline_rect, from_username)] - Requests-Tab
 
 
 def _friends_hub_refresh_requests():
@@ -6974,7 +7431,7 @@ def _friends_hub_refresh_requests():
     fetch_incoming_friend_requests(on_done=_on_done)
 
 
-def _respond_to_request(from_name, accept):
+def _respond_to_request(from_username, from_name, accept):
     """Anders als beim Senden einer Anfrage (siehe _send_friend_request()) ist
     hier keine Wartephase nötig - eine eingehende Anfrage anzunehmen erzeugt
     server-seitig immer sofort eine Freundschaft, also ist optimistisches
@@ -6982,10 +7439,10 @@ def _respond_to_request(from_name, accept):
     Main-Thread (direkter Event-Handler-Aufruf), keine Race-Condition-Sorge."""
     global _friends_hub_requests
     play_sound(click_sound)
-    _friends_hub_requests = [r for r in _friends_hub_requests if r.get("from_name") != from_name]
+    _friends_hub_requests = [r for r in _friends_hub_requests if r.get("from_username") != from_username]
     if accept:
-        _add_friend_local(from_name)
-    respond_friend_request_online(from_name, accept)
+        _add_friend_local(from_username, from_name)
+    respond_friend_request_online(from_username, accept)
 
 
 def draw_friends_hub():
@@ -7035,16 +7492,30 @@ def draw_friends_hub():
         else:
             y = content_top
             row_h = 44
-            for name in sorted(friends_local, key=str.casefold):
+            for f in sorted(friends_local, key=lambda x: x.get("name", "").casefold()):
                 if y + row_h > fade_bottom:
                     break
+                username = f.get("username")
+                name = f.get("name", "")
                 row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
-                _friends_hub_row_rects.append((pygame.Rect(row_rect), name))
-                hov = row_rect.collidepoint(mouse_pos)
-                pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
-                pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
-                name_s = menu_font.render(name, True, get_text_color())
-                base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+                if username:
+                    _friends_hub_row_rects.append((pygame.Rect(row_rect), username))
+                    hov = row_rect.collidepoint(mouse_pos)
+                    pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+                    pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+                    name_s = menu_font.render(name, True, get_text_color())
+                    base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+                else:
+                    # Noch nicht migrierter Freund (kein Online-Kontakt seit dem
+                    # Username-Feature) - sichtbar, aber bewusst nicht anklickbar
+                    # (kein Ziel für Profil/Anfrage/Chat vorhanden), bis er sich
+                    # das nächste Mal online meldet.
+                    pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
+                    pygame.draw.rect(base_surface, (110, 110, 120), row_rect, width=1, border_radius=8)
+                    name_s = menu_font.render(name, True, (130, 130, 145))
+                    base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+                    hint_s = small_font.render(get_text("not_migrated_hint"), True, (110, 110, 125))
+                    base_surface.blit(hint_s, (row_rect.right - hint_s.get_width() - 14, row_rect.centery - hint_s.get_height() // 2))
                 y += row_h
     else:
         if _friends_hub_requests_loading:
@@ -7060,6 +7531,7 @@ def draw_friends_hub():
                 if y + row_h > fade_bottom:
                     break
                 from_name = req.get("from_name", "")
+                from_username = req.get("from_username")
                 row_rect = pygame.Rect(WIDTH // 2 - 260, y, 520, row_h - 6)
                 pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
                 pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
@@ -7076,7 +7548,7 @@ def draw_friends_hub():
                 d_lbl = small_font.render(get_text("decline_btn"), True, (255, 255, 255))
                 base_surface.blit(a_lbl, (accept_rect.centerx - a_lbl.get_width() // 2, accept_rect.centery - a_lbl.get_height() // 2))
                 base_surface.blit(d_lbl, (decline_rect.centerx - d_lbl.get_width() // 2, decline_rect.centery - d_lbl.get_height() // 2))
-                _friends_hub_request_rects.append((accept_rect, decline_rect, from_name))
+                _friends_hub_request_rects.append((accept_rect, decline_rect, from_username, from_name))
                 y += row_h
 
     pygame.display.flip()
@@ -7108,17 +7580,17 @@ def friends_hub_loop():
                     _friends_hub_tab = "requests"
                     play_sound(click_sound)
                 elif _friends_hub_tab == "roster":
-                    for rect, name in _friends_hub_row_rects:
+                    for rect, username in _friends_hub_row_rects:
                         if rect.collidepoint(pos):
-                            open_public_profile(name, "in_friends_hub")
+                            open_public_profile(username, "in_friends_hub")
                             break
                 else:
-                    for accept_rect, decline_rect, from_name in _friends_hub_request_rects:
+                    for accept_rect, decline_rect, from_username, from_name in _friends_hub_request_rects:
                         if accept_rect.collidepoint(pos):
-                            _respond_to_request(from_name, True)
+                            _respond_to_request(from_username, from_name, True)
                             break
                         elif decline_rect.collidepoint(pos):
-                            _respond_to_request(from_name, False)
+                            _respond_to_request(from_username, from_name, False)
                             break
         clock.tick(60)
 
@@ -7127,6 +7599,8 @@ def open_friends_hub_from_hub():
     play_sound(menu_click_sound)
     global in_profile_hub, in_friends_hub, _friends_hub_tab
     in_profile_hub = False
+    if _gate_blocks_online_access():
+        return
     in_friends_hub = True
     _friends_hub_tab = "roster"
 
@@ -7147,6 +7621,13 @@ _clan_mine_loading = False
 _clan_mine_data = None  # None=lädt, False=Fehler, dict={"in_clan":bool, "tag":..., "name":..., "is_owner":..., "owner_name":..., "members":[...]}
 _clan_hub_row_rects = []  # [(rect, name, kick_rect_or_None)]
 _clan_hub_msg = ""
+_clan_hub_tab = "roster"  # "roster" | "requests" - nur relevant/sichtbar für Owner
+_clan_hub_incoming_requests = []
+_clan_hub_incoming_loading = False
+_clan_hub_incoming_rects = []  # [(accept_rect, decline_rect, from_username, from_name)]
+_clan_hub_my_pending_requests = []  # eigene gesendete Anfragen - nur relevant, wenn NICHT in einem Clan
+_clan_hub_my_pending_rects = []  # [(cancel_rect, tag)]
+_clan_hub_confirm_leave = False  # zeigt die "Willst du das wirklich tun?"-Bestätigung vor dem Verlassen
 
 
 def _clan_hub_refresh():
@@ -7163,8 +7644,53 @@ def _clan_hub_refresh():
     fetch_my_clan(on_done=_on_done)
 
 
+def _clan_hub_refresh_incoming_requests():
+    global _clan_hub_incoming_loading
+    _clan_hub_incoming_loading = True
+
+    def _on_done(result):
+        global _clan_hub_incoming_requests, _clan_hub_incoming_loading
+        _clan_hub_incoming_loading = False
+        _clan_hub_incoming_requests = result.get("requests", []) if (result and result.get("ok")) else []
+
+    fetch_clan_incoming_join_requests(on_done=_on_done)
+
+
+def _clan_hub_refresh_my_pending():
+    def _on_done(result):
+        global _clan_hub_my_pending_requests
+        if result and result.get("ok"):
+            _clan_hub_my_pending_requests = result.get("requests", [])
+
+    fetch_my_clan_join_requests(on_done=_on_done)
+
+
+def _respond_to_join_request(from_username, accept):
+    global _clan_hub_incoming_requests, _clan_hub_msg
+    play_sound(click_sound)
+    _clan_hub_incoming_requests = [r for r in _clan_hub_incoming_requests if r.get("from_username") != from_username]
+
+    def _on_done(result):
+        global _clan_hub_msg
+        if result and result.get("ok"):
+            if accept:
+                _clan_hub_refresh()  # Mitgliederliste/-zahl hat sich geändert
+        else:
+            _clan_hub_msg = get_text("generic_error_msg")
+
+    respond_clan_join_request_online(from_username, accept, on_done=_on_done)
+
+
+def _cancel_my_join_request(tag):
+    global _clan_hub_my_pending_requests
+    play_sound(click_sound)
+    _clan_hub_my_pending_requests = [r for r in _clan_hub_my_pending_requests if r.get("tag") != tag]
+    cancel_join_clan_online(tag)
+
+
 def _leave_current_clan():
-    global _clan_hub_msg
+    global _clan_hub_msg, _clan_hub_confirm_leave
+    _clan_hub_confirm_leave = False
     play_sound(click_sound)
     _clan_hub_msg = ""
 
@@ -7178,7 +7704,7 @@ def _leave_current_clan():
     leave_clan_online(on_done=_on_done)
 
 
-def _kick_clan_member(name):
+def _kick_clan_member(username):
     global _clan_hub_msg
     play_sound(click_sound)
     _clan_hub_msg = ""
@@ -7190,14 +7716,54 @@ def _kick_clan_member(name):
         else:
             _clan_hub_msg = get_text("generic_error_msg")
 
-    kick_clan_member_online(name, on_done=_on_done)
+    kick_clan_member_online(username, on_done=_on_done)
+
+
+def _draw_confirm_modal(message):
+    """Dimmed Overlay + zentriertes Panel mit Ja/Nein - fürs Bestätigen
+    unwiderruflicher Aktionen. Muss von der aufrufenden *_loop()-Funktion VOR
+    den normalen Hit-Tests behandelt werden (gleiches Prinzip wie beim
+    bestehenden Achievement-Detail-Popup), sonst klickt ein Klick auf "Nein"
+    auch durch auf das, was im selben Frame dahinter liegt."""
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    base_surface.blit(overlay, (0, 0))
+
+    pw, ph = 440, 180
+    px, py = WIDTH // 2 - pw // 2, HEIGHT // 2 - ph // 2
+    panel = pygame.Rect(px, py, pw, ph)
+    pygame.draw.rect(base_surface, get_panel_color(), panel, border_radius=16)
+    pygame.draw.rect(base_surface, (200, 100, 100), panel, width=2, border_radius=16)
+
+    msg_s = menu_font.render(message, True, get_text_color())
+    base_surface.blit(msg_s, (panel.centerx - msg_s.get_width() // 2, py + 40))
+
+    mp = get_mouse_pos_logical()
+    yes_rect = pygame.Rect(panel.centerx - 170, py + ph - 62, 160, 44)
+    no_rect = pygame.Rect(panel.centerx + 10, py + ph - 62, 160, 44)
+    hov_yes = yes_rect.collidepoint(mp)
+    hov_no = no_rect.collidepoint(mp)
+    pygame.draw.rect(base_surface, (220, 120, 120) if hov_yes else (200, 100, 100), yes_rect, border_radius=10)
+    pygame.draw.rect(base_surface, (140, 140, 155) if hov_no else (120, 120, 135), no_rect, border_radius=10)
+    yes_lbl = small_font.render(get_text("confirm_yes_btn"), True, (255, 255, 255))
+    no_lbl = small_font.render(get_text("confirm_no_btn"), True, (255, 255, 255))
+    base_surface.blit(yes_lbl, (yes_rect.centerx - yes_lbl.get_width() // 2, yes_rect.centery - yes_lbl.get_height() // 2))
+    base_surface.blit(no_lbl, (no_rect.centerx - no_lbl.get_width() // 2, no_rect.centery - no_lbl.get_height() // 2))
+    return yes_rect, no_rect
+
+
+_clan_hub_confirm_rects = (None, None)  # (yes_rect, no_rect) vom letzten draw_clan_hub()-Aufruf,
+# gleiches Muster wie _clan_hub_row_rects - nicht Teil des Rückgabe-Tupels, um
+# das ohnehin schon grosse Tupel nicht weiter wachsen zu lassen.
 
 
 def draw_clan_hub():
-    global _clan_hub_row_rects
+    global _clan_hub_row_rects, _clan_hub_incoming_rects, _clan_hub_my_pending_rects, _clan_hub_confirm_rects
     mouse_pos = get_mouse_pos_logical()
     fill_bg(rings=True)
     _clan_hub_row_rects = []
+    _clan_hub_incoming_rects = []
+    _clan_hub_my_pending_rects = []
 
     title_txt = get_text("clan_hub_title")
     title_s = font.render(title_txt, True, get_text_color())
@@ -7213,12 +7779,14 @@ def draw_clan_hub():
     join_rect = None
     leave_rect = None
     chat_rect = None
+    roster_tab_rect = None
+    requests_tab_rect = None
 
     if _clan_mine_loading or _clan_mine_data is None:
         loading_s = font.render(get_text("loading"), True, get_text_color())
         base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, HEIGHT // 2 - loading_s.get_height() // 2))
         pygame.display.flip()
-        return back_rect, create_rect, join_rect, leave_rect, chat_rect
+        return back_rect, create_rect, join_rect, leave_rect, chat_rect, roster_tab_rect, requests_tab_rect
 
     in_clan = bool(_clan_mine_data) and _clan_mine_data.get("in_clan")
 
@@ -7234,6 +7802,31 @@ def draw_clan_hub():
         ]:
             draw_ui_button(base_surface, rect, label, font=menu_font, hovered=rect.collidepoint(mouse_pos),
                             border_color=color, hover_border_color=color, hover_border_width=3)
+
+        if _clan_hub_my_pending_requests:
+            label_s = small_font.render(get_text("clan_my_requests_label"), True, (150, 150, 170))
+            base_surface.blit(label_s, (WIDTH // 2 - 180, 318))
+            y = 344
+            row_h = 40
+            fade_bottom = HEIGHT - 20
+            for req in _clan_hub_my_pending_requests:
+                if y + row_h > fade_bottom:
+                    break
+                tag = req.get("tag", "")
+                name = req.get("name", "")
+                row_rect = pygame.Rect(WIDTH // 2 - 180, y, 360, row_h - 6)
+                pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
+                pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+                label_txt = f"[{tag}] {name}"
+                name_s = small_font.render(label_txt, True, get_text_color())
+                base_surface.blit(name_s, (row_rect.x + 10, row_rect.centery - name_s.get_height() // 2))
+                cancel_rect = pygame.Rect(row_rect.right - 76, row_rect.y + 3, 70, row_rect.h - 6)
+                hov_c = cancel_rect.collidepoint(mouse_pos)
+                pygame.draw.rect(base_surface, (220, 120, 120) if hov_c else (200, 100, 100), cancel_rect, border_radius=6)
+                c_lbl = small_font.render(get_text("cancel_btn"), True, (255, 255, 255))
+                base_surface.blit(c_lbl, (cancel_rect.centerx - c_lbl.get_width() // 2, cancel_rect.centery - c_lbl.get_height() // 2))
+                _clan_hub_my_pending_rects.append((cancel_rect, tag))
+                y += row_h
     else:
         clan = _clan_mine_data
         tag_txt = f"[{clan.get('tag', '')}] {clan.get('name', '')}"
@@ -7241,36 +7834,104 @@ def draw_clan_hub():
         base_surface.blit(tag_s, (WIDTH // 2 - tag_s.get_width() // 2, 100))
 
         members = clan.get("members", [])
-        owner_name = clan.get("owner_name")
+        owner_username = clan.get("owner_username")
         count_s = small_font.render(f"{get_text('clan_members_label')}: {len(members)}", True, (150, 150, 170))
         base_surface.blit(count_s, (WIDTH // 2 - count_s.get_width() // 2, 138))
 
         is_owner = clan.get("is_owner", False)
-        content_top = 172
-        fade_bottom = HEIGHT - 120
-        y = content_top
-        row_h = 42
-        for m in members:
-            if y + row_h > fade_bottom:
-                break
-            name = m.get("name", "")
-            row_rect = pygame.Rect(WIDTH // 2 - 240, y, 480, row_h - 6)
-            hov = row_rect.collidepoint(mouse_pos)
-            pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
-            pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
-            label_txt = name + (f"  ({get_text('clan_owner_label')})" if name == owner_name else "")
-            name_s = small_font.render(label_txt, True, get_text_color())
-            base_surface.blit(name_s, (row_rect.x + 12, row_rect.centery - name_s.get_height() // 2))
 
-            kick_rect = None
-            if is_owner and name != current_profile_name:
-                kick_rect = pygame.Rect(row_rect.right - 82, row_rect.y + 3, 74, row_rect.h - 6)
-                hov_k = kick_rect.collidepoint(mouse_pos)
-                pygame.draw.rect(base_surface, (220, 120, 120) if hov_k else (200, 100, 100), kick_rect, border_radius=6)
-                k_lbl = small_font.render(get_text("kick_btn"), True, (255, 255, 255))
-                base_surface.blit(k_lbl, (kick_rect.centerx - k_lbl.get_width() // 2, kick_rect.centery - k_lbl.get_height() // 2))
-            _clan_hub_row_rects.append((pygame.Rect(row_rect), name, kick_rect))
-            y += row_h
+        # Requests-Tab ist owner-only sichtbar - nur der Owner kann Anfragen
+        # annehmen/ablehnen (gleiche Einschränkung wie server/app.py
+        # /api/clans/join_requests_incoming). Nicht-Owner sehen direkt die
+        # Mitgliederliste, kein Tab-Umschalter nötig/sichtbar.
+        if is_owner:
+            roster_tab_rect = pygame.Rect(WIDTH // 2 - 164, 160, 160, 34)
+            requests_label = get_text("friends_tab_requests")
+            if _clan_hub_incoming_requests:
+                requests_label += f" ({len(_clan_hub_incoming_requests)})"
+            requests_tab_rect = pygame.Rect(WIDTH // 2 + 4, 160, 160, 34)
+            for rect, active, label in [
+                (roster_tab_rect, _clan_hub_tab == "roster", get_text("clan_members_label")),
+                (requests_tab_rect, _clan_hub_tab == "requests", requests_label),
+            ]:
+                hov = rect.collidepoint(mouse_pos)
+                if active:
+                    pygame.draw.rect(base_surface, get_button_color(), rect, border_radius=10)
+                    pygame.draw.rect(base_surface, (100, 160, 255), rect, width=2, border_radius=10)
+                else:
+                    pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), rect, border_radius=10)
+                    pygame.draw.rect(base_surface, (180, 180, 180), rect, width=1, border_radius=10)
+                tab_s = small_font.render(label, True, get_text_color())
+                base_surface.blit(tab_s, (rect.centerx - tab_s.get_width() // 2, rect.centery - tab_s.get_height() // 2))
+            content_top = 202
+        else:
+            content_top = 172
+
+        fade_bottom = HEIGHT - 120
+
+        if is_owner and _clan_hub_tab == "requests":
+            if _clan_hub_incoming_loading:
+                loading_s = small_font.render(get_text("loading"), True, get_text_color())
+                base_surface.blit(loading_s, (WIDTH // 2 - loading_s.get_width() // 2, content_top + 20))
+            elif not _clan_hub_incoming_requests:
+                empty_s = small_font.render(get_text("no_requests_yet"), True, get_text_color())
+                base_surface.blit(empty_s, (WIDTH // 2 - empty_s.get_width() // 2, content_top + 20))
+            else:
+                y = content_top
+                row_h = 48
+                for req in _clan_hub_incoming_requests:
+                    if y + row_h > fade_bottom:
+                        break
+                    from_username = req.get("from_username")
+                    from_name = req.get("from_name", "")
+                    row_rect = pygame.Rect(WIDTH // 2 - 260, y, 520, row_h - 6)
+                    pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
+                    pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
+                    name_s = menu_font.render(from_name, True, get_text_color())
+                    base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
+
+                    decline_rect = pygame.Rect(row_rect.right - 96, row_rect.y + 4, 88, row_rect.h - 8)
+                    accept_rect = pygame.Rect(decline_rect.x - 96, row_rect.y + 4, 88, row_rect.h - 8)
+                    hov_a = accept_rect.collidepoint(mouse_pos)
+                    hov_d = decline_rect.collidepoint(mouse_pos)
+                    pygame.draw.rect(base_surface, (120, 200, 140) if hov_a else (100, 180, 120), accept_rect, border_radius=8)
+                    pygame.draw.rect(base_surface, (220, 120, 120) if hov_d else (200, 100, 100), decline_rect, border_radius=8)
+                    a_lbl = small_font.render(get_text("accept_btn"), True, (255, 255, 255))
+                    d_lbl = small_font.render(get_text("decline_btn"), True, (255, 255, 255))
+                    base_surface.blit(a_lbl, (accept_rect.centerx - a_lbl.get_width() // 2, accept_rect.centery - a_lbl.get_height() // 2))
+                    base_surface.blit(d_lbl, (decline_rect.centerx - d_lbl.get_width() // 2, decline_rect.centery - d_lbl.get_height() // 2))
+                    _clan_hub_incoming_rects.append((accept_rect, decline_rect, from_username, from_name))
+                    y += row_h
+        else:
+            y = content_top
+            row_h = 42
+            for m in members:
+                if y + row_h > fade_bottom:
+                    break
+                name = m.get("name", "")
+                username = m.get("username")
+                row_rect = pygame.Rect(WIDTH // 2 - 240, y, 480, row_h - 6)
+                hov = row_rect.collidepoint(mouse_pos) and username is not None
+                text_col = get_text_color() if username else (130, 130, 145)
+                pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
+                pygame.draw.rect(base_surface, (180, 180, 180) if username else (110, 110, 120), row_rect, width=1, border_radius=8)
+                label_txt = name + (f"  ({get_text('clan_owner_label')})" if username and username == owner_username else "")
+                name_s = small_font.render(label_txt, True, text_col)
+                base_surface.blit(name_s, (row_rect.x + 12, row_rect.centery - name_s.get_height() // 2))
+
+                kick_rect = None
+                # Kick nur für migrierte Mitglieder (username gesetzt) - kick_clan_member_online()
+                # braucht einen Username, ein noch nicht migriertes Mitglied kann so
+                # nicht gezielt angesprochen werden (siehe gleiche Einschränkung im
+                # Freunde-Hub-Roster).
+                if is_owner and username and username != current_profile_username:
+                    kick_rect = pygame.Rect(row_rect.right - 82, row_rect.y + 3, 74, row_rect.h - 6)
+                    hov_k = kick_rect.collidepoint(mouse_pos)
+                    pygame.draw.rect(base_surface, (220, 120, 120) if hov_k else (200, 100, 100), kick_rect, border_radius=6)
+                    k_lbl = small_font.render(get_text("kick_btn"), True, (255, 255, 255))
+                    base_surface.blit(k_lbl, (kick_rect.centerx - k_lbl.get_width() // 2, kick_rect.centery - k_lbl.get_height() // 2))
+                _clan_hub_row_rects.append((pygame.Rect(row_rect), username, kick_rect))
+                y += row_h
 
         chat_rect = pygame.Rect(WIDTH // 2 - 240, HEIGHT - 108, 220, 44)
         leave_rect = pygame.Rect(WIDTH // 2 + 20, HEIGHT - 108, 220, 44)
@@ -7285,24 +7946,46 @@ def draw_clan_hub():
         msg_s = small_font.render(_clan_hub_msg, True, (220, 60, 60))
         base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT - 34))
 
+    if _clan_hub_confirm_leave:
+        _clan_hub_confirm_rects = _draw_confirm_modal(get_text("confirm_leave_clan_msg"))
+    else:
+        _clan_hub_confirm_rects = (None, None)
+
     pygame.display.flip()
-    return back_rect, create_rect, join_rect, leave_rect, chat_rect
+    return back_rect, create_rect, join_rect, leave_rect, chat_rect, roster_tab_rect, requests_tab_rect
 
 
 def clan_hub_loop():
-    global in_clan_hub
+    global in_clan_hub, _clan_hub_tab, _clan_hub_confirm_leave
     clock = pygame.time.Clock()
     _clan_hub_refresh()
+    _clan_hub_refresh_my_pending()
     while in_clan_hub:
-        back_rect, create_rect, join_rect, leave_rect, chat_rect = draw_clan_hub()
+        (back_rect, create_rect, join_rect, leave_rect, chat_rect,
+         roster_tab_rect, requests_tab_rect) = draw_clan_hub()
+        confirm_yes_rect, confirm_no_rect = _clan_hub_confirm_rects
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_m or is_back_key(event.key):
+                if _clan_hub_confirm_leave:
+                    if event.key == pygame.K_RETURN:
+                        _leave_current_clan()
+                    elif is_back_key(event.key):
+                        _clan_hub_confirm_leave = False
+                elif event.key == pygame.K_m or is_back_key(event.key):
                     back_to_hub_from_clan_hub()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 pos = get_mouse_pos_logical()
+                if _clan_hub_confirm_leave:
+                    # Bestätigungs-Modal blockiert alle anderen Hit-Tests in
+                    # diesem Frame - sonst würde ein Klick auf "Nein" auch
+                    # gleichzeitig eine dahinterliegende Mitglieder-Zeile treffen.
+                    if confirm_yes_rect is not None and confirm_yes_rect.collidepoint(pos):
+                        _leave_current_clan()
+                    elif confirm_no_rect is not None and confirm_no_rect.collidepoint(pos):
+                        _clan_hub_confirm_leave = False
+                    continue
                 if back_rect.collidepoint(pos):
                     back_to_hub_from_clan_hub()
                 elif create_rect is not None and create_rect.collidepoint(pos):
@@ -7314,24 +7997,49 @@ def clan_hub_loop():
                     if clan.get("tag"):
                         open_chat("clan", clan["tag"], "in_clan_hub")
                 elif leave_rect is not None and leave_rect.collidepoint(pos):
-                    _leave_current_clan()
-                else:
-                    for rect, name, kick_rect in _clan_hub_row_rects:
-                        if kick_rect is not None and kick_rect.collidepoint(pos):
-                            _kick_clan_member(name)
+                    play_sound(click_sound)
+                    _clan_hub_confirm_leave = True
+                elif roster_tab_rect is not None and roster_tab_rect.collidepoint(pos):
+                    _clan_hub_tab = "roster"
+                    play_sound(click_sound)
+                elif requests_tab_rect is not None and requests_tab_rect.collidepoint(pos):
+                    _clan_hub_tab = "requests"
+                    play_sound(click_sound)
+                    _clan_hub_refresh_incoming_requests()
+                elif _clan_hub_my_pending_rects and any(r.collidepoint(pos) for r, _ in _clan_hub_my_pending_rects):
+                    for cancel_rect, tag in _clan_hub_my_pending_rects:
+                        if cancel_rect.collidepoint(pos):
+                            _cancel_my_join_request(tag)
                             break
-                        elif rect.collidepoint(pos):
-                            open_public_profile(name, "in_clan_hub")
+                elif _clan_hub_tab == "requests" and _clan_hub_incoming_rects:
+                    for accept_rect, decline_rect, from_username, from_name in _clan_hub_incoming_rects:
+                        if accept_rect.collidepoint(pos):
+                            _respond_to_join_request(from_username, True)
+                            break
+                        elif decline_rect.collidepoint(pos):
+                            _respond_to_join_request(from_username, False)
+                            break
+                else:
+                    for rect, username, kick_rect in _clan_hub_row_rects:
+                        if kick_rect is not None and kick_rect.collidepoint(pos):
+                            _kick_clan_member(username)
+                            break
+                        elif rect.collidepoint(pos) and username:
+                            open_public_profile(username, "in_clan_hub")
                             break
         clock.tick(60)
 
 
 def open_clan_hub_from_hub():
     play_sound(menu_click_sound)
-    global in_profile_hub, in_clan_hub, _clan_hub_msg
+    global in_profile_hub, in_clan_hub, _clan_hub_msg, _clan_hub_tab, _clan_hub_confirm_leave
     in_profile_hub = False
+    if _gate_blocks_online_access():
+        return
     in_clan_hub = True
     _clan_hub_msg = ""
+    _clan_hub_tab = "roster"
+    _clan_hub_confirm_leave = False
 
 
 def back_to_hub_from_clan_hub():
@@ -7503,9 +8211,18 @@ _clan_search_loading = False
 _clan_search_row_rects = []  # [(rect, tag)]
 _clan_search_request_id = 0
 _clan_search_msg = ""
-_clan_join_pending = False  # von _join_clan()s on_done (Hintergrund-Thread)
-# gesetzt, im Main-Thread (clan_search_loop()) angewendet - siehe Kommentar
-# bei _clan_create_pending.
+_clan_search_my_pending_tags = set()  # Tags, die schon per join_request angefragt
+# wurden - rein für die "Angefragt"-Anzeige in draw_clan_search(), erneutes
+# Klicken bleibt harmlos (Server-seitiges Upsert, kein Duplikat-Fehler).
+
+
+def _clan_search_refresh_pending():
+    def _on_done(result):
+        global _clan_search_my_pending_tags
+        if result and result.get("ok"):
+            _clan_search_my_pending_tags = {r.get("tag") for r in result.get("requests", [])}
+
+    fetch_my_clan_join_requests(on_done=_on_done)
 
 
 def _clan_search_trigger(query):
@@ -7530,14 +8247,17 @@ def _clan_search_trigger(query):
 
 
 def _join_clan(tag):
-    global _clan_search_msg
+    """Schickt jetzt eine Beitrittsanfrage statt sofort beizutreten - der Owner
+    muss zustimmen (siehe draw_clan_hub()s Requests-Tab)."""
+    global _clan_search_msg, _clan_search_my_pending_tags
     play_sound(click_sound)
     _clan_search_msg = ""
 
     def _on_done(result):
-        global _clan_search_msg, _clan_join_pending
+        global _clan_search_msg, _clan_search_my_pending_tags
         if result and result.get("ok"):
-            _clan_join_pending = True
+            _clan_search_my_pending_tags = _clan_search_my_pending_tags | {tag}
+            _clan_search_msg = get_text("clan_request_sent_msg")
         else:
             err = (result or {}).get("error")
             _clan_search_msg = {
@@ -7546,7 +8266,7 @@ def _join_clan(tag):
                 "clan_not_found": get_text("clan_not_found"),
             }.get(err, get_text("generic_error_msg"))
 
-    join_clan_online(tag, on_done=_on_done)
+    request_join_clan_online(tag, on_done=_on_done)
 
 
 def draw_clan_search():
@@ -7598,7 +8318,8 @@ def draw_clan_search():
             hov = row_rect.collidepoint(mouse_pos)
             pygame.draw.rect(base_surface, get_button_hover_color() if hov else get_panel_color(), row_rect, border_radius=8)
             pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
-            label_txt = f"[{tag}] {name}  ({entry.get('member_count', 0)})"
+            requested_suffix = f"  ({get_text('clan_requested_label')})" if tag in _clan_search_my_pending_tags else ""
+            label_txt = f"[{tag}] {name}  ({entry.get('member_count', 0)}){requested_suffix}"
             name_s = menu_font.render(label_txt, True, get_text_color())
             base_surface.blit(name_s, (row_rect.x + 14, row_rect.centery - name_s.get_height() // 2))
             y += row_h
@@ -7608,13 +8329,11 @@ def draw_clan_search():
 
 
 def clan_search_loop():
-    global in_clan_search, _clan_search_query, _clan_search_msg, _clan_join_pending
+    global in_clan_search, _clan_search_query, _clan_search_msg
     clock = pygame.time.Clock()
+    _clan_search_refresh_pending()
     while in_clan_search:
         back_rect, box = draw_clan_search()
-        if _clan_join_pending:
-            _clan_join_pending = False
-            back_to_hub_from_clan_search(entered_clan=True)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -7665,7 +8384,6 @@ _clan_view_tag = None
 _clan_view_data = None  # None=lädt, False=nicht gefunden, dict=geladen
 _clan_view_return_screen = "in_public_profile"
 _clan_view_msg = ""
-_clan_view_join_pending = False
 
 
 def _clan_view_start_fetch():
@@ -7683,14 +8401,16 @@ def _clan_view_start_fetch():
 
 
 def _join_clan_from_view():
+    """Schickt jetzt eine Beitrittsanfrage statt sofort beizutreten, gleiches
+    Prinzip wie _join_clan() in der Clan-Suche."""
     global _clan_view_msg
     play_sound(click_sound)
     _clan_view_msg = ""
 
     def _on_done(result):
-        global _clan_view_msg, _clan_view_join_pending
+        global _clan_view_msg
         if result and result.get("ok"):
-            _clan_view_join_pending = True
+            _clan_view_msg = get_text("clan_request_sent_msg")
         else:
             err = (result or {}).get("error")
             _clan_view_msg = {
@@ -7698,7 +8418,7 @@ def _join_clan_from_view():
                 "clan_full": get_text("clan_full_msg"),
             }.get(err, get_text("generic_error_msg"))
 
-    join_clan_online(_clan_view_tag, on_done=_on_done)
+    request_join_clan_online(_clan_view_tag, on_done=_on_done)
 
 
 def draw_clan_view():
@@ -7730,7 +8450,7 @@ def draw_clan_view():
     base_surface.blit(shadow_s, (WIDTH // 2 - title_s.get_width() // 2 + 2, 22))
     base_surface.blit(title_s, (WIDTH // 2 - title_s.get_width() // 2, 20))
 
-    owner_name = clan.get("owner_name")
+    owner_username = clan.get("owner_username")
     members = clan.get("members", [])
     count_s = small_font.render(f"{get_text('clan_members_label')}: {len(members)}", True, (150, 150, 170))
     base_surface.blit(count_s, (WIDTH // 2 - count_s.get_width() // 2, 66))
@@ -7746,7 +8466,7 @@ def draw_clan_view():
         row_rect = pygame.Rect(WIDTH // 2 - 220, y, 440, row_h - 6)
         pygame.draw.rect(base_surface, get_panel_color(), row_rect, border_radius=8)
         pygame.draw.rect(base_surface, (180, 180, 180), row_rect, width=1, border_radius=8)
-        label_txt = name + (f"  ({get_text('clan_owner_label')})" if name == owner_name else "")
+        label_txt = name + (f"  ({get_text('clan_owner_label')})" if m.get("username") and m.get("username") == owner_username else "")
         name_s = small_font.render(label_txt, True, get_text_color())
         base_surface.blit(name_s, (row_rect.x + 12, row_rect.centery - name_s.get_height() // 2))
         y += row_h
@@ -7758,7 +8478,8 @@ def draw_clan_view():
                         hovered=join_rect.collidepoint(mouse_pos), radius=10,
                         border_color=(100, 150, 220), hover_border_color=(100, 150, 220), hover_border_width=2)
     if _clan_view_msg:
-        msg_s = small_font.render(_clan_view_msg, True, (220, 60, 60))
+        col = (60, 190, 100) if _clan_view_msg == get_text("clan_request_sent_msg") else (220, 60, 60)
+        msg_s = small_font.render(_clan_view_msg, True, col)
         base_surface.blit(msg_s, (WIDTH // 2 - msg_s.get_width() // 2, HEIGHT - 34))
 
     pygame.display.flip()
@@ -7766,14 +8487,11 @@ def draw_clan_view():
 
 
 def clan_view_loop():
-    global in_clan_view, _clan_view_join_pending
+    global in_clan_view
     clock = pygame.time.Clock()
     _clan_view_start_fetch()
     while in_clan_view:
         back_rect, join_rect = draw_clan_view()
-        if _clan_view_join_pending:
-            _clan_view_join_pending = False
-            _clan_hub_refresh()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -7818,7 +8536,9 @@ def back_from_clan_view():
 # =============================
 
 _chat_conversation_type = None  # "dm" | "clan"
-_chat_target = None  # Freundesname oder Clan-Tag
+_chat_target = None  # stabiler Identifier: Username bei "dm", Clan-Tag bei "clan"
+_chat_target_label = None  # Anzeige-Name fürs Fenster-Titel - bei "dm" der (u.U. hübschere)
+# Anzeigename des Freundes statt seines rohen Usernames, bei "clan" gleich dem Tag.
 _chat_return_screen = "in_public_profile"
 _chat_messages = []
 _chat_last_id = 0
@@ -7861,6 +8581,10 @@ def _chat_poll(force=False):
             if new_msgs:
                 _chat_messages = (_chat_messages + new_msgs)[-50:]
                 _chat_last_id = max([_chat_last_id] + [m.get("id", 0) for m in new_msgs])
+                # Neue Nachrichten kamen rein, während das Fenster schon offen
+                # war - ohne das hier bliebe die Unterhaltung fürs Badge auf
+                # dem Hauptmenü-Button "ungelesen", obwohl man live mitliest.
+                mark_chat_read_online(conversation_type, target)
         elif result:
             err = result.get("error")
             _chat_msg = {
@@ -7907,7 +8631,7 @@ def draw_chat():
     mouse_pos = get_mouse_pos_logical()
     fill_bg(rings=True)
 
-    target_label = f"[{_chat_target}]" if _chat_conversation_type == "clan" else (_chat_target or "")
+    target_label = f"[{_chat_target}]" if _chat_conversation_type == "clan" else (_chat_target_label or _chat_target or "")
     title_txt = f"{get_text('chat_title')} - {target_label}"
     title_s = font.render(title_txt, True, get_text_color())
     shadow_s = font.render(title_txt, True, (100, 100, 120))
@@ -7968,6 +8692,12 @@ def draw_chat():
 def chat_loop():
     global in_chat, _chat_input_text, _chat_send_pending_poll
     clock = pygame.time.Clock()
+    # Sofort als gelesen markieren, sobald der Chat geöffnet wird - deckt den
+    # Fall ab, dass die ungelesenen Nachrichten schon beim ersten Laden der
+    # Historie mitkommen, nicht erst durch einen späteren Poll (siehe
+    # zusätzlicher mark_chat_read_online()-Aufruf in _chat_poll()s _on_done
+    # für Nachrichten, die WÄHREND das Fenster schon offen ist reinkommen).
+    mark_chat_read_online(_chat_conversation_type, _chat_target)
     while in_chat:
         back_rect, input_box, send_rect = draw_chat()
         if _chat_send_pending_poll:
@@ -8003,9 +8733,9 @@ def chat_loop():
         clock.tick(60)
 
 
-def open_chat(conversation_type, target, return_screen):
+def open_chat(conversation_type, target, return_screen, display_label=None):
     play_sound(menu_click_sound)
-    global in_chat, _chat_conversation_type, _chat_target, _chat_return_screen
+    global in_chat, _chat_conversation_type, _chat_target, _chat_target_label, _chat_return_screen
     global _chat_messages, _chat_last_id, _chat_last_poll, _chat_input_text, _chat_msg, _chat_loading
     global in_public_profile, in_clan_hub
     in_public_profile = False
@@ -8013,6 +8743,7 @@ def open_chat(conversation_type, target, return_screen):
     in_chat = True
     _chat_conversation_type = conversation_type
     _chat_target = target
+    _chat_target_label = display_label
     _chat_return_screen = return_screen
     _chat_messages = []
     _chat_last_id = 0
@@ -12534,6 +13265,7 @@ in_clan_create = False
 in_clan_search = False
 in_clan_view = False
 in_chat = False
+in_username_gate = False
 in_rename_profile = False
 in_redeem_code = False
 
@@ -12564,7 +13296,7 @@ _search_loading = False
 _search_request_id = 0
 _search_row_rects = []
 
-_public_profile_name = None
+_public_profile_username = None
 _public_profile_data = None
 _public_profile_loading = False
 _public_profile_return_screen = "in_online_leaderboard"
@@ -14878,6 +15610,11 @@ def show_game_over_2p(score, winner, survived_seconds):
     """2-Player Game-Over-Screen mit Sieger-Anzeige und Rematch-Option."""
     global game_running, in_menu
     play_sound(gameover_sound, "gameover_volume")
+    # 2-Player-Läufe rufen (anders als Standard) nie submit_score_online() auf
+    # (siehe Kommentar dort - lokal keine Highscore-Speicherung für 2P), der
+    # Offline-Hinweis unten hätte also ohne diesen eigenen Kick nie eine
+    # frische Grundlage.
+    ping_server_online()
 
     while True:
         fill_bg(rings=True)
@@ -14933,6 +15670,10 @@ def show_game_over_2p(score, winner, survived_seconds):
                         base_color=(0, 130, 60), hover_color=(30, 175, 90), text_color=(255, 255, 255),
                         border_color=(60, 90, 70), hover_border_color=(190, 255, 210), hover_border_width=3)
 
+        if _server_reachable is False:
+            off_s = small_font.render(get_text("offline_hint"), True, (210, 150, 70))
+            base_surface.blit(off_s, (cx - off_s.get_width() // 2, btn_y + 58))
+
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -14981,14 +15722,21 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
     global in_menu, game_running
     play_sound(gameover_sound, "gameover_volume")
     new_hs = max(old_highscore, score_display)
+    # Standard-Läufe lösen submit_score_online() an anderer Stelle schon aus,
+    # aber Klassik zeigt denselben Screen OHNE das (siehe Kommentar dort) -
+    # ein eigener, expliziter Kick hier ist einfacher als sich auf einen
+    # indirekten Seiteneffekt aus einem anderen Aufrufpfad zu verlassen.
+    ping_server_online()
     while True:
         fill_bg(rings=True)
         cx = WIDTH // 2
 
         # Card-Panel hinter dem gesamten Inhalt (vorher: nackter Text direkt auf dem
         # animierten Hintergrund, im Gegensatz zu z.B. draw_results_overlay). Bei neuem
-        # Highscore pulsierender Gold-Rahmen statt festem Rahmen.
-        panel = pygame.Rect(cx - 240, HEIGHT // 2 - 300, 480, 460)
+        # Highscore pulsierender Gold-Rahmen statt festem Rahmen. Höhe 480 statt
+        # ursprünglich 460 - die zusätzlichen 20px unten sind für den neuen
+        # Offline-Hinweis unter dem Retry/Menü-Tastenkürzel reserviert.
+        panel = pygame.Rect(cx - 240, HEIGHT // 2 - 300, 480, 480)
         draw_card(base_surface, panel, radius=20, glow=new_record,
                   glow_color=(255, 215, 0) if new_record else None)
 
@@ -15043,6 +15791,10 @@ def show_game_over(score_display, coins_gained, old_highscore=0, new_record=Fals
         # Controls hint
         retry_s = small_font.render(f"R: {get_text('retry')}   ·   M: {get_text('back')}", True, (130, 130, 150))
         base_surface.blit(retry_s, (cx - retry_s.get_width() // 2, btn_y + 58))
+
+        if _server_reachable is False:
+            off_s = small_font.render(get_text("offline_hint"), True, (210, 150, 70))
+            base_surface.blit(off_s, (cx - off_s.get_width() // 2, btn_y + 58 + retry_s.get_height() + 6))
 
         pygame.display.flip()
 
@@ -15136,6 +15888,7 @@ _ALL_SCREEN_FLAGS = [
     "in_online_leaderboard", "in_player_search", "in_public_profile",
     "in_rename_profile", "in_redeem_code",
     "in_friends_hub", "in_clan_hub", "in_clan_create", "in_clan_search", "in_clan_view", "in_chat",
+    "in_username_gate",
 ]
 
 
@@ -15260,11 +16013,12 @@ def _dev_cmd_chat(args):
     _dev_cmd_nav()-Wrapper nutzen - setzt den Chat-State direkt über
     _dev_goto()s extra-Parameter, gleiches Prinzip wie _dev_cmd_game()."""
     if len(args) < 2 or args[0] not in ("dm", "clan"):
-        print("[DEV] chat braucht: run chat <dm|clan> <Name-oder-Tag>")
+        print("[DEV] chat braucht: run chat <dm|clan> <Username-oder-Tag>")
         return
     _dev_goto("in_chat", {
         "_chat_conversation_type": args[0],
         "_chat_target": args[1],
+        "_chat_target_label": args[1],
         "_chat_return_screen": "in_profile_hub",
         "_chat_messages": [],
         "_chat_last_id": 0,
@@ -15308,6 +16062,7 @@ DEV_COMMANDS = {
     "online_leaderboard": (_dev_cmd_nav("in_online_leaderboard"), "Online-Rangliste öffnen"),
     "player_search":      (_dev_cmd_nav("in_player_search"), "Spielersuche öffnen"),
     "friends_hub":        (_dev_cmd_nav("in_friends_hub"), "Freunde-Hub öffnen (Freunde/Anfragen)"),
+    "username_gate":      (_dev_cmd_nav("in_username_gate"), "Zwangs-Onboarding-Gate öffnen (prüft live ob online)"),
     "clan_hub":           (_dev_cmd_nav("in_clan_hub"), "Clan-Hub öffnen"),
     "chat":               (_dev_cmd_chat, "Chat öffnen, z.B.: run chat dm SomeFriend / run chat clan TAG"),
     "rename_profile":     (_dev_cmd_nav("in_rename_profile"), "Namen-ändern-Screen öffnen"),
@@ -16599,6 +17354,8 @@ while True:
         clan_view_loop()
     elif in_chat:
         chat_loop()
+    elif in_username_gate:
+        username_gate_loop()
     elif in_rename_profile:
         rename_profile_loop()
     elif in_redeem_code:

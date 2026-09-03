@@ -143,6 +143,45 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_conv
             ON messages(conversation_type, conversation_id, id)
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS clan_join_requests (
+                clan_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT,
+                PRIMARY KEY (clan_id, token_hash),
+                FOREIGN KEY (clan_id) REFERENCES clans(clan_id) ON DELETE CASCADE,
+                FOREIGN KEY (token_hash) REFERENCES players(token_hash) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS read_markers (
+                token_hash TEXT NOT NULL,
+                conversation_type TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                last_read_id INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (token_hash, conversation_type, conversation_id),
+                FOREIGN KEY (token_hash) REFERENCES players(token_hash) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_friend_requests_to_status
+            ON friend_requests(to_token_hash, status)
+        """)
+        # Erster ALTER TABLE in dieser Datei (bisher nur additive CREATE TABLE
+        # IF NOT EXISTS) - players ist schon produktiv befüllt, deshalb erst
+        # prüfen ob die Spalte schon existiert, bevor sie hinzugefügt wird
+        # (sicher bei jedem Neustart/Redeploy). SQLite-UNIQUE-Indizes behandeln
+        # jedes NULL als eigenständig verschieden, erlauben also beliebig viele
+        # Spieler ohne Username (der Normalfall für alle bisherigen Accounts),
+        # erzwingen aber Eindeutigkeit sobald einer gesetzt ist.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(players)").fetchall()}
+        if "username" not in cols:
+            conn.execute("ALTER TABLE players ADD COLUMN username TEXT")
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_players_username
+            ON players(username COLLATE NOCASE)
+        """)
         conn.commit()
         _seed_verified_keys_if_empty(conn)
     finally:

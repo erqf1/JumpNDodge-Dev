@@ -13,6 +13,7 @@ aber keinen Angreifer, der gezielt eigene Requests baut.
 
 import hashlib
 import json
+import re
 import time
 
 from flask import Flask, jsonify, request
@@ -23,6 +24,12 @@ from filter import is_name_allowed, is_text_allowed, load_banned_words
 
 app = Flask(__name__)
 db.init_db()
+
+# Muss mit einem Buchstaben anfangen (vermeidet Verwechslung mit rein
+# numerischen IDs/Zahlen-Spam), 3-20 Zeichen, nur ASCII-Alnum + Unterstrich -
+# Eindeutigkeit wird case-insensitiv geprüft (siehe idx_players_username in
+# db.py), Gross-/Kleinschreibung bleibt aber wie eingegeben gespeichert.
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,19}$")
 
 HARD_SCORE_CEILING = 1_000_000
 RATE_LIMIT_SECONDS = 2
@@ -72,8 +79,16 @@ def _get_player_by_name(conn, name):
     return conn.execute("SELECT token_hash, name FROM players WHERE name = ?", (name,)).fetchone()
 
 
+def _get_player_by_username(conn, username):
+    return conn.execute(
+        "SELECT token_hash, name, username FROM players WHERE username = ? COLLATE NOCASE", (username,)
+    ).fetchone()
+
+
 def _get_player_by_token(conn, token_hash):
-    return conn.execute("SELECT token_hash, name FROM players WHERE token_hash = ?", (token_hash,)).fetchone()
+    return conn.execute(
+        "SELECT token_hash, name, username FROM players WHERE token_hash = ?", (token_hash,)
+    ).fetchone()
 
 
 def _get_clan_tag_for(conn, token_hash):
@@ -359,6 +374,75 @@ def rename_player():
         conn.close()
 
 
+@app.post("/api/set_username")
+def set_username():
+    """Setzt den stabilen, EINMALIGEN Username eines Spielers - anders als der
+    Anzeigename (siehe /api/rename) niemals änderbar, damit Freundschafts-
+    anfragen/Chat-Ziele/Kick-Ziele nie ins Leere laufen, wenn sich jemand
+    umbenennt (der Anzeigename bleibt dafür komplett unberührt, weiterhin frei
+    änderbar). Kann - anders als jeder andere Endpunkt hier ausser /api/submit
+    - auf einen Token treffen, der noch gar keine players-Zeile hat: ein
+    brandneues Profil hat unter Umständen noch nie einen Score eingereicht,
+    bevor es hier zum ersten Mal online Kontakt aufnimmt (siehe Zwangs-
+    Onboarding-Gate im Client) - deshalb wird in diesem Fall die Zeile hier
+    gleich mit angelegt, analog zu submit_score()s Upsert."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    name = (body.get("name") or "").strip()
+    username = (body.get("username") or "").strip()
+
+    if not token or not username:
+        return jsonify(ok=False, error="bad_request"), 400
+    if not _USERNAME_RE.match(username):
+        return jsonify(ok=False, error="invalid_format"), 400
+    if not is_name_allowed(username):
+        return jsonify(ok=False, error="name_filtered"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT username FROM players WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if existing is not None and existing["username"] is not None:
+            return jsonify(ok=False, error="username_already_set"), 403
+
+        taken = conn.execute(
+            "SELECT 1 FROM players WHERE username = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+        if taken is not None:
+            return jsonify(ok=False, error="username_taken"), 403
+
+        if existing is None:
+            if not name or not is_name_allowed(name):
+                return jsonify(ok=False, error="bad_request"), 400
+            resolved_name = _resolve_unique_name(conn, name)
+            conn.execute(
+                "INSERT INTO players (token_hash, name, username, updated_at) VALUES (?, ?, ?, datetime('now'))",
+                (token_hash, resolved_name, username),
+            )
+        else:
+            resolved_name = None
+            conn.execute(
+                "UPDATE players SET username = ?, updated_at = datetime('now') WHERE token_hash = ?",
+                (username, token_hash),
+            )
+        conn.commit()
+        return jsonify(ok=True, username=username, name=resolved_name)
+    finally:
+        conn.close()
+
+
+@app.get("/api/ping")
+def ping():
+    """Reiner Erreichbarkeits-Check, keine DB-Anfrage - der Client nutzt das
+    fürs Zwangs-Onboarding-Gate (siehe JumpNDodge.py), um vor dem Anzeigen
+    des Username-Formulars einmal frisch zu prüfen, ob der Server gerade
+    überhaupt erreichbar ist, statt sich auf einen ggf. veralteten
+    Hintergrund-Status zu verlassen."""
+    return jsonify(ok=True)
+
+
 @app.post("/api/my_rank")
 def my_rank():
     """Eigener Rang in einem (Modus, Schwierigkeit)-Bucket, auch ausserhalb der
@@ -395,12 +479,15 @@ def my_rank():
 
 @app.get("/api/leaderboard")
 def leaderboard():
-    """?names=Name1,Name2,... schränkt optional auf eine bestimmte Spielerliste
-    ein (z.B. fürs Freunde-Filter) - Reihenfolge/Response-Form bleibt gleich,
-    nur eben nicht die globale Top-Liste sondern nur diese Namen."""
+    """?usernames=user1,user2,... schränkt optional auf eine bestimmte
+    Spielerliste ein (z.B. fürs Freunde-Filter) - Reihenfolge/Response-Form
+    bleibt gleich, nur eben nicht die globale Top-Liste sondern nur diese
+    Spieler. Filtert über username (stabil), nicht name (änderbar) - sonst
+    verschwindet ein umbenannter Freund stillschweigend aus der gefilterten
+    Liste, siehe Kommentar bei _resolve_conversation()/set_username()."""
     mode = request.args.get("mode", "")
     difficulty = request.args.get("difficulty", "")
-    names_param = request.args.get("names", "").strip()
+    usernames_param = request.args.get("usernames", "").strip()
     try:
         limit = min(max(int(request.args.get("limit", 50)), 1), 200)
     except ValueError:
@@ -409,8 +496,8 @@ def leaderboard():
     conn = db.get_connection()
     try:
         base_query = """
-            SELECT p.name AS name, s.score AS score, s.powers_used_json AS powers_used_json,
-                   s.submitted_at AS submitted_at,
+            SELECT p.name AS name, p.username AS username, s.score AS score,
+                   s.powers_used_json AS powers_used_json, s.submitted_at AS submitted_at,
                    EXISTS(
                        SELECT 1 FROM verified_keys vk
                        WHERE vk.claimed_by_token_hash = s.token_hash AND vk.status = 'claimed'
@@ -423,12 +510,12 @@ def leaderboard():
             WHERE s.mode = ? AND s.difficulty = ?
         """
         params = [mode, difficulty]
-        if names_param:
-            names = [n.strip() for n in names_param.split(",") if n.strip()][:100]
-            if not names:
+        if usernames_param:
+            usernames = [n.strip() for n in usernames_param.split(",") if n.strip()][:100]
+            if not usernames:
                 return jsonify(ok=True, entries=[])
-            base_query += f" AND p.name IN ({','.join('?' for _ in names)})"
-            params.extend(names)
+            base_query += f" AND p.username COLLATE NOCASE IN ({','.join('?' for _ in usernames)})"
+            params.extend(usernames)
         base_query += " ORDER BY s.score DESC, s.submitted_at ASC LIMIT ?"
         params.append(limit)
         rows = conn.execute(base_query, params).fetchall()
@@ -439,6 +526,7 @@ def leaderboard():
         {
             "rank": i + 1,
             "name": r["name"],
+            "username": r["username"],
             "score": r["score"],
             "powers_used": json.loads(r["powers_used_json"] or "[]"),
             "submitted_at": r["submitted_at"],
@@ -451,13 +539,18 @@ def leaderboard():
 
 @app.get("/api/players/search")
 def search_players():
+    """Nur Spieler mit gesetztem Username werden gefunden - wer noch keinen
+    hat (alle Alt-Accounts vor diesem Feature, bis zu ihrem nächsten Online-
+    Start, siehe Zwangs-Onboarding-Gate im Client), taucht bewusst nicht auf,
+    statt als unanfreundbare/unanschreibbare Karteileiche in den Ergebnissen
+    zu erscheinen."""
     q = request.args.get("q", "").strip()
     if not q:
         return jsonify(ok=True, results=[])
     conn = db.get_connection()
     try:
         rows = conn.execute("""
-            SELECT name,
+            SELECT name, username,
                    EXISTS(
                        SELECT 1 FROM verified_keys vk
                        WHERE vk.claimed_by_token_hash = players.token_hash AND vk.status = 'claimed'
@@ -466,21 +559,22 @@ def search_players():
                        SELECT c.tag FROM clan_members cm JOIN clans c ON c.clan_id = cm.clan_id
                        WHERE cm.token_hash = players.token_hash
                    ) AS clan_tag
-            FROM players WHERE name LIKE ? ORDER BY name LIMIT 25
+            FROM players WHERE username IS NOT NULL AND name LIKE ? ORDER BY name LIMIT 25
         """, (f"%{q}%",)).fetchall()
     finally:
         conn.close()
     return jsonify(ok=True, results=[
-        {"name": r["name"], "verified": bool(r["verified"]), "clan_tag": r["clan_tag"]} for r in rows
+        {"name": r["name"], "username": r["username"], "verified": bool(r["verified"]), "clan_tag": r["clan_tag"]}
+        for r in rows
     ])
 
 
-@app.get("/api/players/<name>")
-def get_player(name):
+@app.get("/api/players/<username>")
+def get_player(username):
     conn = db.get_connection()
     try:
         player = conn.execute(
-            "SELECT * FROM players WHERE name = ?", (name,)
+            "SELECT * FROM players WHERE username = ? COLLATE NOCASE", (username,)
         ).fetchone()
         if player is None:
             return jsonify(ok=False, error="not_found"), 404
@@ -495,6 +589,7 @@ def get_player(name):
 
     return jsonify(ok=True, player={
         "name": player["name"],
+        "username": player["username"],
         "player_color": player["player_color"],
         "stats": json.loads(player["stats_json"] or "{}"),
         "owned_powers": json.loads(player["owned_powers_json"] or "[]"),
@@ -528,8 +623,8 @@ def banned_words():
 def friend_request():
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
-    to_name = (body.get("to_name") or "").strip()
-    if not token or not to_name:
+    to_username = (body.get("to_username") or "").strip()
+    if not token or not to_username:
         return jsonify(ok=False, error="bad_request"), 400
 
     token_hash = _hash_secret(token)
@@ -538,12 +633,12 @@ def friend_request():
         me = _get_player_by_token(conn, token_hash)
         if me is None:
             return jsonify(ok=False, error="unknown_player"), 404
-        if to_name == me["name"]:
-            return jsonify(ok=False, error="bad_request"), 400
-        target = _get_player_by_name(conn, to_name)
+        target = _get_player_by_username(conn, to_username)
         if target is None:
             return jsonify(ok=False, error="target_not_found"), 404
         target_hash = target["token_hash"]
+        if target_hash == token_hash:
+            return jsonify(ok=False, error="bad_request"), 400
 
         existing_mine = conn.execute(
             "SELECT status FROM friend_requests WHERE from_token_hash = ? AND to_token_hash = ?",
@@ -587,8 +682,8 @@ def friend_request():
 def friend_accept():
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
-    from_name = (body.get("from_name") or "").strip()
-    if not token or not from_name:
+    from_username = (body.get("from_username") or "").strip()
+    if not token or not from_username:
         return jsonify(ok=False, error="bad_request"), 400
 
     token_hash = _hash_secret(token)
@@ -597,7 +692,7 @@ def friend_accept():
         me = _get_player_by_token(conn, token_hash)
         if me is None:
             return jsonify(ok=False, error="unknown_player"), 404
-        other = _get_player_by_name(conn, from_name)
+        other = _get_player_by_username(conn, from_username)
         if other is None:
             return jsonify(ok=False, error="target_not_found"), 404
 
@@ -626,8 +721,8 @@ def friend_decline():
     wissen muss, wer ursprünglich angefragt hat."""
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
-    other_name = (body.get("other_name") or "").strip()
-    if not token or not other_name:
+    other_username = (body.get("other_username") or "").strip()
+    if not token or not other_username:
         return jsonify(ok=False, error="bad_request"), 400
 
     token_hash = _hash_secret(token)
@@ -636,7 +731,7 @@ def friend_decline():
         me = _get_player_by_token(conn, token_hash)
         if me is None:
             return jsonify(ok=False, error="unknown_player"), 404
-        other = _get_player_by_name(conn, other_name)
+        other = _get_player_by_username(conn, other_username)
         if other is None:
             return jsonify(ok=True)
 
@@ -655,8 +750,8 @@ def friend_decline():
 def friend_remove():
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
-    other_name = (body.get("other_name") or "").strip()
-    if not token or not other_name:
+    other_username = (body.get("other_username") or "").strip()
+    if not token or not other_username:
         return jsonify(ok=False, error="bad_request"), 400
 
     token_hash = _hash_secret(token)
@@ -665,7 +760,7 @@ def friend_remove():
         me = _get_player_by_token(conn, token_hash)
         if me is None:
             return jsonify(ok=False, error="unknown_player"), 404
-        other = _get_player_by_name(conn, other_name)
+        other = _get_player_by_username(conn, other_username)
         if other is None:
             return jsonify(ok=True)
 
@@ -695,13 +790,13 @@ def friend_incoming():
             return jsonify(ok=False, error="unknown_player"), 404
 
         rows = conn.execute("""
-            SELECT p.name AS name, fr.created_at AS created_at
+            SELECT p.name AS name, p.username AS username, fr.created_at AS created_at
             FROM friend_requests fr JOIN players p ON p.token_hash = fr.from_token_hash
             WHERE fr.to_token_hash = ? AND fr.status = 'pending'
             ORDER BY fr.created_at ASC
         """, (token_hash,)).fetchall()
         return jsonify(ok=True, requests=[
-            {"from_name": r["name"], "created_at": r["created_at"]} for r in rows
+            {"from_name": r["name"], "from_username": r["username"], "created_at": r["created_at"]} for r in rows
         ])
     finally:
         conn.close()
@@ -709,24 +804,26 @@ def friend_incoming():
 
 @app.get("/api/friends/list")
 def friend_list():
-    name = request.args.get("name", "").strip()
-    if not name:
+    username = request.args.get("username", "").strip()
+    if not username:
         return jsonify(ok=False, error="bad_request"), 400
 
     conn = db.get_connection()
     try:
-        player = _get_player_by_name(conn, name)
+        player = _get_player_by_username(conn, username)
         if player is None:
             return jsonify(ok=False, error="not_found"), 404
 
         rows = conn.execute("""
-            SELECT p.name AS name FROM friend_requests fr
+            SELECT p.name AS name, p.username AS username FROM friend_requests fr
             JOIN players p ON p.token_hash = CASE
                 WHEN fr.from_token_hash = ? THEN fr.to_token_hash ELSE fr.from_token_hash END
             WHERE fr.status = 'accepted' AND (fr.from_token_hash = ? OR fr.to_token_hash = ?)
             ORDER BY p.name COLLATE NOCASE
         """, (player["token_hash"], player["token_hash"], player["token_hash"])).fetchall()
-        return jsonify(ok=True, friends=[r["name"] for r in rows])
+        return jsonify(ok=True, friends=[
+            {"name": r["name"], "username": r["username"]} for r in rows
+        ])
     finally:
         conn.close()
 
@@ -822,8 +919,33 @@ def clan_create():
         conn.close()
 
 
-@app.post("/api/clans/join")
-def clan_join():
+def _get_join_request(conn, clan_id, token_hash):
+    return conn.execute(
+        "SELECT * FROM clan_join_requests WHERE clan_id = ? AND token_hash = ?",
+        (clan_id, token_hash),
+    ).fetchone()
+
+
+def _resolve_join_decision(conn, token_hash, from_username):
+    """Gemeinsame Owner-Berechtigungsprüfung + Zielspieler-Auflösung für
+    join_accept/join_decline. Gibt (clan, target, None) zurück, oder
+    (None, None, (error_code, http_status))."""
+    member = _get_member_row(conn, token_hash)
+    if member is None:
+        return None, None, ("not_in_clan", 403)
+    clan = conn.execute("SELECT * FROM clans WHERE clan_id = ?", (member["clan_id"],)).fetchone()
+    if clan["owner_token_hash"] != token_hash:
+        return None, None, ("not_owner", 403)
+    target = _get_player_by_username(conn, from_username)
+    if target is None:
+        return None, None, ("target_not_found", 404)
+    return clan, target, None
+
+
+@app.post("/api/clans/join_request")
+def clan_join_request():
+    """Ersetzt das frühere sofortige /api/clans/join - Beitritt braucht jetzt
+    die Zustimmung des Owners (siehe join_accept/join_decline unten)."""
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
     tag = (body.get("tag") or "").strip().upper()
@@ -848,12 +970,189 @@ def clan_join():
         if count >= CLAN_MEMBER_CAP:
             return jsonify(ok=False, error="clan_full"), 403
 
+        conn.execute("""
+            INSERT INTO clan_join_requests (clan_id, token_hash, status, created_at)
+            VALUES (?, ?, 'pending', datetime('now'))
+            ON CONFLICT(clan_id, token_hash) DO UPDATE SET
+                status = 'pending', created_at = excluded.created_at
+        """, (clan["clan_id"], token_hash))
+        conn.commit()
+        return jsonify(ok=True, tag=clan["tag"], name=clan["name"])
+    finally:
+        conn.close()
+
+
+@app.post("/api/clans/join_cancel")
+def clan_join_cancel():
+    """Zieht eine selbst gestellte, noch offene Beitrittsanfrage zurück."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    tag = (body.get("tag") or "").strip().upper()
+    if not token or not tag:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+        clan = _get_clan_by_tag(conn, tag)
+        if clan is None:
+            return jsonify(ok=True)
         conn.execute(
-            "INSERT INTO clan_members (clan_id, token_hash, joined_at) VALUES (?, ?, datetime('now'))",
+            "DELETE FROM clan_join_requests WHERE clan_id = ? AND token_hash = ? AND status = 'pending'",
             (clan["clan_id"], token_hash),
         )
         conn.commit()
-        return jsonify(ok=True, tag=clan["tag"], name=clan["name"])
+        return jsonify(ok=True)
+    finally:
+        conn.close()
+
+
+@app.post("/api/clans/join_requests_mine")
+def clan_join_requests_mine():
+    """Eigene noch offene Beitrittsanfragen - damit Clan-Suche/-Ansicht
+    "Angefragt" statt "Beitreten" zeigen können."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    if not token:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        rows = conn.execute("""
+            SELECT c.tag AS tag, c.name AS name, cjr.created_at AS created_at
+            FROM clan_join_requests cjr JOIN clans c ON c.clan_id = cjr.clan_id
+            WHERE cjr.token_hash = ? AND cjr.status = 'pending'
+            ORDER BY cjr.created_at ASC
+        """, (token_hash,)).fetchall()
+        return jsonify(ok=True, requests=[
+            {"tag": r["tag"], "name": r["name"], "created_at": r["created_at"]} for r in rows
+        ])
+    finally:
+        conn.close()
+
+
+@app.post("/api/clans/join_requests_incoming")
+def clan_join_requests_incoming():
+    """Owner-only: eingehende Beitrittsanfragen für den eigenen Clan."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    if not token:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+        member = _get_member_row(conn, token_hash)
+        if member is None:
+            return jsonify(ok=False, error="not_in_clan"), 403
+        clan = conn.execute("SELECT * FROM clans WHERE clan_id = ?", (member["clan_id"],)).fetchone()
+        if clan["owner_token_hash"] != token_hash:
+            return jsonify(ok=False, error="not_owner"), 403
+
+        rows = conn.execute("""
+            SELECT p.name AS name, p.username AS username, cjr.created_at AS created_at
+            FROM clan_join_requests cjr JOIN players p ON p.token_hash = cjr.token_hash
+            WHERE cjr.clan_id = ? AND cjr.status = 'pending'
+            ORDER BY cjr.created_at ASC
+        """, (clan["clan_id"],)).fetchall()
+        return jsonify(ok=True, requests=[
+            {"from_name": r["name"], "from_username": r["username"], "created_at": r["created_at"]}
+            for r in rows
+        ])
+    finally:
+        conn.close()
+
+
+@app.post("/api/clans/join_accept")
+def clan_join_accept():
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    from_username = (body.get("from_username") or "").strip()
+    if not token or not from_username:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        clan, target, error = _resolve_join_decision(conn, token_hash, from_username)
+        if error:
+            return jsonify(ok=False, error=error[0]), error[1]
+
+        request_row = _get_join_request(conn, clan["clan_id"], target["token_hash"])
+        if request_row is None or request_row["status"] != "pending":
+            return jsonify(ok=False, error="no_pending_request"), 404
+
+        # Zwei Races seit dem Stellen der Anfrage möglich: Zielspieler ist
+        # inzwischen (anderswo) einem Clan beigetreten, oder dieser Clan ist
+        # inzwischen voll - beides sauber melden statt auf die UNIQUE-
+        # Constraint von clan_members.token_hash reinfallen zu lassen.
+        if _get_member_row(conn, target["token_hash"]) is not None:
+            conn.execute(
+                "DELETE FROM clan_join_requests WHERE clan_id = ? AND token_hash = ?",
+                (clan["clan_id"], target["token_hash"]),
+            )
+            conn.commit()
+            return jsonify(ok=False, error="target_already_in_clan"), 403
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM clan_members WHERE clan_id = ?", (clan["clan_id"],)
+        ).fetchone()["c"]
+        if count >= CLAN_MEMBER_CAP:
+            return jsonify(ok=False, error="clan_full"), 403
+
+        conn.execute(
+            "INSERT INTO clan_members (clan_id, token_hash, joined_at) VALUES (?, ?, datetime('now'))",
+            (clan["clan_id"], target["token_hash"]),
+        )
+        conn.execute(
+            "DELETE FROM clan_join_requests WHERE clan_id = ? AND token_hash = ?",
+            (clan["clan_id"], target["token_hash"]),
+        )
+        conn.commit()
+        return jsonify(ok=True)
+    finally:
+        conn.close()
+
+
+@app.post("/api/clans/join_decline")
+def clan_join_decline():
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    from_username = (body.get("from_username") or "").strip()
+    if not token or not from_username:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        clan, target, error = _resolve_join_decision(conn, token_hash, from_username)
+        if error:
+            return jsonify(ok=False, error=error[0]), error[1]
+
+        conn.execute(
+            "DELETE FROM clan_join_requests WHERE clan_id = ? AND token_hash = ?",
+            (clan["clan_id"], target["token_hash"]),
+        )
+        conn.commit()
+        return jsonify(ok=True)
     finally:
         conn.close()
 
@@ -885,8 +1184,8 @@ def clan_leave():
 def clan_kick():
     body = request.get_json(silent=True) or {}
     token = body.get("token") or ""
-    target_name = (body.get("target_name") or "").strip()
-    if not token or not target_name:
+    target_username = (body.get("target_username") or "").strip()
+    if not token or not target_username:
         return jsonify(ok=False, error="bad_request"), 400
 
     token_hash = _hash_secret(token)
@@ -902,7 +1201,7 @@ def clan_kick():
         if clan["owner_token_hash"] != token_hash:
             return jsonify(ok=False, error="not_owner"), 403
 
-        target = _get_player_by_name(conn, target_name)
+        target = _get_player_by_username(conn, target_username)
         if target is None:
             return jsonify(ok=False, error="target_not_found"), 404
         if target["token_hash"] == token_hash:
@@ -963,14 +1262,17 @@ def clan_mine():
 
         clan = conn.execute("SELECT * FROM clans WHERE clan_id = ?", (member["clan_id"],)).fetchone()
         members = conn.execute("""
-            SELECT p.name AS name, p.token_hash AS token_hash, cm.joined_at AS joined_at
+            SELECT p.name AS name, p.username AS username, p.token_hash AS token_hash, cm.joined_at AS joined_at
             FROM clan_members cm JOIN players p ON p.token_hash = cm.token_hash
             WHERE cm.clan_id = ? ORDER BY cm.joined_at ASC
         """, (clan["clan_id"],)).fetchall()
-        owner_name = next((m["name"] for m in members if m["token_hash"] == clan["owner_token_hash"]), None)
+        owner_row = next((m for m in members if m["token_hash"] == clan["owner_token_hash"]), None)
         return jsonify(ok=True, in_clan=True, tag=clan["tag"], name=clan["name"],
-                        is_owner=(clan["owner_token_hash"] == token_hash), owner_name=owner_name,
-                        members=[{"name": m["name"], "joined_at": m["joined_at"]} for m in members])
+                        is_owner=(clan["owner_token_hash"] == token_hash),
+                        owner_name=owner_row["name"] if owner_row else None,
+                        owner_username=owner_row["username"] if owner_row else None,
+                        members=[{"name": m["name"], "username": m["username"], "joined_at": m["joined_at"]}
+                                 for m in members])
     finally:
         conn.close()
 
@@ -984,10 +1286,10 @@ def clan_view(tag):
             return jsonify(ok=False, error="not_found"), 404
 
         owner = conn.execute(
-            "SELECT name FROM players WHERE token_hash = ?", (clan["owner_token_hash"],)
+            "SELECT name, username FROM players WHERE token_hash = ?", (clan["owner_token_hash"],)
         ).fetchone()
         members = conn.execute("""
-            SELECT p.name AS name, cm.joined_at AS joined_at
+            SELECT p.name AS name, p.username AS username, cm.joined_at AS joined_at
             FROM clan_members cm JOIN players p ON p.token_hash = cm.token_hash
             WHERE cm.clan_id = ? ORDER BY cm.joined_at ASC
         """, (clan["clan_id"],)).fetchall()
@@ -995,8 +1297,10 @@ def clan_view(tag):
             "tag": clan["tag"],
             "name": clan["name"],
             "owner_name": owner["name"] if owner else None,
+            "owner_username": owner["username"] if owner else None,
             "member_count": len(members),
-            "members": [{"name": m["name"], "joined_at": m["joined_at"]} for m in members],
+            "members": [{"name": m["name"], "username": m["username"], "joined_at": m["joined_at"]}
+                        for m in members],
         })
     finally:
         conn.close()
@@ -1016,7 +1320,7 @@ def _resolve_conversation(conn, token_hash, conversation_type, target):
     Unterhaltung einschleusen kann. Gibt (conversation_id, error) zurück;
     error ist None bei Erfolg, sonst ein (error_code, http_status)-Tupel."""
     if conversation_type == "dm":
-        other = _get_player_by_name(conn, target)
+        other = _get_player_by_username(conn, target)
         if other is None:
             return None, ("target_not_found", 404)
         other_hash = other["token_hash"]
@@ -1133,6 +1437,111 @@ def messages_list():
             {"id": r["id"], "sender_name": r["sender_name"], "body": r["body"], "created_at": r["created_at"]}
             for r in rows
         ])
+    finally:
+        conn.close()
+
+
+@app.post("/api/messages/mark_read")
+def messages_mark_read():
+    """Merkt sich die höchste gesehene Nachrichten-id einer Unterhaltung für
+    diesen Spieler - Grundlage für /api/notifications/summary weiter unten.
+    Nutzt _resolve_conversation() (nicht dupliziert) fürs selbe Berechtigungs-
+    /ID-Modell wie send/list; ein Client-seitig mitgeschicktes last_read_id
+    würde hier nie vertraut, es wird immer serverseitig aus messages neu
+    berechnet."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    conversation_type = (body.get("conversation_type") or "").strip()
+    target = (body.get("target") or "").strip()
+    if not token or conversation_type not in ("dm", "clan") or not target:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        conversation_id, error = _resolve_conversation(conn, token_hash, conversation_type, target)
+        if error:
+            return jsonify(ok=False, error=error[0]), error[1]
+
+        latest = conn.execute(
+            "SELECT MAX(id) AS max_id FROM messages WHERE conversation_type = ? AND conversation_id = ?",
+            (conversation_type, conversation_id),
+        ).fetchone()
+        max_id = latest["max_id"] or 0
+        conn.execute("""
+            INSERT INTO read_markers (token_hash, conversation_type, conversation_id, last_read_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(token_hash, conversation_type, conversation_id) DO UPDATE SET
+                last_read_id = MAX(last_read_id, excluded.last_read_id)
+        """, (token_hash, conversation_type, conversation_id, max_id))
+        conn.commit()
+        return jsonify(ok=True, last_read_id=max_id)
+    finally:
+        conn.close()
+
+
+@app.post("/api/notifications/summary")
+def notifications_summary():
+    """Ein gebündelter Endpunkt statt N Einzelabfragen vom Client (ein Request
+    pro Freund waere bei einem selbstgehosteten Heimserver unnötig teuer) -
+    serverseitig sind das mehrere kleine, günstige lokale Queries innerhalb
+    derselben Connection, das ist etwas ganz anderes als N Netzwerk-
+    Roundtrips und muss nicht zu einer einzigen Mega-Query verbogen werden."""
+    body = request.get_json(silent=True) or {}
+    token = body.get("token") or ""
+    if not token:
+        return jsonify(ok=False, error="bad_request"), 400
+
+    token_hash = _hash_secret(token)
+    conn = db.get_connection()
+    try:
+        me = _get_player_by_token(conn, token_hash)
+        if me is None:
+            return jsonify(ok=False, error="unknown_player"), 404
+
+        pending_friend_requests = conn.execute(
+            "SELECT COUNT(*) AS c FROM friend_requests WHERE to_token_hash = ? AND status = 'pending'",
+            (token_hash,),
+        ).fetchone()["c"]
+
+        conversation_ids = []
+        friend_hashes = conn.execute("""
+            SELECT CASE WHEN from_token_hash = ? THEN to_token_hash ELSE from_token_hash END AS other_hash
+            FROM friend_requests
+            WHERE status = 'accepted' AND (from_token_hash = ? OR to_token_hash = ?)
+        """, (token_hash, token_hash, token_hash)).fetchall()
+        for row in friend_hashes:
+            pair = sorted([token_hash, row["other_hash"]])
+            conversation_ids.append(("dm", f"{pair[0]}:{pair[1]}"))
+
+        member = _get_member_row(conn, token_hash)
+        if member is not None:
+            conversation_ids.append(("clan", str(member["clan_id"])))
+
+        unread_conversations = 0
+        for conversation_type, conversation_id in conversation_ids:
+            latest = conn.execute(
+                "SELECT MAX(id) AS max_id FROM messages WHERE conversation_type = ? AND conversation_id = ?",
+                (conversation_type, conversation_id),
+            ).fetchone()
+            max_id = latest["max_id"]
+            if max_id is None:
+                continue
+            marker = conn.execute(
+                "SELECT last_read_id FROM read_markers WHERE token_hash = ? AND conversation_type = ? "
+                "AND conversation_id = ?",
+                (token_hash, conversation_type, conversation_id),
+            ).fetchone()
+            last_read_id = marker["last_read_id"] if marker else 0
+            if max_id > last_read_id:
+                unread_conversations += 1
+
+        return jsonify(ok=True, pending_friend_requests=pending_friend_requests,
+                        unread_conversations=unread_conversations)
     finally:
         conn.close()
 
