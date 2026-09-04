@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v4.9.1 - 2026-09-04
+
+
+1.4.9 -> 4.9.0 
+
+
 ## v1.4.9 - 2026-09-04
 
 friend requests, clans, clan chat, DM chat, usernames, forced username setup, offline indicator, squad join requests, leave confirmation, notification badge, username shown everywhere now, username search, Clans renamed to Squads, friends search button, A BUNCH OF bug fixes 
