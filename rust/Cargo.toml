@@ -1,0 +1,40 @@
+[package]
+name = "jumpndodge"
+version = "4.9.1"
+edition = "2021"
+description = "JumpNDodge - 1:1 Rust-Port des Python/pygame-Spiels"
+license = "Apache-2.0"
+
+[[bin]]
+name = "JumpNDodge"
+path = "src/main.rs"
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
+tiny-skia = "0.11"
+fontdue = "0.9"
+rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-wav", "symphonia-vorbis"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+ureq = { version = "2", features = ["json"] }
+arboard = { version = "3", default-features = false }
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+base64 = "0.22"
+rand = "0.8"
+chrono = "0.4"
+unicode-normalization = "0.1"
+serde = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
