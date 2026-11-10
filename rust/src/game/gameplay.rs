@@ -11,8 +11,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 /// pygame.Rect-Zuweisung mit Float: Ergebnis wird Richtung 0 abgeschnitten
-#[inline]
-pub fn addf(v: i32, delta: f64) -> i32 { (v as f64 + delta) as i32 }
+pub use jnd_core::rect::addf;
 
 #[derive(Clone, Debug)]
 pub struct Particle { pub x: f64, pub y: f64, pub vx: f64, pub vy: f64, pub life: f64, pub max_life: f64, pub trail: String, pub size: f64, pub angle: f64 }

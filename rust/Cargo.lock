@@ -1024,6 +1024,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
+name = "jnd_core"
+version = "4.9.1"
+dependencies = [
+ "rand",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1127,6 +1134,7 @@ dependencies = [
  "chrono",
  "fontdue",
  "hmac",
+ "jnd_core",
  "pbkdf2",
  "rand",
  "rodio",

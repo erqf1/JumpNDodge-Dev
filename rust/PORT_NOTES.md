@@ -46,6 +46,13 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 Port vollständig bis auf Mods (Mod-Menü 4958–5340, Mod-Lader 13554–13800): `in_mods_menu` springt sofort ins Hauptmenü zurück.
 Spielstand in beide Richtungen kompatibel (getestet: Rust schreibt, Python liest).
 
+## Multiplayer – Phase 1 (erledigt)
+2P-Regeln liegen in der Bibliothek `rust/core` (`jnd_core::sim2p::Sim2p`): ohne Grafik, eigener Zufall per Seed,
+`step(dt, [Input; 2], w, h)` liefert Ereignisse (Treffer/Ausgeschieden/1-UP/Wiederbelebt) und Rundenende/Sieger.
+`run_game_2p` zeichnet nur noch. `Rect`/`addf` und die Schwierigkeitswerte kommen ebenfalls aus `jnd_core`.
+Tests: `cargo test -p jnd_core` (u.a. Determinismus: gleicher Seed + gleiche Eingaben = gleicher Verlauf).
+Nächste Phase: Server-Programm `rust/server` + Netzwerkprotokoll (UDP, Direktverbindung per IP).
+
 ## Versteckter Selbsttest (nur Debug-Build)
 `JND_HIDDEN=1 JND_MUTE=1 JND_BASE_DIR=<Testordner> JND_SCRIPT="<frame>:<aktion>:<arg>;..."`
 Aktionen: `shot:<png>`, `cmd:run <befehl>` (Dev-Konsole, ohne key.txt), `key:<taste>`, `hold:<taste>`, `release:<taste>`,

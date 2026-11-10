@@ -1,0 +1,9 @@
+[package]
+name = "jnd_core"
+version = "4.9.1"
+edition = "2021"
+description = "JumpNDodge Spiellogik ohne Grafik (geteilt von Spiel und Multiplayer-Server)"
+license = "Apache-2.0"
+
+[dependencies]
+rand = "0.8"

@@ -9,7 +9,11 @@ license = "Apache-2.0"
 name = "JumpNDodge"
 path = "src/main.rs"
 
+[workspace]
+members = ["core"]
+
 [dependencies]
+jnd_core = { path = "core" }
 winit = "0.30"
 softbuffer = "0.4"
 tiny-skia = "0.11"

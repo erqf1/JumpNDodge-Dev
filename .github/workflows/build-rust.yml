@@ -46,6 +46,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config
 
+      - name: Tests der Spiellogik (jnd_core)
+        working-directory: rust
+        run: cargo test -p jnd_core --locked
+
       - name: Bauen
         working-directory: rust
         run: cargo build --release --locked

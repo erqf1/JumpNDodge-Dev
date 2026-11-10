@@ -73,16 +73,8 @@ pub const DIFFICULTY_TRANSLATIONS: [(&str, [&str; 8]); 5] = [
     ("Schwiizerdütsch", ["Licht", "Mittel", "Schwer", "Hardcore", "Unmöglich", "Alptraum", "Höll", "Dynamisch"]),
 ];
 
-pub fn difficulty_speed(d: &str) -> i64 {
-    match d { "Leicht" => 6, "Mittel" => 8, "Schwer" => 11, "Hardcore" => 15, "Unmöglich" => 18, "Albtraum" => 24, "Hölle" => 32, "Dynamisch" => 7, _ => 8 }
-}
-pub fn difficulty_obstacle_interval(d: &str) -> (i64, i64) {
-    match d {
-        "Leicht" => (1400, 2200), "Mittel" => (1000, 1800), "Schwer" => (600, 1300), "Hardcore" => (400, 1000),
-        "Unmöglich" => (500, 1000), "Albtraum" => (260, 500), "Hölle" => (120, 300), "Dynamisch" => (1400, 2400),
-        _ => (1000, 1800),
-    }
-}
+/// Geschwindigkeit/Intervalle liegen in jnd_core (gleiche Werte für Spiel und Server)
+pub use jnd_core::sim2p::{difficulty_obstacle_interval, difficulty_speed};
 
 /// coin_rules (Python: Schwer 10, Hardcore 5, Unmöglich 3, Albtraum 2, Hölle 1.5)
 pub fn coin_rule(d: &str) -> Option<f64> {
