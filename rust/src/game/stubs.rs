@@ -13,3 +13,7 @@ impl G {
 }
 impl G {
 }
+impl G {
+    pub fn _drain_dev_round_actions(&mut self) -> Vec<(String, Option<i64>)> { vec![] }
+    pub fn show_game_over(&mut self, _score: i64, _gained: i64, _old: i64, _new_record: bool, _secs: i64) {}
+}

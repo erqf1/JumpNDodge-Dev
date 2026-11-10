@@ -4,6 +4,7 @@
 pub mod core;
 pub mod cosmetic_shop;
 pub mod cosmetics_inv;
+pub mod gameplay;
 pub mod icon;
 pub mod loadout;
 pub mod menus;

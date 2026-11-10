@@ -37,6 +37,7 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 - 11339–12370 Glücksrad-Shop, Loadout-Menü, Kosmetik-Inventar → `game/shop.rs`, `game/cosmetics_inv.rs`
 - 12370–13546 Kosmetik-Shop, Shop-Menü, Tooltip, Power-Loadout, Admin → `game/cosmetic_shop.rs`, `game/loadout.rs`
 - 14019–14424 RuntimePowers, Pause-Menü, Kosmetik am Spieler → `game/runtime.rs`
+- 14459–15733 run_game (Spiel) → `game/gameplay.rs` (Mod-Hooks entfallen, solange Mods ausgelassen sind)
 - Platzhalter in `game/stubs.rs` (open_chat, open_clan_view, draw_player_cosmetics, draw_hover_tooltip, push_overlay, debug_log, Dev-Konsole) – beim Portieren ersetzen.
 
 ## Als Nächstes (Python-Zeilen)
