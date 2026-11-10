@@ -32,10 +32,11 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 - 4450–5820 Menü-Funktionen, Hauptmenü, Schwierigkeitsauswahl → `game/menus.rs` (Mods-Menü 4958–5340 bewusst ausgelassen: Mods werden später besprochen)
 - 5873–6740 Tutorial, Sprachauswahl, Profile, Mehr-Menü, Profil-Hub → `game/screens_a.rs`
 - 6740–7700 Rangliste, Spielersuche, öffentliches Profil, Username-Gate → `game/online_screens.rs`
+- 7700–9650 Freunde-Hub, Online-Hub, Nachrichten, Squads (Hub/Erstellen/Suche/Ansicht), Chat, Zwischenablage, Code einlösen, Umbenennen → `game/online_screens2.rs`, `game/online_screens3.rs`
 - Platzhalter in `game/stubs.rs` (open_chat, open_clan_view, draw_player_cosmetics, draw_hover_tooltip, push_overlay, debug_log, Dev-Konsole) – beim Portieren ersetzen.
 
 ## Als Nächstes (Python-Zeilen)
-7700–9310 Freunde-Hub, Online-Hub, Nachrichten, Squads/Clans, Chat · 9310–10380 Clipboard, Redeem, Rename,
+9650–10380
 Erfolge, Steuerung, Einstellungen · 10380–10580 Classic · 10580–11350 Laden, Daily Rewards, Hilfe, Statistik ·
 11350–13560 Glücksrad-Shop, Loadout, Kosmetik-Shop/Inventar, Tooltip, Admin · 13554–13800 Mod-Lader (später) ·
 13800–14460 Erfolge, Coins, RuntimePowers, Pause, Kosmetik zeichnen · 14459–16420 run_game, run_game_2p, Game Over ·
