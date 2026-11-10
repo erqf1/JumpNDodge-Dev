@@ -51,7 +51,15 @@ Spielstand in beide Richtungen kompatibel (getestet: Rust schreibt, Python liest
 `step(dt, [Input; 2], w, h)` liefert Ereignisse (Treffer/Ausgeschieden/1-UP/Wiederbelebt) und Rundenende/Sieger.
 `run_game_2p` zeichnet nur noch. `Rect`/`addf` und die Schwierigkeitswerte kommen ebenfalls aus `jnd_core`.
 Tests: `cargo test -p jnd_core` (u.a. Determinismus: gleicher Seed + gleiche Eingaben = gleicher Verlauf).
-Nächste Phase: Server-Programm `rust/server` + Netzwerkprotokoll (UDP, Direktverbindung per IP).
+
+## Multiplayer – Phase 2 (erledigt)
+- `jnd_core::net::proto`: alle Nachrichten (ClientMsg/ServerMsg, Snapshot), PROTO_VERSION, Standard-Port 47800, Feld 800x600, 60 Ticks/s, 30 Snapshots/s.
+- `jnd_core::net::channel`: UDP mit zuverlässigen (Reihenfolge, Wiederholung) und unzuverlässigen Nachrichten, Timeout 10 s.
+- `jnd_core::net::client`: `Client::connect/poll/send/send_input/disconnect`, `query_info` (Serverliste), `parse_addr`.
+- `rust/server` (`JumpNDodge-Server`): server.json, Räume mit 4-stelligem Code, Bereit → Countdown → Runde → Lobby (Rematch).
+  VS-Abbruch → Gegner gewinnt, Koop-Abbruch → Partner spielt allein weiter. Versions-/Passwortprüfung.
+- Tests: `cargo test -p jnd_core -p jnd_server` (echter Server + 2 Clients, auch mit 15 % Paketverlust).
+Nächste Phase 3: Multiplayer-Screens im Spiel + Netzwerk in der Runde (Vorhersage eigener Spieler, Interpolation).
 
 ## Versteckter Selbsttest (nur Debug-Build)
 `JND_HIDDEN=1 JND_MUTE=1 JND_BASE_DIR=<Testordner> JND_SCRIPT="<frame>:<aktion>:<arg>;..."`

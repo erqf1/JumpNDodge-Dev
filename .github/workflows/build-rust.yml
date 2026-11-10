@@ -46,31 +46,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config
 
-      - name: Tests der Spiellogik (jnd_core)
+      - name: Tests (Spiellogik, Netzwerk, Server)
         working-directory: rust
-        run: cargo test -p jnd_core --locked
+        run: cargo test -p jnd_core -p jnd_server --locked
 
       - name: Bauen
         working-directory: rust
-        run: cargo build --release --locked
+        run: cargo build --release --locked --workspace
 
       - name: Paket zusammenstellen
         run: |
           mkdir -p "release/JumpNDodge-rust-${{ matrix.name }}"
           cp "rust/target/release/${{ matrix.exe }}" "release/JumpNDodge-rust-${{ matrix.name }}/"
           cp icon.ico LICENSE* "release/JumpNDodge-rust-${{ matrix.name }}/" 2>/dev/null || true
+          SRV="JumpNDodge-Server-${{ matrix.name }}"
+          mkdir -p "release/$SRV"
+          if [ "${{ matrix.name }}" = "windows" ]; then SEXE=JumpNDodge-Server.exe; else SEXE=JumpNDodge-Server; fi
+          cp "rust/target/release/$SEXE" "release/$SRV/"
+          cp rust/server/LIESMICH.txt "release/$SRV/"
           cd release
           if [ "${{ matrix.name }}" = "windows" ]; then
             7z a "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
+            7z a "$SRV.zip" "$SRV"
           else
-            chmod +x "JumpNDodge-rust-${{ matrix.name }}/${{ matrix.exe }}"
+            chmod +x "JumpNDodge-rust-${{ matrix.name }}/${{ matrix.exe }}" "$SRV/$SEXE"
             zip -r "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
+            zip -r "$SRV.zip" "$SRV"
           fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: JumpNDodge-rust-${{ matrix.name }}
-          path: release/JumpNDodge-rust-${{ matrix.name }}.zip
+          path: |
+            release/JumpNDodge-rust-${{ matrix.name }}.zip
+            release/JumpNDodge-Server-${{ matrix.name }}.zip
           retention-days: 3
 
   release:

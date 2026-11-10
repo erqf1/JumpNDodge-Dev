@@ -4,6 +4,7 @@
 use crate::rect::{addf, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
 
 pub const START_LIVES: i64 = 3;
 pub const HIT_INVULN: i32 = 90;
@@ -29,7 +30,7 @@ pub fn difficulty_obstacle_interval(d: &str) -> (i64, i64) {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Input { pub jump: bool, pub left: bool, pub right: bool }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -61,20 +62,20 @@ impl Player {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObstacleKind { Ground, Top }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Obstacle { pub rect: Rect, pub kind: ObstacleKind }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Winner { P1, P2, Draw }
 impl Winner {
     pub fn as_str(self) -> &'static str { match self { Winner::P1 => "p1", Winner::P2 => "p2", Winner::Draw => "draw" } }
 }
 
 /// Was in einem Frame passiert ist (für Overlays/Sounds/Statistik beim Client)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SimEvent {
     /// Spieler i hat den toten Partner wiederbelebt (Index = wiederbelebter Spieler)
     Revived(usize),
@@ -183,6 +184,13 @@ impl Sim2p {
     fn make_top_obstacle(&mut self, width: i32) -> Obstacle {
         let rx = self.randint(60, (width - 110) as i64) as i32;
         Obstacle { rect: Rect::new(rx, -55, 50, 50), kind: ObstacleKind::Top }
+    }
+
+    /// Spieler i scheidet sofort aus (z.B. Verbindung im Online-Koop verloren)
+    pub fn eliminate(&mut self, i: usize) {
+        let p = &mut self.players[i];
+        p.alive = false;
+        p.lives = 0;
     }
 
     /// Ein Frame. `dt_ms` = vergangene Zeit, `width`/`height` = aktuelle Spielfeldgröße.

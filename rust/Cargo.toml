@@ -10,7 +10,7 @@ name = "JumpNDodge"
 path = "src/main.rs"
 
 [workspace]
-members = ["core"]
+members = ["core", "server"]
 
 [dependencies]
 jnd_core = { path = "core" }

@@ -1,0 +1,37 @@
+JumpNDodge-Server
+=================
+
+Mit diesem Programm hostest du einen eigenen Server für Online-VS und Online-Koop
+(je 2 Spieler pro Raum). Die Spieler verbinden sich im Spiel über
+Online -> Multiplayer -> "Per IP verbinden".
+
+Starten
+-------
+Windows:      JumpNDodge-Server.exe doppelklicken
+Linux/macOS:  ./JumpNDodge-Server
+
+Beim ersten Start wird server.json neben dem Programm angelegt:
+
+  name       Name in der Serverliste
+  motd       Begrüßungstext
+  port       UDP-Port (Standard 47800)
+  bind       "0.0.0.0" = alle Netzwerke (IPv4), "::" = IPv6
+  password   leer = jeder darf rein
+  max_rooms  maximale Anzahl Räume (je 2 Spieler)
+  log_file   Log-Datei (leer = nur Konsole)
+
+Nach einer Änderung den Server neu starten.
+Andere Datei oder anderer Port:  JumpNDodge-Server --config pfad/server.json --port 47801
+
+Spieler aus dem Internet
+------------------------
+1. Im Router eine Portweiterleitung anlegen: UDP-Port 47800 -> dieser PC.
+2. Ggf. in der Firewall eingehendes UDP auf Port 47800 erlauben
+   (Windows fragt beim ersten Start meistens selbst nach).
+3. Deine öffentliche IP-Adresse an die Mitspieler weitergeben
+   (z.B. auf https://ifconfig.me nachsehen). Port 47800 muss nicht mit
+   angegeben werden, andere Ports als "IP:Port".
+
+Hinweis: Wer sich mit deinem Server verbindet, kennt deine öffentliche IP-Adresse.
+
+Wichtig: Server und Spiel müssen dieselbe Version haben.

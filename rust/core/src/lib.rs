@@ -3,6 +3,7 @@
 //! damit beide garantiert dieselben Regeln haben.
 
 pub mod rect;
+pub mod net;
 pub mod sim2p;
 
 pub use rect::{addf, rect, Num, Rect};
