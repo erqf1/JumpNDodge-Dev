@@ -34,6 +34,7 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 - 6740–7700 Rangliste, Spielersuche, öffentliches Profil, Username-Gate → `game/online_screens.rs`
 - 7700–9650 Freunde-Hub, Online-Hub, Nachrichten, Squads (Hub/Erstellen/Suche/Ansicht), Chat, Zwischenablage, Code einlösen, Umbenennen → `game/online_screens2.rs`, `game/online_screens3.rs`
 - 9650–11340 Erfolge, Steuerung, Einstellungen, Sound-Menü, Classic, Laden, Daily Rewards, Hilfe, Statistik (+ Overlays/Popups 11380–11485) → `game/screens_b.rs`, `game/screens_c.rs`, `game/stats_screen.rs`
+- 11339–12370 Glücksrad-Shop, Loadout-Menü, Kosmetik-Inventar → `game/shop.rs`, `game/cosmetics_inv.rs`
 - Platzhalter in `game/stubs.rs` (open_chat, open_clan_view, draw_player_cosmetics, draw_hover_tooltip, push_overlay, debug_log, Dev-Konsole) – beim Portieren ersetzen.
 
 ## Als Nächstes (Python-Zeilen)
@@ -42,3 +43,9 @@ Erfolge, Steuerung, Einstellungen · 10380–10580 Classic · 10580–11350 Lade
 11350–13560 Glücksrad-Shop, Loadout, Kosmetik-Shop/Inventar, Tooltip, Admin · 13554–13800 Mod-Lader (später) ·
 13800–14460 Erfolge, Coins, RuntimePowers, Pause, Kosmetik zeichnen · 14459–16420 run_game, run_game_2p, Game Over ·
 16420–18042 Dev-Konsole, Hauptschleife (Event-Dispatch) → danach main.rs auf das echte Spiel umstellen.
+
+## Startwerte, die G::new() setzen muss (Python-Modulebene ≠ Rust-Default)
+face_subcategory="eyes", shop_face_subcategory="eyes", loading_duration=2000, _friends_hub_tab="roster", _clan_hub_tab="roster",
+_clan_view_return_screen="in_public_profile", _chat_return_screen="in_public_profile", _cosmetic_inventory_return_screen="in_loadout_menu",
+_clan_create_focus="tag", _chat_loading=true, _username_gate_checking=true, sound_enabled=true, scale_x=scale_y=1.0, WIDTH=800, HEIGHT=600,
+_bg_stars (55 zufällige Sterne wie Python), languages, texts (+ Custom-Sprachen), current_game_mode="standard", two_player_submode="coop".

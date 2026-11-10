@@ -2,6 +2,7 @@
 #![allow(non_snake_case, dead_code, unused_variables, unused_mut, unused_imports, clippy::all)]
 
 pub mod core;
+pub mod cosmetics_inv;
 pub mod icon;
 pub mod menus;
 pub mod online;
@@ -12,6 +13,7 @@ pub mod save;
 pub mod screens_a;
 pub mod screens_b;
 pub mod screens_c;
+pub mod shop;
 pub mod stats_screen;
 pub mod sound;
 pub mod state;
