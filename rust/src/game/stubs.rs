@@ -10,7 +10,6 @@ impl G {
 }
 
 impl G {
-    pub fn draw_player_cosmetics(&self, _s: &Surface, _r: crate::pg::Rect, _o: Option<&serde_json::Map<String, serde_json::Value>>) {}
 }
 impl G {
 }
