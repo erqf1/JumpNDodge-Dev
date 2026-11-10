@@ -321,5 +321,13 @@ pub struct G {
     pub clock: Clock,
     pub cosmetic_tab: usize,
     pub face_subcategory: String,
+    pub cosmetic_shop_tab: usize,
+    pub shop_face_subcategory: String,
+    pub cosmetic_shop_showing_sale: bool,
+    pub cosmetic_shop_scroll: i32,
+    pub loadout_item_rects: Vec<(Rect, String)>,
+    pub loadout_tab: usize,
+    pub loadout_overlay: Option<String>,
+    pub admin_amount_input: String,
     // @@FELDER@@ (neue Felder werden hier eingefügt)
 }

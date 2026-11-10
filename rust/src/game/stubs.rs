@@ -11,7 +11,6 @@ impl G {
 
 impl G {
     pub fn draw_player_cosmetics(&self, _s: &Surface, _r: crate::pg::Rect, _o: Option<&serde_json::Map<String, serde_json::Value>>) {}
-    pub fn draw_hover_tooltip(&mut self, _c: &[String], _mp: (i32, i32), _mw: i32, _acc: Option<(i32, i32, i32)>, _anchor: Option<crate::pg::Rect>) {}
 }
 impl G {
 }
