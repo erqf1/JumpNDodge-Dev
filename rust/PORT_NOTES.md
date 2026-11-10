@@ -38,17 +38,19 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 - 12370–13546 Kosmetik-Shop, Shop-Menü, Tooltip, Power-Loadout, Admin → `game/cosmetic_shop.rs`, `game/loadout.rs`
 - 14019–14424 RuntimePowers, Pause-Menü, Kosmetik am Spieler → `game/runtime.rs`
 - 14459–15733 run_game (Spiel) → `game/gameplay.rs` (Mod-Hooks entfallen, solange Mods ausgelassen sind)
-- Platzhalter in `game/stubs.rs` (open_chat, open_clan_view, draw_player_cosmetics, draw_hover_tooltip, push_overlay, debug_log, Dev-Konsole) – beim Portieren ersetzen.
+- 15739–16384 run_game_2p, Game-Over-Screens → `game/gameplay2p.rs`, `game/gameover.rs`
+- 130–215 + 16387–16797 Debug-Log, Dev-Konsole (stdin-Thread, `run help`) → `game/devconsole.rs`
+- Modulebene + 16800–18042 Spielstart (`G::new`) und Hauptschleife → `game/mainloop.rs`
 
-## Als Nächstes (Python-Zeilen)
-9650–10380
-Erfolge, Steuerung, Einstellungen · 10380–10580 Classic · 10580–11350 Laden, Daily Rewards, Hilfe, Statistik ·
-11350–13560 Glücksrad-Shop, Loadout, Kosmetik-Shop/Inventar, Tooltip, Admin · 13554–13800 Mod-Lader (später) ·
-13800–14460 Erfolge, Coins, RuntimePowers, Pause, Kosmetik zeichnen · 14459–16420 run_game, run_game_2p, Game Over ·
-16420–18042 Dev-Konsole, Hauptschleife (Event-Dispatch) → danach main.rs auf das echte Spiel umstellen.
+## Stand
+Port vollständig bis auf Mods (Mod-Menü 4958–5340, Mod-Lader 13554–13800): `in_mods_menu` springt sofort ins Hauptmenü zurück.
+Spielstand in beide Richtungen kompatibel (getestet: Rust schreibt, Python liest).
 
-## Startwerte, die G::new() setzen muss (Python-Modulebene ≠ Rust-Default)
-face_subcategory="eyes", shop_face_subcategory="eyes", loading_duration=2000, _friends_hub_tab="roster", _clan_hub_tab="roster",
-_clan_view_return_screen="in_public_profile", _chat_return_screen="in_public_profile", _cosmetic_inventory_return_screen="in_loadout_menu",
-_clan_create_focus="tag", admin_amount_input="0", _player_search_return_screen="in_online_leaderboard", _public_profile_return_screen="in_online_leaderboard", _chat_loading=true, _username_gate_checking=true, sound_enabled=true, scale_x=scale_y=1.0, WIDTH=800, HEIGHT=600,
-_bg_stars (55 zufällige Sterne wie Python), languages, texts (+ Custom-Sprachen), current_game_mode="standard", two_player_submode="coop".
+## Versteckter Selbsttest (nur Debug-Build)
+`JND_HIDDEN=1 JND_MUTE=1 JND_BASE_DIR=<Testordner> JND_SCRIPT="<frame>:<aktion>:<arg>;..."`
+Aktionen: `shot:<png>`, `cmd:run <befehl>` (Dev-Konsole, ohne key.txt), `key:<taste>`, `hold:<taste>`, `release:<taste>`,
+`type:<text>`, `click:<x>,<y>`, `quit`. Beispiel: `30:cmd:run shop;60:shot:shop.png;70:quit`.
+
+## Release
+Workflow `.github/workflows/build-rust.yml`: Tag `rust-v*` → Vorabversion im Archive-Repo (Windows/Linux/macOS).
+Der Updater ignoriert `rust-v*`-Tags (parse_version liefert None).

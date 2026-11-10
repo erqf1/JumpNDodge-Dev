@@ -1,0 +1,97 @@
+name: Rust Build & Release
+
+# Baut den Rust-Port (rust/) für Windows, Linux und macOS.
+# Release nur bei Tags "rust-v*" - der Updater (updater.py/parse_version) ignoriert
+# solche Tags, die Python-Releases (v*) bleiben also unberührt. Der Release wird als
+# Vorabversion veröffentlicht und nie als "Latest" markiert.
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'rust/**', '.github/workflows/build-rust.yml' ]
+    tags: [ 'rust-v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            exe: JumpNDodge.exe
+          - os: ubuntu-latest
+            name: linux
+            exe: JumpNDodge
+          - os: macos-latest
+            name: macos
+            exe: JumpNDodge
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Linux-Abhängigkeiten (ALSA für den Sound)
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Bauen
+        working-directory: rust
+        run: cargo build --release --locked
+
+      - name: Paket zusammenstellen
+        run: |
+          mkdir -p "release/JumpNDodge-rust-${{ matrix.name }}"
+          cp "rust/target/release/${{ matrix.exe }}" "release/JumpNDodge-rust-${{ matrix.name }}/"
+          cp icon.ico LICENSE* "release/JumpNDodge-rust-${{ matrix.name }}/" 2>/dev/null || true
+          cd release
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            7z a "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
+          else
+            chmod +x "JumpNDodge-rust-${{ matrix.name }}/${{ matrix.exe }}"
+            zip -r "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JumpNDodge-rust-${{ matrix.name }}
+          path: release/JumpNDodge-rust-${{ matrix.name }}.zip
+          retention-days: 3
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release im öffentlichen Archive-Repo (Vorabversion)
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: erqf1/JumpNDodge-Archive
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: "JumpNDodge (Rust) ${{ github.ref_name }}"
+          prerelease: true
+          make_latest: false
+          body: |
+            Rust-Version von JumpNDodge (1:1-Port des Python-Spiels).
+            - Eine einzelne Datei, kein Python nötig, startet sofort.
+            - Spielstände sind kompatibel: `data/gameplay.json` funktioniert in beiden Versionen.
+            - Mods sind in dieser Vorabversion noch nicht enthalten.
+            - Sounds: wie bei der Python-Version den Ordner `data/sound` neben die exe legen.
+          files: dist/*.zip
