@@ -342,6 +342,10 @@ impl Display {
         }
     }
     pub fn set_cursor_visible(&mut self, v: bool) { if let Some(w) = &self.app.window { w.set_cursor_visible(v); } }
+    /// Nur für den versteckten Selbsttest: Taste als gedrückt/losgelassen markieren
+    pub fn test_set_key(&mut self, k: i32, down: bool) { if down { self.app.keys_down.insert(k); } else { self.app.keys_down.remove(&k); } }
+    /// Nur für den versteckten Selbsttest: Mausposition (physisch) setzen
+    pub fn test_set_mouse(&mut self, x: i32, y: i32) { let s = self.app.scale(); self.app.mouse_phys = (x as f64 * s, y as f64 * s); }
     pub fn minimize(&mut self) { if let Some(w) = &self.app.window { w.set_minimized(true); } }
 }
 

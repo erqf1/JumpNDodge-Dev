@@ -293,8 +293,9 @@ impl G {
             let tx = self._time_ch.tx.clone();
             std::thread::spawn(move || {
                 let has_internet = check_internet_connection();
-                let dt = if has_internet { get_current_datetime_net() } else { None };
-                let _ = tx.send((has_internet && dt.is_some(), dt));
+                // Python: get_current_datetime() fällt bei API-Fehler auf die lokale Zeit zurück
+                let dt = if has_internet { Some(get_current_datetime_net().unwrap_or_else(|| chrono::Local::now().naive_local())) } else { None };
+                let _ = tx.send((has_internet, dt));
             });
         }
         if let Ok((has, dt)) = self._time_ch.rx.try_recv() {

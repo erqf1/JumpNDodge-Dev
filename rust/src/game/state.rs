@@ -329,5 +329,14 @@ pub struct G {
     pub loadout_tab: usize,
     pub loadout_overlay: Option<String>,
     pub admin_amount_input: String,
+    pub DEBUG_MODE: bool,
+    pub _debug_log_failed: bool,
+    pub _dev_console_unlocked: bool,
+    pub _dev_cmd_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub _dev_round_actions: Vec<(String, Option<i64>)>,
+    pub in_mods_menu: bool,
+    pub _debug_last_screen_flags: Option<Vec<&'static str>>,
+    pub _debug_console_hotkey_was_down: bool,
+    pub _test_script: Vec<(u64, String, String)>,
     // @@FELDER@@ (neue Felder werden hier eingefügt)
 }
