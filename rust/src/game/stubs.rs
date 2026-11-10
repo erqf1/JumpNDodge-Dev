@@ -4,7 +4,6 @@ use crate::pg::Surface;
 
 impl G {
     pub fn debug_log(&mut self, _msg: &str) {}
-    pub fn push_overlay(&mut self, text: &str, color: (i32, i32, i32), duration: f64, pos: Option<(i32, i32)>) { let _ = (text, color, duration, pos); }
     pub fn _process_dev_commands(&mut self) {}
     pub fn _debug_track_screen_transitions(&mut self) {}
     pub fn _screenshot_hook(&mut self, _s: &Surface) {}

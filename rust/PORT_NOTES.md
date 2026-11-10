@@ -33,6 +33,7 @@ gleiche Logik, gleicher Spielstand (`data/gameplay.json`, verschlüsselt, kompat
 - 5873–6740 Tutorial, Sprachauswahl, Profile, Mehr-Menü, Profil-Hub → `game/screens_a.rs`
 - 6740–7700 Rangliste, Spielersuche, öffentliches Profil, Username-Gate → `game/online_screens.rs`
 - 7700–9650 Freunde-Hub, Online-Hub, Nachrichten, Squads (Hub/Erstellen/Suche/Ansicht), Chat, Zwischenablage, Code einlösen, Umbenennen → `game/online_screens2.rs`, `game/online_screens3.rs`
+- 9650–11340 Erfolge, Steuerung, Einstellungen, Sound-Menü, Classic, Laden, Daily Rewards, Hilfe, Statistik (+ Overlays/Popups 11380–11485) → `game/screens_b.rs`, `game/screens_c.rs`, `game/stats_screen.rs`
 - Platzhalter in `game/stubs.rs` (open_chat, open_clan_view, draw_player_cosmetics, draw_hover_tooltip, push_overlay, debug_log, Dev-Konsole) – beim Portieren ersetzen.
 
 ## Als Nächstes (Python-Zeilen)
