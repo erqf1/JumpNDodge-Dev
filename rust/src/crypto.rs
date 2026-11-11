@@ -126,3 +126,53 @@ pub fn load_encrypted_json(path: &std::path::Path) -> Option<serde_json::Value> 
     let plain = decrypt_bytes(&blob)?;
     serde_json::from_slice(&plain).ok()
 }
+
+// ---------------- Speichern im Hintergrund ----------------
+// Python hat bei jedem save_section() synchron verschlüsselt und geschrieben (auf Windows mit
+// Virenscanner oft 20-100 ms) - das ruckelt mitten in Menüs/Runden. Hier übernimmt ein eigener
+// Thread das Schreiben; liegen mehrere Stände für dieselbe Datei an, wird nur der neueste
+// geschrieben. flush_saves() wartet, bis alles auf der Platte ist (beim Beenden).
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Condvar, Mutex};
+
+struct SaveQueue { pending: HashMap<PathBuf, serde_json::Value>, busy: bool }
+
+fn queue() -> &'static (Mutex<SaveQueue>, Condvar, Condvar) {
+    static Q: OnceLock<(Mutex<SaveQueue>, Condvar, Condvar)> = OnceLock::new();
+    Q.get_or_init(|| {
+        std::thread::Builder::new().name("save-writer".into()).spawn(|| loop {
+            let (m, work, done) = queue();
+            let job = {
+                let mut q = m.lock().unwrap();
+                while q.pending.is_empty() { q = work.wait(q).unwrap(); }
+                let k = q.pending.keys().next().cloned().unwrap();
+                let v = q.pending.remove(&k).unwrap();
+                q.busy = true;
+                (k, v)
+            };
+            let _ = save_encrypted_json(&job.0, &job.1);
+            let mut q = m.lock().unwrap();
+            q.busy = false;
+            done.notify_all();
+        }).expect("save-writer");
+        (Mutex::new(SaveQueue { pending: HashMap::new(), busy: false }), Condvar::new(), Condvar::new())
+    })
+}
+
+/// Spielstand im Hintergrund schreiben (neuester Stand gewinnt)
+pub fn save_encrypted_json_bg(path: &std::path::Path, data: serde_json::Value) {
+    let (m, work, _) = queue();
+    m.lock().unwrap().pending.insert(path.to_path_buf(), data);
+    work.notify_one();
+}
+
+/// Wartet, bis alle Hintergrund-Speicherungen geschrieben sind
+pub fn flush_saves() {
+    let (m, _, done) = queue();
+    let mut q = m.lock().unwrap();
+    while !q.pending.is_empty() || q.busy {
+        let (nq, _) = done.wait_timeout(q, std::time::Duration::from_millis(200)).unwrap();
+        q = nq;
+    }
+}

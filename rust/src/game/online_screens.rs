@@ -46,6 +46,7 @@ pub fn _draw_verified_badge(s: &Surface, cx: i32, cy: i32, radius: i32) {
 impl G {
     pub fn quit(&mut self) -> ! {
         self.stop_music();
+        crate::crypto::flush_saves();
         std::process::exit(0);
     }
 

@@ -95,7 +95,8 @@ impl G {
         g.create_main_buttons();
         g.current_game_mode = "standard".into();
         g.two_player_submode = "coop".into();
-        g.loading_duration = 2000;
+        // Python brauchte die 2 s zum Laden von pygame/Sounds - Rust ist sofort fertig, kurzer Vorspann reicht
+        g.loading_duration = 600;
         g.loading_to_daily_rewards = true;
         g._load_help_texts();
 
@@ -1115,7 +1116,7 @@ impl G {
                         self.display.event_post(Event::MouseButtonUp { button: 1, pos: (px, py) });
                     }
                 }
-                "quit" => { println!("[TEST] Ende bei Frame {}", fc); std::process::exit(0); }
+                "quit" => { println!("[TEST] Ende bei Frame {}", fc); crate::crypto::flush_saves(); std::process::exit(0); }
                 _ => {}
             }
         }

@@ -18,6 +18,13 @@ fn main() {
         }
         return;
     }
+    // Bei einem Absturz noch ausstehende Spielstände schreiben
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        crypto::flush_saves();
+    }));
     let mut g = game::state::G::new();
     g.main_loop();
+    crypto::flush_saves();
 }

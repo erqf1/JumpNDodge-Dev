@@ -54,7 +54,7 @@ impl G {
             }
         }
         let path = self._GAMEDATA_FILE.clone();
-        let _ = crypto::save_encrypted_json(&path, &Value::Object(self._gamedata_cache.clone()));
+        crypto::save_encrypted_json_bg(&path, Value::Object(self._gamedata_cache.clone()));
     }
 
     pub fn _delete_old_plaintext_savedata(&self) {
