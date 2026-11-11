@@ -39,8 +39,17 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
    `main` übernehmen (Pull Request). Ich durfte sie nicht ändern, weil du sie angelegt hast.
 5. **Linux-Nutzer der alten Python-Version** wechseln nicht automatisch (der alte Python-Updater verliert unter Linux das
    Ausführungsrecht): einmal `.deb`/Arch-Paket/`tar.gz` installieren – der Spielstand wird übernommen. Windows wechselt automatisch.
+   Ab 5.0.1 heißt das Linux-Zip im Archiv `*-linux-portable.zip`, der alte Updater lässt Linux dann in Ruhe (geprüft).
+   Nur wer zwischen 07:11 und 07:20 Uhr (11.11.) die alte Linux-Version gestartet hat, bekam 5.0.0 ohne
+   Ausführungsrecht – Abhilfe: `chmod +x ~/.local/share/JumpNDodge/JumpNDodge` oder das .deb installieren.
 6. Optional: macOS-Apps sind nur ad-hoc signiert (Rechtsklick → Öffnen). Für „normales“ Öffnen bräuchte es ein
    Apple-Entwicklerkonto (99 €/Jahr) zum Beglaubigen.
+
+## Hinweise
+- **W Hub Selbsttest unter Windows:** Teil 1 ist grün (111/111, auch alle JumpNDodge-Prüfungen). Teil 2 hängt manchmal beim
+  Test „abgebrochene Download-Stücke neu laden“ – das passierte schon vor dieser Änderung (2 von 4 Läufen auf `main`
+  am 11.11. nachts) und betrifft den Download-Code von W Hub, nicht den Katalog. Linux und macOS sind grün.
+- Die Release-Läufe starten per Actions → „Rust Edition – Build & Release“ → Run workflow (Branch wählen, tag = vX.Y.Z).
 
 ## Offen / Ideen für später
 - Replays der Rekordläufe direkt aus dem Statistik-Menü ansehen (Dateien liegen schon in `data/replays/`).
