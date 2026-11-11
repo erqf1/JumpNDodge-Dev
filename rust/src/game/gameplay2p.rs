@@ -11,9 +11,9 @@ use crate::util::*;
 use jnd_core::sim2p::{self, Input, SimEvent, Sim2p};
 use serde_json::json;
 
-const P_COLORS: [(i32, i32, i32); 2] = [BLUE, (255, 120, 0)];
-const P_SHADOWS: [(i32, i32, i32); 2] = [(70, 70, 130), (130, 70, 30)];
-const P_OVERLAY: [(i32, i32, i32); 2] = [(100, 150, 255), (255, 160, 50)];
+/// Spielerfarben (P2 pink statt orange - nie Orange neben dem 1-UP)
+const P_COLORS: [(i32, i32, i32); 2] = super::multiplayer::MP_COLORS;
+const P_OVERLAY: [(i32, i32, i32); 2] = [(110, 160, 255), (240, 120, 190)];
 
 impl G {
     fn input_2p(&self, prefix: &str) -> Input {
@@ -91,7 +91,7 @@ impl G {
                     let at = |i: usize| Some((r(i).centerx(), r(i).top() - 20));
                     match *ev {
                         SimEvent::Revived(i) => self.push_overlay(&format!("P{} wiederbelebt!", i + 1), P_OVERLAY[i], 1.5, at(i)),
-                        SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), (0, 200, 0), 1.5, at(i)),
+                        SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), super::art::ONEUP, 1.5, at(i)),
                         SimEvent::Hit(i) => { self.play_sound_v(Snd::Hit, "hit_volume"); self.push_overlay(&format!("P{} Treffer!", i + 1), P_OVERLAY[i], 1.5, at(i)); }
                         SimEvent::Died(_) => self.play_sound_v(Snd::Hit, "hit_volume"),
                     }
@@ -106,23 +106,17 @@ impl G {
             let fall = (cs * 0.85).max(2.0);
             let gnd = |r: Rect| Rect::new(r.x + (cs * back).round() as i32, r.y, r.w, r.h);
             let top = |r: Rect| Rect::new(r.x, r.y - (fall * back).round() as i32, r.w, r.h);
-            for o in &sim.obstacles {
-                let r = gnd(o.rect);
-                draw::rect(&bs, (150, 50, 50), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
-                draw::rect(&bs, RED, r, 0, 6);
+            let tsec = self.get_ticks() as f64 / 1000.0;
+            if self.settings.gb("show_floor_line", true) {
+                let dark = self.is_dark_mode();
+                super::art::draw_floor(&bs, w, h, sim.floor_y + 2, (sim.frame as f64 + alpha) * cs, dark);
             }
+            for p in sim.powerups.iter().map(|p| gnd(*p)) { super::art::draw_oneup(&bs, p, tsec, &self.badge_font); }
+            for o in &sim.obstacles { super::art::draw_hazard(&bs, gnd(o.rect)); }
             for o in &sim.top_obstacles {
                 let r = top(o.rect);
-                draw::rect(&bs, (80, 0, 110), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
-                draw::rect(&bs, (160, 0, 200), r, 0, 6);
-                let (ax, ay) = (r.centerx(), r.top() - 8);
-                draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
-            }
-            for p in sim.powerups.iter().map(|p| gnd(*p)) {
-                draw::rect(&bs, (100, 255, 100), Rect::new(p.x - 3, p.y - 3, p.w + 6, p.h + 6), 0, 10);
-                draw::rect(&bs, GREEN, p, 0, 8);
-                let t = self.small_font.render("1-UP", true, WHITE);
-                bs.blit(&t, (p.centerx() - t.get_width() / 2, p.centery() - t.get_height() / 2));
+                super::art::draw_faller(&bs, r);
+                super::art::draw_faller_marker(&bs, r, tsec);
             }
             let sf = self.small_font.clone();
             let mf = self.menu_font.clone();
@@ -130,8 +124,7 @@ impl G {
                 if !p.alive { continue; }
                 let pr = lerp_rect(Some((prev_players[i].x, prev_players[i].y)), p.rect, alpha);
                 if p.invuln == 0 || (p.invuln / 5) % 2 == 0 {
-                    draw::rect(&bs, P_SHADOWS[i], Rect::new(pr.x + 3, pr.y + 3, pr.w, pr.h), 0, 8);
-                    draw::rect(&bs, P_COLORS[i], pr, 0, 8);
+                    super::art::draw_player(&bs, pr, P_COLORS[i]);
                 }
                 let lbl = format!("P{}", i + 1);
                 let l = sf.render(&lbl, true, WHITE);

@@ -25,7 +25,6 @@ pub const HOST_INFO_URL: &str = "mert.win/jump/server";
 
 /// Farben der Spieler online (kein Orange neben dem grünen 1-UP)
 pub const MP_COLORS: [(i32, i32, i32); 2] = [(70, 130, 255), (225, 80, 170)];
-const MP_SHADOWS: [(i32, i32, i32); 2] = [(40, 60, 120), (110, 40, 85)];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Screen { Browser, Connecting, Lobby, Room, Playing, Result }
@@ -363,7 +362,7 @@ impl G {
         let (snd, text, col, at) = match e {
             SimEvent::Hit(i) => (Snd::Hit, format!("{} {}!", who(i), self.tde("getroffen", "hit")), MP_COLORS[i], pos(self, i)),
             SimEvent::Died(i) => (Snd::Hit, format!("{} {}", who(i), self.tde("ausgeschieden", "eliminated")), (220, 70, 70), None),
-            SimEvent::OneUp(i) => (Snd::OneUp, format!("1-UP ({})", who(i)), (60, 200, 110), pos(self, i)),
+            SimEvent::OneUp(i) => (Snd::OneUp, format!("1-UP ({})", who(i)), super::art::ONEUP, pos(self, i)),
             SimEvent::Revived(i) => (Snd::OneUp, format!("{} {}", who(i), self.tde("wiederbelebt!", "revived!")), MP_COLORS[i], pos(self, i)),
         };
         if snd == Snd::Hit { self.play_sound_v(Snd::Hit, "hit_volume"); } else { self.play_sound(snd); }
@@ -766,8 +765,7 @@ impl G {
             let r = Rect::new(w / 2 - 300 + i as i32 * 310, 120, 290, 130);
             draw::rect(&bs, self.get_panel_color(), r, 0, 14);
             draw::rect(&bs, MP_COLORS[i], r, 2, 14);
-            draw::rect(&bs, MP_SHADOWS[i], Rect::new(r.x + 23, r.y + 23, 40, 40), 0, 8);
-            draw::rect(&bs, MP_COLORS[i], Rect::new(r.x + 20, r.y + 20, 40, 40), 0, 8);
+            super::art::draw_player(&bs, Rect::new(r.x + 20, r.y + 20, 40, 40), MP_COLORS[i]);
             self.mp_text(&bs, &sf, &format!("P{}", i + 1), MP_COLORS[i], r.x + 74, r.y + 18, false);
             match &room.players[i] {
                 Some(p) => {
@@ -816,8 +814,7 @@ impl G {
         if !p.alive { return; }
         let r = self.mp_field_rect(p.rect);
         if p.invuln == 0 || (self.get_ticks() / 80) % 2 == 0 {
-            draw::rect(bs, MP_SHADOWS[i], Rect::new(r.x + 3, r.y + 3, r.w, r.h), 0, 8);
-            draw::rect(bs, MP_COLORS[i], r, 0, 8);
+            super::art::draw_player(bs, r, MP_COLORS[i]);
         }
         let sf = &self.small_font;
         let l = sf.render(label, true, WHITE);
@@ -841,29 +838,16 @@ impl G {
             draw::line(&bs, (70, 60, 110), (fr.right(), fr.top()), (fr.right(), fr.bottom()), 1);
         }
         let floor = self.mp_field_rect(Rect::new(0, r.floor_y + 2, FIELD_W, 2));
-        draw::line(&bs, (60, 30, 110), (floor.left(), floor.top() - 1), (floor.right(), floor.top() - 1), 1);
-        draw::line(&bs, (140, 80, 220), (floor.left(), floor.top()), (floor.right(), floor.top()), (2.0 * s).round().max(1.0) as i32);
+        let tsec = self.get_ticks() as f64 / 1000.0;
+        let dark = self.is_dark_mode();
+        super::art::draw_floor(&bs, w, h, floor.top(), r.server_frame * r.speed * s, dark);
+        for p in r.powerups_draw() { super::art::draw_oneup(&bs, self.mp_field_rect(p), tsec, &self.badge_font); }
         for (o, kind) in r.obstacles_draw() {
             let fr = self.mp_field_rect(o);
             match kind {
-                ObstacleKind::Ground => {
-                    draw::rect(&bs, (150, 50, 50), Rect::new(fr.x + 2, fr.y + 2, fr.w, fr.h), 0, 6);
-                    draw::rect(&bs, RED, fr, 0, 6);
-                }
-                ObstacleKind::Top => {
-                    draw::rect(&bs, (80, 0, 110), Rect::new(fr.x + 2, fr.y + 2, fr.w, fr.h), 0, 6);
-                    draw::rect(&bs, (160, 0, 200), fr, 0, 6);
-                    let (ax, ay) = (fr.centerx(), fr.top() - 8);
-                    draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
-                }
+                ObstacleKind::Ground => super::art::draw_hazard(&bs, fr),
+                ObstacleKind::Top => { super::art::draw_faller(&bs, fr); super::art::draw_faller_marker(&bs, fr, tsec); }
             }
-        }
-        for p in r.powerups_draw() {
-            let fr = self.mp_field_rect(p);
-            draw::rect(&bs, (120, 230, 150), Rect::new(fr.x - 3, fr.y - 3, fr.w + 6, fr.h + 6), 0, 10);
-            draw::rect(&bs, (40, 170, 90), fr, 0, 8);
-            let t = self.badge_font.render("1-UP", true, WHITE);
-            bs.blit(&t, (fr.centerx() - t.get_width() / 2, fr.centery() - t.get_height() / 2));
         }
         let you = r.you;
         let other = 1 - you;

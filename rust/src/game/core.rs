@@ -159,7 +159,7 @@ impl G {
         let max_stars = 8.max((55.0 * area_ratio) as usize);
         if show_rings && rings_on {
             let light = [(180,200,220),(150,180,210),(160,190,215),(170,205,225),(145,175,205),(165,195,218),(155,185,212),(175,200,222),(148,178,208),(162,192,216),(172,202,220),(158,188,213)];
-            let darkc = [(100,150,200),(150,100,200),(200,150,100),(90,140,195),(140,95,195),(195,145,95),(105,155,205),(155,105,205),(205,155,105),(95,145,198),(148,98,198),(198,148,98)];
+            let darkc = [(100,150,200),(150,100,200),(200,110,160),(90,140,195),(140,95,195),(195,105,155),(105,155,205),(155,105,205),(205,115,165),(95,145,198),(148,98,198),(198,108,158)];
             let rcols = if !dark { light } else { darkc };
             let mono_rcol = if !dark { (40, 40, 40) } else { (210, 210, 210) };
             let ring_scale = w.min(h) as f64 / 600.0;
@@ -184,9 +184,9 @@ impl G {
         let star_cols: Vec<(i32, i32, i32)> = if mono {
             if !dark { vec![(40, 40, 40)] } else { vec![(210, 210, 210)] }
         } else if !dark {
-            vec![(120, 160, 230), (220, 180, 60), (100, 200, 230), (230, 100, 140), (80, 180, 120)]
+            vec![(120, 160, 230), (220, 180, 60), (100, 200, 230), (230, 100, 140), (160, 130, 230)]
         } else {
-            vec![(120, 160, 255), (255, 220, 80), (80, 200, 255), (255, 120, 180), (80, 220, 140)]
+            vec![(120, 160, 255), (255, 220, 80), (80, 200, 255), (255, 120, 180), (180, 150, 255)]
         };
         let stars = self._bg_stars.clone();
         for (i, s) in stars.iter().take(max_stars).enumerate() {
@@ -212,8 +212,13 @@ impl G {
     pub fn fill_bg(&mut self, rings: bool) {
         self.sync_window_size();
         let bs = self.base_surface.clone();
-        bs.fill(self.get_bg_color());
         let (w, h) = (self.WIDTH, self.HEIGHT);
+        if self.settings.gb("mono_bg", false) || !self.settings.gb("bg_gradient", true) {
+            bs.fill(self.get_bg_color());
+        } else {
+            // Rust Edition: sanfter Verlauf statt einfarbig
+            bs.blit(&super::art::background(w, h, self.is_dark_mode()), (0, 0));
+        }
         self.draw_bg_effects(&bs, w, h, rings);
     }
 

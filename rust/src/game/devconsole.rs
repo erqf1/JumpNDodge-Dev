@@ -303,6 +303,24 @@ impl G {
             "add_lives" => { let n = parse_int(args, 0, 1); self._dev_round_action(cmd, Some(n)); }
             "set_lives" => { let n = parse_int(args, 0, 0); self._dev_round_action(cmd, Some(n)); }
             "god_mode" => { let on = args.first().map(|a| a.to_lowercase() != "off").unwrap_or(true); self._dev_round_action(cmd, Some(on as i64)); }
+            "art_preview" => {
+                // Vorschau aller Spiel-Sprites als PNG (zum Prüfen der Grafik)
+                let path = args.first().copied().unwrap_or("art_preview.png").to_string();
+                let s = Surface::new(800, 300);
+                s.blit(&super::art::background(800, 300, self.is_dark_mode()), (0, 0));
+                super::art::draw_floor(&s, 800, 300, 250, 13.0, self.is_dark_mode());
+                let cols = [(45, 95, 235), (80, 180, 255), (255, 105, 180), (255, 215, 0), (20, 100, 40), (255, 120, 0)];
+                for (i, c) in cols.iter().enumerate() { super::art::draw_player(&s, Rect::new(30 + i as i32 * 70, 200, 50, 50), *c); }
+                super::art::draw_hazard(&s, Rect::new(470, 200, 50, 50));
+                super::art::draw_hazard(&s, Rect::new(540, 200, 50, 50));
+                super::art::draw_faller(&s, Rect::new(620, 60, 50, 50));
+                super::art::draw_faller_marker(&s, Rect::new(620, 60, 50, 50), 0.2);
+                super::art::draw_oneup(&s, Rect::new(700, 150, 50, 50), 0.4, &self.badge_font);
+                super::art::draw_player(&s, super::art::squash(Rect::new(400, 60, 50, 50), -12.0, 1000.0), (45, 95, 235));
+                super::art::draw_player(&s, super::art::squash(Rect::new(400, 200, 50, 50), 0.0, 20.0), (225, 80, 170));
+                s.save_png(&path);
+                println!("[DEV] Grafik-Vorschau gespeichert: {}", path);
+            }
             "mp" => {
                 // Multiplayer fernsteuern (Tests): run mp connect <adr> | create vs Hölle | join first | ready | rematch | leave
                 let line = args.join(" ");

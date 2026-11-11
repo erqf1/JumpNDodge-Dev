@@ -300,6 +300,8 @@ impl G {
         let mut jump_latch = false;
         let mut focus_pause = false;
         let mut prev_player = player;
+        let (mut floor_scroll, mut prev_floor_scroll) = (0.0f64, 0.0f64);
+        let mut land_ms = 1000.0f64;
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
@@ -309,9 +311,9 @@ impl G {
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
             if self.settings.gb("show_floor_line", true) && !free_roam {
-                let fy = h - 48;
-                draw::line(&bs, (60, 30, 110), (0, fy - 1), (w, fy - 1), 1);
-                draw::line(&bs, (140, 80, 220), (0, fy), (w, fy), 2);
+                let fs = prev_floor_scroll + (floor_scroll - prev_floor_scroll) * (acc_ms / LOGIC_TICK_MS).clamp(0.0, 1.0);
+                let dark = self.is_dark_mode();
+                super::art::draw_floor(&bs, w, h, h - 48, fs, dark);
             }
             for ev in self.event_get() {
                 match ev {
@@ -351,6 +353,8 @@ impl G {
                 let dt = logic_dt(tick_no);
                 tick_no += 1;
                 prev_player = player;
+                prev_floor_scroll = floor_scroll;
+                land_ms += dt as f64;
                 for o in obstacles.iter_mut().chain(top_obstacles.iter_mut()).chain(powerups.iter_mut()) { o.prev = Some((o.r.x, o.r.y)); }
                 for (act, arg) in self._drain_dev_round_actions() {
                     match act.as_str() {
@@ -437,7 +441,7 @@ impl G {
                     if player.bottom() >= h - 50 {
                         player.set_bottom(h - 50);
                         vy = 0.0;
-                        if is_jumping || used_double_jump { is_jumping = false; used_double_jump = false; }
+                        if is_jumping || used_double_jump { is_jumping = false; used_double_jump = false; land_ms = 0.0; }
                         space_was_down = false;
                     }
                 }
@@ -467,6 +471,7 @@ impl G {
                     }
                 }
                 let current_speed = speed * rp.speed_multiplier();
+            floor_scroll += current_speed;
                 let fall_speed = (current_speed * 0.85).max(2.0);
                 let mut i = 0;
                 while i < obstacles.len() {
@@ -531,7 +536,7 @@ impl G {
                         powerups.remove(i);
                         self.play_sound(Snd::OneUp);
                         self.show_1up_text_overlay(Some(player));
-                        self.push_overlay("1-UP eingesammelt", (0, 150, 0), 1.5, Some((player.centerx(), player.top() - 20)));
+                        self.push_overlay("1-UP eingesammelt", super::art::darken(super::art::ONEUP, 0.1), 1.5, Some((player.centerx(), player.top() - 20)));
                         continue;
                     }
                     i += 1;
@@ -607,30 +612,19 @@ impl G {
             let alpha = (acc_ms / LOGIC_TICK_MS).clamp(0.0, 1.0);
             // ---- Zeichnen ----
             let show_player = hit_invuln == 0 || (self.get_ticks() / 80) % 2 == 0;
-            let dplayer = lerp_rect(Some((prev_player.x, prev_player.y)), player, alpha);
-            if show_player {
-                draw::rect(&bs, (100, 100, 150), Rect::new(dplayer.x + 3, dplayer.y + 3, dplayer.w, dplayer.h), 0, 8);
-                draw::rect(&bs, self.get_player_color(), dplayer, 0, 8);
+            let tsec = self.get_ticks() as f64 / 1000.0;
+            let dplayer = super::art::squash(lerp_rect(Some((prev_player.x, prev_player.y)), player, alpha), if free_roam { 0.0 } else { vy }, if free_roam { 1000.0 } else { land_ms });
+            for p in powerups.iter().map(|p| p.draw_rect(alpha)) {
+                super::art::draw_oneup(&bs, p, tsec, &self.badge_font);
             }
-            self.draw_player_cosmetics(&bs, dplayer, None);
-            for o in &obstacles {
-                let r = o.draw_rect(alpha);
-                draw::rect(&bs, (150, 50, 50), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
-                draw::rect(&bs, RED, r, 0, 6);
-            }
+            for o in &obstacles { super::art::draw_hazard(&bs, o.draw_rect(alpha)); }
             for o in &top_obstacles {
                 let r = o.draw_rect(alpha);
-                draw::rect(&bs, (80, 0, 110), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
-                draw::rect(&bs, (160, 0, 200), r, 0, 6);
-                let (ax, ay) = (r.centerx(), r.top() - 8);
-                draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
+                super::art::draw_faller(&bs, r);
+                super::art::draw_faller_marker(&bs, r, tsec);
             }
-            for p in powerups.iter().map(|p| p.draw_rect(alpha)) {
-                draw::rect(&bs, (100, 255, 100), Rect::new(p.x - 3, p.y - 3, p.w + 6, p.h + 6), 0, 10);
-                draw::rect(&bs, GREEN, p, 0, 8);
-                let t = self.small_font.render("1-UP", true, WHITE);
-                bs.blit(&t, (p.centerx() - t.get_width() / 2, p.centery() - t.get_height() / 2));
-            }
+            if show_player { super::art::draw_player(&bs, dplayer, self.get_player_color()); }
+            self.draw_player_cosmetics(&bs, dplayer, None);
             if wind_h || wind_v {
                 let mag = wh.abs().max(wv.abs());
                 if mag > 0.04 {

@@ -398,6 +398,47 @@ pub mod draw {
         Rect::new((cx - rad) as i32, (cy - rad) as i32, (rad * 2.0) as i32, (rad * 2.0) as i32)
     }
 
+    /// Abgerundetes Rechteck mit senkrechtem Farbverlauf (oben -> unten), geglättet.
+    /// Auf Flächen mit Alphakanal werden die Alphawerte der Farben beachtet.
+    pub fn rect_vgrad<C: Into<Color>, D: Into<Color>>(surf: &Surface, r: Rect, radius: i32, top: C, bottom: D) {
+        let (top, bottom) = (top.into(), bottom.into());
+        let r = r.normalized();
+        if r.w <= 0 || r.h <= 0 { return; }
+        let mut s = surf.0.borrow_mut();
+        let fix = |c: Color| if s.srcalpha { c } else { Color(c.0, c.1, c.2, 255) };
+        let (top, bottom) = (fix(top), fix(bottom));
+        let (x, y, w, h) = (r.x as f32, r.y as f32, r.w as f32, r.h as f32);
+        let Some(shader) = tiny_skia::LinearGradient::new(
+            tiny_skia::Point::from_xy(0.0, y), tiny_skia::Point::from_xy(0.0, y + h),
+            vec![tiny_skia::GradientStop::new(0.0, top.skia()), tiny_skia::GradientStop::new(1.0, bottom.skia())],
+            tiny_skia::SpreadMode::Pad, Transform::identity()) else { return; };
+        let mut p = Paint::default();
+        p.shader = shader;
+        p.anti_alias = true;
+        let rad = (radius.max(0) as f32).min(w.min(h) / 2.0);
+        let mut pb = PathBuilder::new();
+        rrect_path(&mut pb, x, y, w, h, [rad; 4]);
+        if let Some(path) = pb.finish() { fill_path_on(&mut s, &path, &p, FillRule::Winding); }
+    }
+
+    /// Weicher Kreis mit radialem Verlauf (innen -> außen transparent), z.B. für Glühen
+    pub fn glow<C: Into<Color>, P: Pos>(surf: &Surface, color: C, center: P, radius: f32) {
+        let c = color.into();
+        let (cx, cy) = center.xy();
+        if radius <= 0.5 { return; }
+        let mut s = surf.0.borrow_mut();
+        let Some(shader) = tiny_skia::RadialGradient::new(
+            tiny_skia::Point::from_xy(cx as f32, cy as f32), tiny_skia::Point::from_xy(cx as f32, cy as f32), radius,
+            vec![tiny_skia::GradientStop::new(0.0, c.skia()), tiny_skia::GradientStop::new(1.0, Color(c.0, c.1, c.2, 0).skia())],
+            tiny_skia::SpreadMode::Pad, Transform::identity()) else { return; };
+        let mut p = Paint::default();
+        p.shader = shader;
+        p.anti_alias = true;
+        let mut pb = PathBuilder::new();
+        pb.push_circle(cx as f32, cy as f32, radius);
+        if let Some(path) = pb.finish() { fill_path_on(&mut s, &path, &p, FillRule::Winding); }
+    }
+
     /// Kreis mit weichen Kanten (für Stellen, die pygame.gfxdraw.aacircle o.ä. nachbilden)
     pub fn aacircle<C: Into<Color>, P: Pos>(surf: &Surface, color: C, center: P, radius: f32) {
         let c = color.into();

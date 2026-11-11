@@ -11,6 +11,7 @@ pub mod devconsole;
 pub mod mainloop;
 pub mod icon;
 pub mod loadout;
+pub mod art;
 pub mod menus;
 pub mod multiplayer;
 pub mod online;

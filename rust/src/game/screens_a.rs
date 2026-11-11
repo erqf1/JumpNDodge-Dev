@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 pub const PLAYER_COLOR_NAMES: [&str; 6] = ["blue", "darkgreen", "lightblue", "pink", "orange", "yellow"];
 pub fn player_color(name: &str) -> Option<(i32, i32, i32)> {
     match name {
-        "blue" => Some(BLUE), "darkgreen" => Some((20, 100, 40)), "lightblue" => Some((80, 180, 255)),
+        "blue" => Some((45, 95, 235)), "darkgreen" => Some((20, 100, 40)), "lightblue" => Some((80, 180, 255)),
         "pink" => Some((255, 105, 180)), "orange" => Some((255, 120, 0)), "yellow" => Some(GOLD), _ => None,
     }
 }
@@ -571,11 +571,11 @@ impl G {
         (swatch_rects, PLAYER_COLOR_NAMES.to_vec(), btn_rects)
     }
 
-    pub fn get_player_color(&self) -> (i32, i32, i32) { player_color(&self.settings.gs("player_color", "blue")).unwrap_or(BLUE) }
+    pub fn get_player_color(&self) -> (i32, i32, i32) { player_color(&self.settings.gs("player_color", "blue")).unwrap_or((45, 95, 235)) }
 
     /// draw_avatar(surface, rect, color=None, cosmetics=True, cosmetics_overrides=None)
     pub fn draw_avatar(&self, surface: &Surface, r: Rect, color: Option<(i32, i32, i32)>, cosmetics: bool, overrides: Option<&serde_json::Map<String, Value>>) {
-        draw::rect(surface, color.unwrap_or(self.get_player_color()), r, 0, 8);
+        super::art::draw_player(surface, r, color.unwrap_or(self.get_player_color()));
         if cosmetics { self.draw_player_cosmetics(surface, r, overrides); }
     }
 }
