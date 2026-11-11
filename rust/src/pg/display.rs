@@ -282,6 +282,16 @@ impl Display {
         (1920, 1080)
     }
 
+    /// Bildwiederholrate des aktuellen Monitors in Hz (z. B. 60, 144, 165), falls bekannt
+    pub fn refresh_rate(&self) -> Option<u32> {
+        if self.hidden { return None; }
+        let w = self.app.window.as_ref()?;
+        let m = w.current_monitor()?;
+        let mhz = m.refresh_rate_millihertz()?;
+        let hz = (mhz as f64 / 1000.0).round() as u32;
+        if (24..=1000).contains(&hz) { Some(hz) } else { None }
+    }
+
     /// Zeigt eine Fläche (logische Größe) im Fenster an - skaliert auf die echte Pixelgröße.
     pub fn present(&mut self, surf: &Surface) {
         let Some(win) = self.app.window.clone() else { return; };
@@ -299,6 +309,17 @@ impl Display {
             if sw == pw && sh == ph {
                 for (d, s) in buf.iter_mut().zip(src.iter()) {
                     *d = ((s.red() as u32) << 16) | ((s.green() as u32) << 8) | (s.blue() as u32);
+                }
+            } else if pw % sw == 0 && ph % sh == 0 && pw / sw == ph / sh {
+                // ganzzahliger Faktor (z. B. 200 % DPI im Vollbild): Pixel verdoppeln = gestochen scharf
+                let f = pw / sw;
+                for y in 0..ph {
+                    let srow = ((y / f) * sw) as usize;
+                    let row = (y * pw) as usize;
+                    for x in 0..pw {
+                        let s = src[srow + (x / f) as usize];
+                        buf[row + x as usize] = ((s.red() as u32) << 16) | ((s.green() as u32) << 8) | (s.blue() as u32);
+                    }
                 }
             } else {
                 // bilineare Skalierung (wie Windows bei DPI-Skalierung)
@@ -360,7 +381,9 @@ impl Default for Clock { fn default() -> Self { Clock::new() } }
 impl Clock {
     pub fn new() -> Clock { Clock { last: None, frame_times: VecDeque::new() } }
     /// Begrenzt auf `fps` Bilder pro Sekunde, gibt die vergangenen Millisekunden zurück.
-    pub fn tick(&mut self, fps: i32) -> i64 {
+    pub fn tick(&mut self, fps: i32) -> i64 { self.tick_f(fps).round() as i64 }
+    /// Wie `tick`, aber mit genauer (gebrochener) Millisekundenzahl
+    pub fn tick_f(&mut self, fps: i32) -> f64 {
         let now = Instant::now();
         let mut elapsed = match self.last { Some(l) => now - l, None => Duration::ZERO };
         if fps > 0 {
@@ -381,7 +404,7 @@ impl Clock {
         let ms = elapsed.as_secs_f64() * 1000.0;
         self.frame_times.push_back(ms);
         if self.frame_times.len() > 10 { self.frame_times.pop_front(); }
-        ms.round() as i64
+        ms
     }
     pub fn get_fps(&self) -> f64 {
         let n = self.frame_times.len();

@@ -2,6 +2,7 @@
 //! Die Regeln stecken in jnd_core::sim2p (geteilt mit dem späteren Multiplayer-Server),
 //! hier bleiben nur Eingabe, Zeichnen, Overlays, Sound und Statistik.
 
+use super::timestep::FixedStep;
 use super::core::*;
 use super::state::{Snd, G};
 use crate::data::d;
@@ -35,10 +36,12 @@ impl G {
         let mut sim = Sim2p::new(cfg, self.WIDTH, self.HEIGHT);
         let mut round_start = now_secs();
         let mut last_frame = self.base_surface.copy();
+        let mut fixed = FixedStep::new();
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
-            let dt = clock.tick(60);
+            let frame_ms = clock.tick_f(self.render_fps());
+            let steps = fixed.advance(frame_ms);
             self.fill_bg(true);
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
@@ -56,18 +59,23 @@ impl G {
                     _ => {}
                 }
             }
-            let inputs = [self.input_2p("p1"), self.input_2p("p2")];
-            let res = sim.step(dt, inputs, w, h);
-            if res.jumps > 0 { let t = self.stats.gi("total_jumps", 0) + res.jumps; self.stats.insert("total_jumps".into(), json!(t)); }
-            for ev in &res.events {
-                let r = |i: usize| sim.players[i].rect;
-                let at = |i: usize| Some((r(i).centerx(), r(i).top() - 20));
-                match *ev {
-                    SimEvent::Revived(i) => self.push_overlay(&format!("P{} wiederbelebt!", i + 1), P_OVERLAY[i], 1.5, at(i)),
-                    SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), (0, 200, 0), 1.5, at(i)),
-                    SimEvent::Hit(i) => { self.play_sound_v(Snd::Hit, "hit_volume"); self.push_overlay(&format!("P{} Treffer!", i + 1), P_OVERLAY[i], 1.5, at(i)); }
-                    SimEvent::Died(_) => self.play_sound_v(Snd::Hit, "hit_volume"),
+            let mut finished: Option<Option<String>> = None;
+            for &dt in &steps {
+                if finished.is_some() { break; }
+                let inputs = [self.input_2p("p1"), self.input_2p("p2")];
+                let res = sim.step(dt, inputs, w, h);
+                if res.jumps > 0 { let t = self.stats.gi("total_jumps", 0) + res.jumps; self.stats.insert("total_jumps".into(), json!(t)); }
+                for ev in &res.events {
+                    let r = |i: usize| sim.players[i].rect;
+                    let at = |i: usize| Some((r(i).centerx(), r(i).top() - 20));
+                    match *ev {
+                        SimEvent::Revived(i) => self.push_overlay(&format!("P{} wiederbelebt!", i + 1), P_OVERLAY[i], 1.5, at(i)),
+                        SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), (0, 200, 0), 1.5, at(i)),
+                        SimEvent::Hit(i) => { self.play_sound_v(Snd::Hit, "hit_volume"); self.push_overlay(&format!("P{} Treffer!", i + 1), P_OVERLAY[i], 1.5, at(i)); }
+                        SimEvent::Died(_) => self.play_sound_v(Snd::Hit, "hit_volume"),
+                    }
                 }
+                if res.game_over { finished = Some(res.winner.map(|w| w.as_str().to_string())); }
             }
 
             for o in &sim.obstacles {
@@ -141,7 +149,7 @@ impl G {
             }
             last_frame = self.base_surface.copy();
             self.flip();
-            if res.game_over {
+            if let Some(winner) = finished {
                 let secs = (now_secs() - round_start) as i64;
                 let score = sim.score;
                 self.stop_music();
@@ -159,7 +167,7 @@ impl G {
                 rbd.insert(difficulty.clone(), json!(v));
                 s.insert("rounds_by_diff".into(), serde_json::Value::Object(rbd));
                 self.save_section("stats", None);
-                self.show_game_over_2p(score, res.winner.map(|w| w.as_str()), secs);
+                self.show_game_over_2p(score, winner.as_deref(), secs);
                 return;
             }
         }

@@ -122,9 +122,12 @@ pub struct Obstacle {
     /// Gleitkomma-Position für Free-Roam (pygame-Rects runden jede Bewegung ab)
     pub fx: f64,
     pub fy: f64,
+    /// Position vor dem letzten Logikschritt (zum Interpolieren beim Zeichnen)
+    pub px: i32,
+    pub py: i32,
 }
 impl Obstacle {
-    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64 } }
+    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64, px: x, py: y } }
 }
 
 impl G {
@@ -358,6 +361,7 @@ impl G {
     pub fn request_fade(&mut self, cb: Box<dyn FnOnce(&mut G)>) {
         self._fade_alpha = 0;
         self._fade_dir = 1;
+        self._fade_last_ms = self.get_ticks() - 16;
         self._fade_callback = Some(cb);
     }
 
@@ -410,7 +414,11 @@ impl G {
             Some(ds)
         } else { None };
         if self._fade_dir != 0 || self._fade_alpha > 0 {
-            self._fade_alpha += self._fade_dir * FADE_SPEED;
+            // zeitbasiert: gleich schnell bei 60 und 165 Hz (Python: 22 pro Bild bei 60 FPS)
+            let now = self.get_ticks();
+            let el = (now - self._fade_last_ms).clamp(1, 50);
+            self._fade_last_ms = now;
+            self._fade_alpha += self._fade_dir * ((FADE_SPEED as f64 * el as f64 / (1000.0 / 60.0)).round() as i32).max(1);
             if self._fade_dir == 1 && self._fade_alpha >= 255 {
                 self._fade_alpha = 255;
                 if let Some(cb) = self._fade_callback.take() { cb(self); }

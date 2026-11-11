@@ -52,6 +52,7 @@ pub struct G {
     pub _bg_stars: Vec<[f64; 7]>,
     pub _window_locked_for_gameplay: bool,
     pub _fade_alpha: i32,
+    pub _fade_last_ms: i64,
     pub _fade_dir: i32,
     pub _fade_callback: Option<Cb>,
     pub _frame_counter: u64,
