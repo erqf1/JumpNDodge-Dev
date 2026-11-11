@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JumpNDodge – Rust Edition</title>
+<meta name="description" content="JumpNDodge: springen, ausweichen, überleben. Allein, zu zweit an einer Tastatur oder online. Für Windows, Linux und macOS.">
+<link rel="icon" href="img/icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="img/icon.png" alt="">JumpNDodge <small>Rust Edition</small></a>
+    <nav>
+      <a href="#features"><span data-lang-de>Features</span><span data-lang-en>Features</span></a>
+      <a href="#online"><span data-lang-de>Online</span><span data-lang-en>Online</span></a>
+      <a href="#download"><span data-lang-de>Download</span><span data-lang-en>Download</span></a>
+      <a href="server/"><span data-lang-de>Server hosten</span><span data-lang-en>Host a server</span></a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <button class="lang" type="button">English</button>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <span class="eyebrow"><span data-lang-de>Neu: Rust Edition mit Online-Multiplayer</span><span data-lang-en>New: Rust Edition with online multiplayer</span></span>
+      <h1><span data-lang-de>Springen. Ausweichen. Überleben.</span><span data-lang-en>Jump. Dodge. Survive.</span></h1>
+      <p class="lead">
+        <span data-lang-de>Spring über Hindernisse, weich aus, was von oben kommt, und halte so lange durch wie möglich – allein, zu zweit an einer Tastatur oder online gegen und mit deinen Freunden.</span>
+        <span data-lang-en>Jump over obstacles, dodge what falls from above and survive as long as you can – alone, with two players on one keyboard, or online against and with your friends.</span>
+      </p>
+      <div class="btns">
+        <a class="btn primary" id="dl-main" href="#download"><b>Download</b> <small></small></a>
+        <a class="btn" href="#download"><span data-lang-de>Alle Systeme</span><span data-lang-en>All systems</span></a>
+      </div>
+      <p class="hint" data-version-row hidden><span data-lang-de>Version</span><span data-lang-en>Version</span> <span data-version></span> · Windows · Linux · macOS · <span data-lang-de>kostenlos</span><span data-lang-en>free</span></p>
+    </div>
+    <div class="shot"><img src="img/game.webp" alt="JumpNDodge" width="1600" height="1200"></div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2><span data-lang-de>Alles drin</span><span data-lang-en>Everything included</span></h2>
+      <p class="sub"><span data-lang-de>Schnell gestartet, einfach zu lernen, schwer zu meistern.</span><span data-lang-en>Quick to start, easy to learn, hard to master.</span></p>
+      <div class="grid">
+        <div class="card"><div class="ic">8</div><h3><span data-lang-de>Acht Schwierigkeiten</span><span data-lang-en>Eight difficulties</span></h3><p><span data-lang-de>Von Leicht bis Hölle – und Dynamisch, das immer schneller wird, je länger du durchhältst.</span><span data-lang-en>From Easy to Hell – and Dynamic, which gets faster the longer you survive.</span></p></div>
+        <div class="card"><div class="ic">★</div><h3><span data-lang-de>Powers und Kosmetik</span><span data-lang-en>Powers and cosmetics</span></h3><p><span data-lang-de>Powers erdrehen, Spuren, Hüte und Gesichter ausrüsten und in der Runde zeigen.</span><span data-lang-en>Spin for powers, equip trails, hats and faces and show them off.</span></p></div>
+        <div class="card"><div class="ic">2</div><h3><span data-lang-de>Zu zweit</span><span data-lang-en>Two players</span></h3><p><span data-lang-de>Koop und Versus an einer Tastatur – oder online über das Internet.</span><span data-lang-en>Co-op and versus on one keyboard – or online over the internet.</span></p></div>
+        <div class="card"><div class="ic">↑</div><h3><span data-lang-de>Online-Rangliste</span><span data-lang-en>Online leaderboard</span></h3><p><span data-lang-de>Highscores vergleichen, Freunde, Squads und Nachrichten.</span><span data-lang-en>Compare high scores, friends, squads and messages.</span></p></div>
+        <div class="card"><div class="ic">Hz</div><h3><span data-lang-de>Flüssig auf jedem Bildschirm</span><span data-lang-en>Smooth on every screen</span></h3><p><span data-lang-de>So viele Bilder, wie dein Monitor kann (144/165 Hz …), scharf bei jeder Skalierung und im Vollbild.</span><span data-lang-en>As many frames as your monitor can show (144/165 Hz …), sharp at any scaling and in fullscreen.</span></p></div>
+        <div class="card"><div class="ic">⟳</div><h3><span data-lang-de>Aktualisiert sich selbst</span><span data-lang-en>Updates itself</span></h3><p><span data-lang-de>Neue Versionen werden beim Start gefunden und mit einem Klick installiert. Oder über W Hub.</span><span data-lang-en>New versions are found on start and installed with one click. Or use W Hub.</span></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="online">
+    <div class="wrap split">
+      <div class="shot"><img src="img/online.webp" alt="Online-Multiplayer" width="1600" height="1200" loading="lazy"></div>
+      <div>
+        <h2><span data-lang-de>Online zu zweit</span><span data-lang-en>Online with a friend</span></h2>
+        <p class="sub" style="color:var(--muted)">
+          <span data-lang-de>Online → Multiplayer: Raum erstellen, Code an deinen Freund schicken, beide auf „Bereit“ – los geht's. VS (wer länger überlebt, gewinnt) oder Koop (gemeinsam punkten, mit einem 1-UP holst du deinen Partner zurück).</span>
+          <span data-lang-en>Online → Multiplayer: create a room, send the code to your friend, both press “Ready” – go. Versus (last one standing wins) or co-op (score together, a 1-UP brings your partner back).</span>
+        </p>
+        <ul style="color:var(--muted);padding-left:20px">
+          <li><span data-lang-de>Offizieller Server oder Verbinden per IP/Hostname</span><span data-lang-en>Official server or connect by IP/hostname</span></li>
+          <li><span data-lang-de>Deine Figur reagiert sofort, auch bei Ping</span><span data-lang-en>Your player reacts instantly, even with ping</span></li>
+          <li><span data-lang-de>Rematch mit einem Klick</span><span data-lang-en>Rematch with one click</span></li>
+        </ul>
+        <div class="btns"><a class="btn" href="server/"><span data-lang-de>Eigenen Server hosten →</span><span data-lang-en>Host your own server →</span></a></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <h2>Download</h2>
+      <p class="sub"><span data-lang-de>Immer die neueste Version direkt von GitHub. Am einfachsten installierst und aktualisierst du alles mit <a href="/hub/">W Hub</a>.</span><span data-lang-en>Always the latest version straight from GitHub. The easiest way to install and update is <a href="/hub/">W Hub</a>.</span></p>
+      <table class="dl">
+        <tr><th><span data-lang-de>System</span><span data-lang-en>System</span></th><th><span data-lang-de>Datei</span><span data-lang-en>File</span></th><th></th></tr>
+        <tr><td><b>Windows</b> <span class="ver"><span data-lang-de>Installer</span><span data-lang-en>installer</span></span></td><td><code>JumpNDodge-windows-x64-setup.exe</code></td><td><a class="btn" data-file="JumpNDodge-windows-x64-setup.exe" href="#">Download</a></td></tr>
+        <tr><td><b>Windows</b> <span class="ver"><span data-lang-de>portabel</span><span data-lang-en>portable</span></span></td><td><code>JumpNDodge-windows-x64.zip</code></td><td><a class="btn" data-file="JumpNDodge-windows-x64.zip" href="#">Download</a></td></tr>
+        <tr><td><b>Linux</b> <span class="ver">Debian, Ubuntu, Mint</span></td><td><code>jumpndodge_amd64.deb</code></td><td><a class="btn" data-file="jumpndodge_amd64.deb" href="#">Download</a></td></tr>
+        <tr><td><b>Linux</b> <span class="ver">Arch, Manjaro</span></td><td><code>jumpndodge-x86_64.pkg.tar.zst</code></td><td><a class="btn" data-file="jumpndodge-x86_64.pkg.tar.zst" href="#">Download</a></td></tr>
+        <tr><td><b>Linux</b> <span class="ver"><span data-lang-de>portabel</span><span data-lang-en>portable</span></span></td><td><code>jumpndodge-linux-x86_64.tar.gz</code></td><td><a class="btn" data-file="jumpndodge-linux-x86_64.tar.gz" href="#">Download</a></td></tr>
+        <tr><td><b>macOS</b> <span class="ver">Apple Silicon (M1–M4)</span></td><td><code>JumpNDodge-macos-apple-silicon.dmg</code></td><td><a class="btn" data-file="JumpNDodge-macos-apple-silicon.dmg" href="#">Download</a></td></tr>
+        <tr><td><b>macOS</b> <span class="ver">Intel</span></td><td><code>JumpNDodge-macos-intel.dmg</code></td><td><a class="btn" data-file="JumpNDodge-macos-intel.dmg" href="#">Download</a></td></tr>
+      </table>
+      <p class="hint"><span data-lang-de>Ältere Versionen (auch die Python-Version) gibt es im <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">Archiv</a>.</span><span data-lang-en>Older versions (including the Python version) are in the <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">archive</a>.</span></p>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2>FAQ</h2>
+      <details><summary><span data-lang-de>Ich habe schon die alte Version – geht mein Spielstand verloren?</span><span data-lang-en>I already have the old version – will I lose my progress?</span></summary>
+        <p><span data-lang-de>Nein. Die Rust Edition liest denselben Spielstand. Der Installer aktualisiert deine bestehende Installation an Ort und Stelle, der Ordner <code>data</code> bleibt. Der alte Updater holt sich die neue Version sogar von selbst.</span><span data-lang-en>No. The Rust Edition reads the same save file. The installer updates your existing installation in place and keeps the <code>data</code> folder. The old updater even fetches the new version by itself.</span></p></details>
+      <details><summary><span data-lang-de>Was ist die „Rust Edition“?</span><span data-lang-en>What is the “Rust Edition”?</span></summary>
+        <p><span data-lang-de>JumpNDodge wurde komplett von Python nach Rust übertragen: startet sofort, eine einzige Datei, flüssiger, schärfer, mit Online-Multiplayer und eingebautem Updater. Ab Version 5.0 ist das die Hauptversion.</span><span data-lang-en>JumpNDodge was fully rewritten from Python in Rust: starts instantly, a single file, smoother, sharper, with online multiplayer and a built-in updater. From version 5.0 it's the main version.</span></p></details>
+      <details><summary><span data-lang-de>macOS sagt, die App kann nicht geöffnet werden</span><span data-lang-en>macOS says the app can't be opened</span></summary>
+        <p><span data-lang-de>Die App ist nicht von Apple beglaubigt. Beim ersten Start Rechtsklick auf JumpNDodge → Öffnen → Öffnen. Danach startet sie normal.</span><span data-lang-en>The app isn't notarized by Apple. On first start right-click JumpNDodge → Open → Open. After that it starts normally.</span></p></details>
+      <details><summary><span data-lang-de>Wo liegt mein Spielstand?</span><span data-lang-en>Where is my save?</span></summary>
+        <p><span data-lang-de>Windows und portabel: im Ordner <code>data</code> neben dem Spiel. Linux-Paket: <code>~/.local/share/JumpNDodge/data</code>. macOS: <code>~/Library/Application Support/JumpNDodge/data</code>.</span><span data-lang-en>Windows and portable: in the <code>data</code> folder next to the game. Linux package: <code>~/.local/share/JumpNDodge/data</code>. macOS: <code>~/Library/Application Support/JumpNDodge/data</code>.</span></p></details>
+      <details><summary><span data-lang-de>Gibt es Mods?</span><span data-lang-en>Are there mods?</span></summary>
+        <p><span data-lang-de>In der Rust Edition noch nicht – sichere Lua-Mods sind geplant. Wer jetzt Mods braucht, findet die Python-Version im Archiv.</span><span data-lang-en>Not yet in the Rust Edition – safe Lua mods are planned. If you need mods now, the Python version is in the archive.</span></p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>JumpNDodge · W Software · Apache-2.0</span>
+    <span><a href="server/"><span data-lang-de>Server hosten</span><span data-lang-en>Host a server</span></a> · <a href="https://github.com/erqf1/JumpNDodge/releases">GitHub</a> · <a href="/hub/">W Hub</a></span>
+  </div>
+</footer>
+<script src="site.js"></script>
+</body>
+</html>

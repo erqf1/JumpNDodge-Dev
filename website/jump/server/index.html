@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JumpNDodge – Server hosten</title>
+<meta name="description" content="Eigenen JumpNDodge-Server für Online-VS und Online-Koop hosten: Download, Docker/CasaOS und Portweiterleitung Schritt für Schritt.">
+<link rel="icon" href="../img/icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../img/icon.png" alt="">JumpNDodge <small>Server</small></a>
+    <nav>
+      <a href="#download">Download</a>
+      <a href="#docker">Docker / CasaOS</a>
+      <a href="#ports"><span data-lang-de>Portweiterleitung</span><span data-lang-en>Port forwarding</span></a>
+      <a href="#join"><span data-lang-de>Verbinden</span><span data-lang-en>Connect</span></a>
+      <a href="#hilfe"><span data-lang-de>Hilfe</span><span data-lang-en>Help</span></a>
+    </nav>
+    <button class="lang" type="button">English</button>
+  </div>
+</header>
+
+<main>
+  <div class="wrap" style="padding:56px 0 8px">
+    <span class="eyebrow"><span data-lang-de>Für Online-VS und Online-Koop</span><span data-lang-en>For online versus and co-op</span></span>
+    <h1 style="font-size:clamp(32px,5vw,48px);margin:16px 0 10px;letter-spacing:-.02em"><span data-lang-de>Eigenen Server hosten</span><span data-lang-en>Host your own server</span></h1>
+    <p class="lead" style="font-size:19px;color:var(--muted);max-width:40em;margin:0">
+      <span data-lang-de>Der JumpNDodge-Server ist ein kleines Programm ohne Fenster. Er braucht kaum Leistung – ein alter Laptop, ein Raspberry Pi oder ein Heimserver mit CasaOS reichen. Jeder Raum hat Platz für zwei Spieler, ein Server schafft viele Räume gleichzeitig.</span>
+      <span data-lang-en>The JumpNDodge server is a small program without a window. It needs almost no power – an old laptop, a Raspberry Pi or a home server with CasaOS is enough. Each room holds two players, one server handles many rooms at once.</span>
+    </p>
+  </div>
+
+  <section id="download">
+    <div class="wrap">
+      <h2>1. Download</h2>
+      <p class="sub"><span data-lang-de>Server und Spiel müssen dieselbe Version haben – nach einem Spiel-Update auch den Server aktualisieren.</span><span data-lang-en>Server and game must have the same version – update the server after a game update.</span></p>
+      <table class="dl">
+        <tr><th><span data-lang-de>System</span><span data-lang-en>System</span></th><th><span data-lang-de>Datei</span><span data-lang-en>File</span></th><th></th></tr>
+        <tr><td><b>Windows</b></td><td><code>JumpNDodge-Server-windows-x64.zip</code></td><td><a class="btn" data-file="JumpNDodge-Server-windows-x64.zip" href="#">Download</a></td></tr>
+        <tr><td><b>Linux</b></td><td><code>JumpNDodge-Server-linux-x86_64.zip</code></td><td><a class="btn" data-file="JumpNDodge-Server-linux-x86_64.zip" href="#">Download</a></td></tr>
+        <tr><td><b>macOS</b> <span class="ver">Apple Silicon</span></td><td><code>JumpNDodge-Server-macos-apple-silicon.zip</code></td><td><a class="btn" data-file="JumpNDodge-Server-macos-apple-silicon.zip" href="#">Download</a></td></tr>
+        <tr><td><b>macOS</b> <span class="ver">Intel</span></td><td><code>JumpNDodge-Server-macos-intel.zip</code></td><td><a class="btn" data-file="JumpNDodge-Server-macos-intel.zip" href="#">Download</a></td></tr>
+        <tr><td><b>Docker</b> <span class="ver">amd64 · arm64</span></td><td><code>ghcr.io/erqf1/jumpndodge-server</code></td><td><a class="btn" href="#docker"><span data-lang-de>Anleitung</span><span data-lang-en>Guide</span></a></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="start" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>2. Starten</span><span data-lang-en>2. Start</span></h2>
+      <ol class="steps">
+        <li><h3><span data-lang-de>Entpacken und starten</span><span data-lang-en>Unzip and start</span></h3>
+          <p><span data-lang-de>Windows: <code>JumpNDodge-Server.exe</code> doppelklicken. Linux/macOS: im Terminal <code>./JumpNDodge-Server</code>. Fragt Windows nach der Firewall, „Zugriff zulassen“ wählen (private und öffentliche Netzwerke).</span><span data-lang-en>Windows: double-click <code>JumpNDodge-Server.exe</code>. Linux/macOS: run <code>./JumpNDodge-Server</code> in a terminal. If Windows asks about the firewall, choose “Allow access”.</span></p></li>
+        <li><h3><span data-lang-de>Einstellungen in server.json</span><span data-lang-en>Settings in server.json</span></h3>
+          <p><span data-lang-de>Beim ersten Start entsteht <code>server.json</code> neben dem Programm. Danach den Server neu starten.</span><span data-lang-en>The first start creates <code>server.json</code> next to the program. Restart the server after changes.</span></p>
+<pre><code>{
+  "name": "Mein Server",        // Name in der Serverliste
+  "motd": "Viel Spaß!",         // Begrüßung
+  "port": 47800,                // UDP-Port
+  "bind": "0.0.0.0",            // "::" für IPv6
+  "password": "",               // leer = jeder darf rein
+  "max_rooms": 16,
+  "log_file": "server.log"
+}</code></pre></li>
+        <li><h3><span data-lang-de>Im eigenen Netz testen</span><span data-lang-en>Test on your own network</span></h3>
+          <p><span data-lang-de>Im Spiel: Online → Multiplayer → „Per IP oder Hostname verbinden“ → die lokale IP des Server-Rechners eingeben (z.B. <code>192.168.178.20</code>). Klappt das, fehlt für Freunde aus dem Internet nur noch die Portweiterleitung.</span><span data-lang-en>In the game: Online → Multiplayer → “Connect by IP or hostname” → enter the local IP of the server PC (e.g. <code>192.168.178.20</code>). If that works, friends from the internet only need port forwarding.</span></p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="docker" style="padding-top:0">
+    <div class="wrap">
+      <h2>Docker / CasaOS</h2>
+      <p class="sub"><span data-lang-de>Der Server läuft im Container rund um die Uhr und startet nach einem Neustart von selbst.</span><span data-lang-en>The server runs around the clock in a container and starts again after a reboot.</span></p>
+      <ol class="steps">
+        <li><h3>CasaOS</h3>
+          <p><span data-lang-de>App-Store → <b>+</b> (oben rechts) → <b>Benutzerdefinierte App installieren</b> → <b>Importieren</b> → diesen Text einfügen → Installieren. <code>server.json</code> liegt danach in <code>/DATA/AppData/jumpndodge-server</code>.</span><span data-lang-en>App Store → <b>+</b> (top right) → <b>Install a customized app</b> → <b>Import</b> → paste this → Install. <code>server.json</code> is then in <code>/DATA/AppData/jumpndodge-server</code>.</span></p>
+<pre><code>name: jumpndodge-server
+services:
+  jumpndodge-server:
+    image: ghcr.io/erqf1/jumpndodge-server:latest
+    container_name: jumpndodge-server
+    restart: unless-stopped
+    ports:
+      - target: 47800
+        published: "47800"
+        protocol: udp
+    environment:
+      JND_SERVER_NAME: "JumpNDodge Server"
+      JND_SERVER_MOTD: "Viel Spaß!"
+      JND_SERVER_PASSWORD: ""
+    volumes:
+      - type: bind
+        source: /DATA/AppData/jumpndodge-server
+        target: /data</code></pre></li>
+        <li><h3><span data-lang-de>Docker (ohne CasaOS)</span><span data-lang-en>Docker (without CasaOS)</span></h3>
+<pre><code>docker run -d --name jumpndodge-server --restart unless-stopped \
+  -p 47800:47800/udp -v jnd-data:/data \
+  -e JND_SERVER_NAME="Mein Server" ghcr.io/erqf1/jumpndodge-server:latest</code></pre>
+          <p><span data-lang-de>Aktualisieren: Image neu ziehen (<code>docker pull</code>) und den Container neu erstellen – in CasaOS über „Aktualisieren“.</span><span data-lang-en>Update: pull the image again (<code>docker pull</code>) and recreate the container – in CasaOS via “Update”.</span></p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="ports" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>3. Portweiterleitung im Router</span><span data-lang-en>3. Port forwarding in your router</span></h2>
+      <p class="sub"><span data-lang-de>Damit Freunde aus dem Internet deinen Server erreichen, muss der Router Pakete auf <b>UDP-Port 47800</b> an den Server-Rechner weitergeben.</span><span data-lang-en>For friends on the internet to reach your server, your router must pass packets on <b>UDP port 47800</b> to the server machine.</span></p>
+      <ol class="steps">
+        <li><h3><span data-lang-de>Feste lokale IP für den Server</span><span data-lang-en>Fixed local IP for the server</span></h3>
+          <p><span data-lang-de>Im Router dem Server-Rechner immer dieselbe IP geben (FRITZ!Box: Heimnetz → Netzwerk → Gerät bearbeiten → „Diesem Netzwerkgerät immer die gleiche IPv4-Adresse zuweisen“).</span><span data-lang-en>Give the server machine a fixed IP in your router (DHCP reservation).</span></p></li>
+        <li><h3><span data-lang-de>Freigabe anlegen</span><span data-lang-en>Create the forwarding rule</span></h3>
+          <p><span data-lang-de><b>FRITZ!Box:</b> Internet → Freigaben → Portfreigaben → Gerät für Freigaben hinzufügen → Server-Rechner wählen → Neue Freigabe → Portfreigabe → Protokoll <b>UDP</b>, Port <b>47800</b> bis 47800, an Port 47800 → OK.</span><span data-lang-en><b>FRITZ!Box:</b> Internet → Permit Access → Port Sharing → add device → new sharing → port sharing → protocol <b>UDP</b>, port <b>47800</b> → OK.</span></p>
+          <p><span data-lang-de><b>Telekom Speedport:</b> Internet → Portfreischaltung → Neue Regel → Gerät wählen → UDP 47800 → 47800.<br><b>Vodafone Station / andere:</b> meist unter „Port-Weiterleitung“ oder „NAT“: Protokoll UDP, extern 47800, intern 47800, Ziel = IP des Server-Rechners.</span><span data-lang-en><b>Other routers:</b> usually under “Port forwarding”, “Virtual server” or “NAT”: protocol UDP, external 47800, internal 47800, target = IP of the server machine.</span></p></li>
+        <li><h3><span data-lang-de>Öffentliche Adresse herausfinden</span><span data-lang-en>Find your public address</span></h3>
+          <p><span data-lang-de>Deine öffentliche IPv4 zeigt z.B. der Router auf der Übersichtsseite. Da sie sich bei vielen Anschlüssen täglich ändert, lohnt sich ein kostenloser DynDNS-Name (FRITZ!Box: MyFRITZ!, sonst z.B. DuckDNS) – dann verbinden sich Freunde einfach mit <code>dein-name.duckdns.org</code>.</span><span data-lang-en>Your public IPv4 is shown on your router's overview page. It changes often on many connections, so a free dynamic DNS name (e.g. DuckDNS) is handy – friends then connect to <code>your-name.duckdns.org</code>.</span></p></li>
+      </ol>
+      <p class="note" style="margin-top:16px"><span data-lang-de><b>Kein eigenes IPv4 (DS-Lite / CGNAT)?</b> Viele Kabel- und Glasfaseranschlüsse teilen sich eine IPv4-Adresse – dann geht Portweiterleitung über IPv4 nicht. Lösungen: beim Anbieter eine „echte“ IPv4 anfragen (oft kostenlos), über IPv6 verbinden (<code>"bind": "::"</code>, Freunde brauchen ebenfalls IPv6) oder einen kleinen Mietserver (VPS) nutzen. Cloudflare-Tunnel funktionieren für das Spiel nicht, weil es UDP nutzt.</span><span data-lang-en><b>No public IPv4 (DS-Lite / CGNAT)?</b> Many connections share one IPv4 address, so IPv4 port forwarding won't work. Options: ask your provider for a real IPv4, connect over IPv6 (<code>"bind": "::"</code>, friends need IPv6 too) or rent a small VPS. Cloudflare tunnels don't work for the game because it uses UDP.</span></p>
+    </div>
+  </section>
+
+  <section id="join" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>4. Freunde verbinden sich</span><span data-lang-en>4. Friends connect</span></h2>
+      <div class="grid">
+        <div class="card"><div class="ic">1</div><h3>Online → Multiplayer</h3><p><span data-lang-de>Im Hauptmenü auf „Online“, dann „Multiplayer“.</span><span data-lang-en>In the main menu click “Online”, then “Multiplayer”.</span></p></div>
+        <div class="card"><div class="ic">2</div><h3><span data-lang-de>Adresse eingeben</span><span data-lang-en>Enter the address</span></h3><p><span data-lang-de>Deine öffentliche IP oder dein DynDNS-Name. Port 47800 muss nicht angegeben werden, andere Ports als <code>adresse:port</code>.</span><span data-lang-en>Your public IP or dynamic DNS name. Port 47800 is the default, other ports as <code>address:port</code>.</span></p></div>
+        <div class="card"><div class="ic">3</div><h3><span data-lang-de>Raum und Code</span><span data-lang-en>Room and code</span></h3><p><span data-lang-de>Einer erstellt einen Raum (VS oder Koop), der andere tritt per Liste oder 4-stelligem Code bei. Beide „Bereit“ – Countdown – los.</span><span data-lang-en>One creates a room (versus or co-op), the other joins from the list or with the 4-character code. Both “Ready” – countdown – go.</span></p></div>
+      </div>
+      <p class="hint"><span data-lang-de>Hinweis: Wer sich mit deinem Server verbindet, sieht deine öffentliche IP-Adresse.</span><span data-lang-en>Note: anyone connecting to your server sees your public IP address.</span></p>
+    </div>
+  </section>
+
+  <section id="hilfe" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>Hilfe</span><span data-lang-en>Help</span></h2>
+      <details><summary><span data-lang-de>„Server antwortet nicht“</span><span data-lang-en>“Server doesn't respond”</span></summary>
+        <p><span data-lang-de>Läuft der Server? Stimmt die Adresse? Im eigenen Netz die lokale IP nehmen, von außen die öffentliche. Ist die Portweiterleitung auf UDP (nicht TCP) gestellt und zeigt sie auf die richtige lokale IP? Blockiert eine Firewall auf dem Server-Rechner?</span><span data-lang-en>Is the server running? Is the address right? Use the local IP at home and the public one from outside. Is the forwarding set to UDP (not TCP) and pointing to the right local IP? Is a firewall blocking it?</span></p></details>
+      <details><summary><span data-lang-de>„Andere Version“</span><span data-lang-en>“Other version”</span></summary>
+        <p><span data-lang-de>Spiel und Server müssen exakt dieselbe Version haben, weil der Server die Runde berechnet. Server-Zip neu laden bzw. Docker-Image aktualisieren.</span><span data-lang-en>Game and server must have exactly the same version because the server runs the round. Download the server again or update the Docker image.</span></p></details>
+      <details><summary><span data-lang-de>Server mit Passwort</span><span data-lang-en>Password-protected server</span></summary>
+        <p><span data-lang-de>In <code>server.json</code> ein Passwort eintragen. Spieler ohne Passwort werden abgelehnt.</span><span data-lang-en>Set a password in <code>server.json</code>. Players without it are rejected.</span></p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>JumpNDodge · W Software · Apache-2.0</span>
+    <span><a href="../">JumpNDodge</a> · <a href="https://github.com/erqf1/JumpNDodge/releases">GitHub</a></span>
+  </div>
+</footer>
+<script src="../site.js"></script>
+</body>
+</html>
