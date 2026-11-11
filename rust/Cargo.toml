@@ -19,7 +19,7 @@ members = ["core", "server"]
 
 [workspace.package]
 # Eine Version für Spiel, Bibliothek und Server (Online: Client und Server müssen gleich sein)
-version = "5.1.0"
+version = "5.2.0"
 
 [dependencies]
 jnd_core = { path = "core" }

@@ -1,3 +1,10 @@
+## JumpNDodge 5.2.0
+
+- **Sound für alle:** Klick, Zurück, Treffer, 1-UP und Game Over sind jetzt eingebaut (vorher war das Spiel ohne eigene
+  Sounddateien stumm). Eigene Sounds in `data/sound` haben weiter Vorrang.
+- **Replays-Menü:** Mehr → Replays – letzte Runde und deine Rekordläufe je Schwierigkeit ansehen.
+- Kleinere Farbkorrekturen im Mehr-Menü.
+
 ## JumpNDodge 5.1.0
 
 - **Replays:** Nach jeder Runde im Game Over „Replay (V)“ – mit Pause, 5 s spulen und 1×/2×/4× Tempo.
