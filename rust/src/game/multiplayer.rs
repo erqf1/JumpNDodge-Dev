@@ -19,7 +19,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 /// Offizieller Server (DNS-Eintrag zeigt auf den Heimserver; nicht immer online)
-pub const OFFICIAL_SERVER: &str = "play.jumpndodge.download";
+pub const OFFICIAL_SERVER: &str = "play.mert.win";
 /// Wo es den Server zum Selbsthosten gibt
 pub const HOST_INFO_URL: &str = "mert.win/jump/server";
 

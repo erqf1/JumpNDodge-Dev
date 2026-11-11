@@ -10,7 +10,9 @@ use std::time::Duration;
 use unicode_normalization::UnicodeNormalization;
 
 pub const ONLINE_ENABLED: bool = true;
-pub const ONLINE_SERVER_URL_DEFAULT: &str = "https://leaderboard.jumpndodge.download";
+/// Rangliste/Online-Funktionen laufen über mert.win (nginx leitet /jump/api/ an den Ranglisten-Container weiter).
+/// Die alte Adresse leaderboard.jumpndodge.download gibt es nicht mehr.
+pub const ONLINE_SERVER_URL_DEFAULT: &str = "https://mert.win/jump";
 
 /// Ergebnis eines Hintergrund-Requests: (id, Antwort, Server erreichbar?)
 pub type OnlineMsg = (u64, Option<Value>, Option<bool>);

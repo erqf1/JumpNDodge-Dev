@@ -26,8 +26,8 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
 1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren
    (`index.html`, `style.css`, `site.js`, `img/`, `server/index.html`). Für W Hub zusätzlich
    `website-update/hub/changelog-1.2.1.html` und `changelog-1.2.2.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
-2. **Offizieller Multiplayer-Server:** Im Spiel ist `play.jumpndodge.download` eingetragen.
-   - Bei Cloudflare einen DNS-Eintrag `play` (Typ A, deine öffentliche IPv4) anlegen – **„Nur DNS“ (graue Wolke)**,
+2. **Offizieller Multiplayer-Server:** Im Spiel ist `play.mert.win` eingetragen (seit 5.2.2; jumpndodge.download gibt es nicht mehr).
+   - Bei Cloudflare einen DNS-Eintrag `play` in der Zone mert.win (Typ A, deine öffentliche IPv4) anlegen – **„Nur DNS“ (graue Wolke)**,
      denn Cloudflare-Proxy/Tunnel leiten kein UDP weiter.
    - Im Router **UDP 47800** an den CasaOS-Rechner weiterleiten.
    - Auf CasaOS: App-Store → „+“ → Importieren → Inhalt von `rust/server/docker-compose.yml`.
@@ -35,7 +35,7 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
      ist behoben). Unter github.com/erqf1 → Packages → jumpndodge-server die Sichtbarkeit auf **Public** stellen,
      sonst kann CasaOS es nicht ohne Login laden. Alternativ das Server-Zip (Linux) direkt starten.
    - Ohne eigene IPv4 (DS-Lite) bitte beim Anbieter eine IPv4 anfragen – Details auf der Seite „Server hosten“.
-3. **Cloudflare-Tunnel der Rangliste** (Fehler 1033): auf dem Heimserver den `cloudflared`-Dienst/Container neu starten.
+3. **Rangliste über mert.win** (seit 5.2.2): Das Spiel ruft `https://mert.win/jump/api/...` auf. Die neue `nginx.conf` (Latein Trainer/latein-sync) leitet `/jump/api/` an den Ranglisten-Container (192.168.178.188:5000) weiter – hochladen, Container `latein-trainer` neu starten, Ranglisten-Container muss mit Port 5000 laufen. Der alte Tunnel für leaderboard.jumpndodge.download wird nicht mehr gebraucht.
 4. **Nachfolge-Routine „JumpNDodge Rust Edition – weitermachen nach Limit-Reset“** (claude.ai → Routinen):
    Sie schaut auf `main` und kennt diesen Branch nicht. Entweder abschalten (alles ist erledigt) oder diesen Branch nach
    `main` übernehmen (Pull Request). Ich durfte sie nicht ändern, weil du sie angelegt hast.
