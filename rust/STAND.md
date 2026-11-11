@@ -3,9 +3,10 @@
 Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg013f` (enthält auch `main`)
 
 ## Fertig und veröffentlicht
-- **Releases:** v5.0.0, v5.0.1 und v5.1.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
+- **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
   (Windows-Setup + Zip, .deb, Arch, tar.gz, macOS-DMG Apple Silicon/Intel, Server-Zips) und portable Zips in
-  **erqf1/JumpNDodge-Archive**. W Hub **v1.2.1** (erqf1/whub) installiert/aktualisiert die Rust Edition.
+  **erqf1/JumpNDodge-Archive**. W Hub **v1.2.1** (erqf1/whub) installiert/aktualisiert die Rust Edition, **v1.2.2** behebt
+  hängende Downloads.
 - **A – Python-Altlasten:** scharfes Zeichnen in echter Pixelauflösung (125/150 %, Vollbild), feste Logikrate 60/s +
   Interpolation, Monitor-Bildrate in Menüs, zeitbasierte Überblendung, Sprung-Tipps gehen nicht verloren, Auto-Pause,
   Vollbild-Schalter (F11), Spielstand im Hintergrund schreiben, kurzer Start, System-Zertifikate/Proxy.
@@ -19,11 +20,12 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
   Hintergrund-Verlauf; nie Orange und Grün zusammen.
 - **F – Extras:** Effekte (Partikel, Wackeln), Replays + Rekord-Geist, Controller (Xbox/PlayStation, 2 Controller für 2P),
   sichere Lua-Mods (Hindernisse, Spielwerte, Modi, Ereignisse; Anleitung `LUA_MODS.md`).
+- **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
 1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren
    (`index.html`, `style.css`, `site.js`, `img/`, `server/index.html`). Für W Hub zusätzlich
-   `website-update/hub/changelog-1.2.1.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
+   `website-update/hub/changelog-1.2.1.html` und `changelog-1.2.2.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
 2. **Offizieller Multiplayer-Server:** Im Spiel ist `play.jumpndodge.download` eingetragen.
    - Bei Cloudflare einen DNS-Eintrag `play` (Typ A, deine öffentliche IPv4) anlegen – **„Nur DNS“ (graue Wolke)**,
      denn Cloudflare-Proxy/Tunnel leiten kein UDP weiter.
@@ -46,13 +48,11 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
    Apple-Entwicklerkonto (99 €/Jahr) zum Beglaubigen.
 
 ## Hinweise
-- **W Hub Selbsttest unter Windows:** Teil 1 ist grün (111/111, auch alle JumpNDodge-Prüfungen). Teil 2 hängt manchmal beim
-  Test „abgebrochene Download-Stücke neu laden“ – das passierte schon vor dieser Änderung (2 von 4 Läufen auf `main`
-  am 11.11. nachts) und betrifft den Download-Code von W Hub, nicht den Katalog. Linux und macOS sind grün.
+- **W Hub Selbsttest unter Windows** hing zeitweise bei „abgebrochene Download-Stücke neu laden“. Ursache: hängende
+  Verbindungen ohne Fehler. Behoben in 1.2.2 (Wächter: 15 s ohne Daten → Stück neu laden), danach 2× hintereinander grün.
 - Die Release-Läufe starten per Actions → „Rust Edition – Build & Release“ → Run workflow (Branch wählen, tag = vX.Y.Z).
 
 ## Offen / Ideen für später
-- Replays der Rekordläufe direkt aus dem Statistik-Menü ansehen (Dateien liegen schon in `data/replays/`).
 - Lua-Mods: eigene Powers im Shop, eigene Grafiken.
 - Online: Bestenliste für Online-Runden, Zuschauen.
 - GPU-Ausgabe (aktuell CPU über softbuffer – flüssig auch in 4K, aber eine GPU-Ausgabe würde Strom sparen).
