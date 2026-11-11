@@ -150,6 +150,8 @@ fn install_scope(app_dir: &Path) -> &'static str {
 /// Schreibt das Hilfsskript (wartet auf das Ende des Spiels, installiert, startet neu) und startet es.
 /// Gibt den Pfad des Skripts zurück. Danach muss sich das Spiel beenden.
 pub fn launch_installer(file: &Path) -> Result<PathBuf, String> {
+    // Test-Hilfen nicht an das neu gestartete Spiel vererben (sonst Update-Schleife)
+    for v in ["UPDATER_FAKE_VERSION", "UPDATER_AUTO", "UPDATER_REPO", "UPDATER_ASSET_SUFFIX"] { std::env::remove_var(v); }
     let pid = std::process::id();
     let exe = exe_path();
     let app_dir = exe_dir();
