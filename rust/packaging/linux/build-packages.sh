@@ -47,14 +47,15 @@ cp $P/linux/jumpndodge.desktop $P/linux/install.sh LICENSE "$T/"
 chmod +x "$T/install.sh"
 tar -C "$W" -czf "$OUT/jumpndodge-linux-x86_64.tar.gz" jumpndodge-linux-x86_64
 
-# --- Archiv-Zip im alten Format (flach) - der alte JumpNDodgeUpdater der Python-Version
-#     installiert darüber automatisch die Rust Edition
+# --- Archiv-Zip (portabel, flach). Bewusst NICHT "-linux.zip": der alte Python-Updater
+#     entpackt mit zipfile und verliert dabei das Ausführungsrecht - unter Linux würde das
+#     Spiel danach nicht mehr starten. Linux-Nutzer wechseln per Paket/tar.gz/W Hub.
 A=$W/archive
 mkdir -p "$A"
 install -m755 "$BIN" "$A/JumpNDodge"
 cp ../icon.ico "$A/icon.ico"
 echo "$VER" > "$A/version.txt"
-(cd "$A" && zip -qr "$OUT/JumpNDodge-v$VER-linux.zip" .)
+(cd "$A" && zip -qr "$OUT/JumpNDodge-v$VER-linux-portable.zip" .)
 
 # --- Server
 S=$W/JumpNDodge-Server-linux-x86_64

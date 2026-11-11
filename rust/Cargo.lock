@@ -1034,7 +1034,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "jnd_core"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "bincode",
  "rand",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "jnd_server"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "chrono",
  "jnd_core",
@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "jumpndodge"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "arboard",
  "base64",

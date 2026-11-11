@@ -1,4 +1,13 @@
-## JumpNDodge 5.0.0 – Rust Edition
+## JumpNDodge 5.0.1
+
+- **Effekte:** Splitter bei Treffern, Funkeln beim 1-UP, Staub beim Landen und kurzes Bildschirmwackeln – im Einzelspieler,
+  lokal zu zweit und online. Abschaltbar unter Einstellungen → Mehr → Effekte.
+- Server als Docker-Image für CasaOS: `ghcr.io/erqf1/jumpndodge-server`.
+- Updater: kleine Korrekturen.
+
+---
+
+## JumpNDodge 5 – Rust Edition
 
 JumpNDodge ist komplett neu in Rust geschrieben und ab jetzt die Hauptversion. Dein Spielstand wird übernommen.
 
@@ -29,6 +38,8 @@ Oder einfach über **W Hub** installieren und aktuell halten.
 
 ### Gut zu wissen
 - Bestehende Installationen werden an Ort und Stelle aktualisiert, der Ordner `data` (Spielstand, eigene Sounds) bleibt.
+- Linux mit der alten Python-Version: bitte einmal das `.deb`/Arch-Paket oder `jumpndodge-linux-x86_64.tar.gz` (`./install.sh`) installieren –
+  der Spielstand in `~/.local/share/JumpNDodge` wird übernommen.
 - macOS: Die App ist nicht von Apple beglaubigt – beim ersten Start Rechtsklick → Öffnen.
 - Mods gibt es in der Rust Edition noch nicht (kommen später als sichere Lua-Mods).
 
