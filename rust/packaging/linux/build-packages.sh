@@ -27,7 +27,7 @@ Section: games
 Priority: optional
 Architecture: amd64
 Installed-Size: $SIZE
-Depends: libc6 (>= 2.35), libasound2t64 | libasound2
+Depends: libc6 (>= 2.35), libasound2t64 | libasound2, libudev1
 Recommends: libxkbcommon-x11-0, libxkbcommon0, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libwayland-client0
 Maintainer: W Software <erqf1@users.noreply.github.com>
 Homepage: https://mert.win/jump/

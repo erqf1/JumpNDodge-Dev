@@ -39,6 +39,7 @@ rand = "0.8"
 chrono = "0.4"
 unicode-normalization = "0.1"
 serde = "1"
+gilrs = "0.11"
 
 [profile.release]
 opt-level = 3

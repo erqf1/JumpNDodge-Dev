@@ -1115,6 +1115,14 @@ impl G {
                     self.display.event_post(Event::KeyDown { key: k, unicode: uni, mods: 0 });
                     self.display.event_post(Event::KeyUp { key: k, mods: 0 });
                 }
+                "pad" => {
+                    // pad:<1|2>:<a|b|x|y|start|up|down|left|right|stick=-1..1>:<down|up>
+                    let p: Vec<&str> = arg.split(':').collect();
+                    let n = p.first().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1) - 1;
+                    let b = p.get(1).copied().unwrap_or("a");
+                    if let Some(v) = b.strip_prefix("stick=") { self.display.test_pad_stick(n, v.parse().unwrap_or(0.0)); }
+                    else { self.display.test_pad_button(n, b, p.get(2).map(|d| *d != "up").unwrap_or(true)); }
+                }
                 "hold" => { let k = test_key(&arg); self.display.test_set_key(k, true); self.display.event_post(Event::KeyDown { key: k, unicode: String::new(), mods: 0 }); }
                 "release" => { let k = test_key(&arg); self.display.test_set_key(k, false); self.display.event_post(Event::KeyUp { key: k, mods: 0 }); }
                 "type" => { for ch in arg.chars() { self.display.event_post(Event::KeyDown { key: ch as i32, unicode: ch.to_string(), mods: 0 }); } }

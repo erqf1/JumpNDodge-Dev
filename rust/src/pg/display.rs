@@ -169,9 +169,40 @@ impl ApplicationHandler for App {
     }
 }
 
+/// Controller (Xbox, PlayStation, ...): werden auf Tasten abgebildet, damit alle Menüs und
+/// Spielmodi ohne Änderung funktionieren. Controller 1 = W/A/S/D + Leertaste (Einzelspieler,
+/// Menüs, P1), Controller 2 = Pfeiltasten (P2 im lokalen 2-Spieler-Modus).
+struct Pads {
+    gilrs: gilrs::Gilrs,
+    order: Vec<gilrs::GamepadId>,
+}
+
+fn pad_button_key(pad: usize, b: gilrs::Button) -> Option<i32> {
+    use gilrs::Button::*;
+    if pad == 0 {
+        Some(match b {
+            South => K_SPACE, East => K_ESCAPE, West | LeftTrigger => K_q, North | RightTrigger => K_e,
+            Start => K_ESCAPE, Select => K_m,
+            DPadUp => K_w, DPadDown => K_s, DPadLeft => K_a, DPadRight => K_d,
+            _ => return None,
+        })
+    } else {
+        Some(match b {
+            South | DPadUp => K_UP, DPadDown => K_DOWN, DPadLeft => K_LEFT, DPadRight => K_RIGHT,
+            Start | East => K_ESCAPE,
+            _ => return None,
+        })
+    }
+}
+
 pub struct Display {
     el: EventLoop<()>,
     app: App,
+    pads: Option<Pads>,
+    /// gedrückte (virtuelle) Tasten je Controller und Quelle (0 = Knopf, 1 = Stick)
+    pad_held: HashSet<(usize, i32, u8)>,
+    /// Meldungen für das Spiel ("Controller verbunden" ...)
+    pub pad_messages: Vec<String>,
     start: Instant,
     pub hidden: bool,
     fullscreen: bool,
@@ -194,7 +225,21 @@ impl Display {
             hidden,
             fullscreen: false,
             present_buf_size: (0, 0),
+            pads: None,
+            pad_held: HashSet::new(),
+            pad_messages: Vec::new(),
         };
+        if std::env::var("JND_NO_GAMEPAD").is_err() {
+            match gilrs::Gilrs::new() {
+                Ok(g) => {
+                    let mut p = Pads { gilrs: g, order: Vec::new() };
+                    let ids: Vec<gilrs::GamepadId> = p.gilrs.gamepads().map(|(id, _)| id).collect();
+                    p.order.extend(ids);
+                    d.pads = Some(p);
+                }
+                Err(e) => eprintln!("[INFO] Controller nicht verfügbar: {}", e),
+            }
+        }
         for _ in 0..50 {
             d.pump();
             if d.app.window.is_some() { break; }
@@ -208,6 +253,61 @@ impl Display {
     /// Holt Fenster-Ereignisse ab (ohne zu blockieren)
     pub fn pump(&mut self) {
         let _ = self.el.pump_app_events(Some(Duration::ZERO), &mut self.app);
+        self.pump_pads();
+    }
+
+    fn pad_key(&mut self, pad: usize, key: i32, src: u8, down: bool) {
+        let held = &mut self.pad_held;
+        let was_any = held.iter().any(|h| h.1 == key);
+        if down { held.insert((pad, key, src)); } else { held.remove(&(pad, key, src)); }
+        let now_any = held.iter().any(|h| h.1 == key);
+        if now_any && !was_any {
+            self.app.keys_down.insert(key);
+            self.app.events.push_back(Event::KeyDown { key, unicode: String::new(), mods: 0 });
+        } else if !now_any && was_any {
+            self.app.keys_down.remove(&key);
+            self.app.events.push_back(Event::KeyUp { key, mods: 0 });
+        }
+    }
+
+    fn pump_pads(&mut self) {
+        loop {
+            let Some(p) = self.pads.as_mut() else { return; };
+            let Some(ev) = p.gilrs.next_event() else { return; };
+            let id = ev.id;
+            if !p.order.contains(&id) { p.order.push(id); }
+            let pad = p.order.iter().position(|x| *x == id).unwrap_or(0);
+            match ev.event {
+                gilrs::EventType::Connected => {
+                    let name = p.gilrs.gamepad(id).name().to_string();
+                    self.pad_messages.push(format!("Controller {} verbunden: {}", pad + 1, name));
+                }
+                gilrs::EventType::Disconnected => {
+                    let keys: Vec<(usize, i32, u8)> = self.pad_held.iter().filter(|h| h.0 == pad).copied().collect();
+                    for (pd, k, src) in keys { self.pad_key(pd, k, src, false); }
+                    self.pad_messages.push(format!("Controller {} getrennt", pad + 1));
+                }
+                gilrs::EventType::ButtonPressed(b, _) => { if let Some(k) = pad_button_key(pad, b) { self.pad_key(pad, k, 0, true); } }
+                gilrs::EventType::ButtonReleased(b, _) => { if let Some(k) = pad_button_key(pad, b) { self.pad_key(pad, k, 0, false); } }
+                gilrs::EventType::AxisChanged(axis, v, _) => {
+                    // Linker Stick wie das Steuerkreuz (mit Hysterese)
+                    let (neg, pos) = match (axis, pad) {
+                        (gilrs::Axis::LeftStickX, 0) => (K_a, K_d),
+                        (gilrs::Axis::LeftStickY, 0) => (K_s, K_w),
+                        (gilrs::Axis::LeftStickX, _) => (K_LEFT, K_RIGHT),
+                        (gilrs::Axis::LeftStickY, _) => (K_DOWN, K_UP),
+                        _ => continue,
+                    };
+                    let held = |k: i32| self.pad_held.contains(&(pad, k, 1));
+                    let (hn, hp) = (held(neg), held(pos));
+                    if v < -0.55 && !hn { self.pad_key(pad, neg, 1, true); }
+                    if v > -0.35 && hn { self.pad_key(pad, neg, 1, false); }
+                    if v > 0.55 && !hp { self.pad_key(pad, pos, 1, true); }
+                    if v < 0.35 && hp { self.pad_key(pad, pos, 1, false); }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// pygame.event.get()
@@ -259,6 +359,20 @@ impl Display {
         let w = self.app.window.as_ref()?;
         let m = w.current_monitor()?;
         m.refresh_rate_millihertz().map(|mhz| mhz as f64 / 1000.0).filter(|hz| *hz >= 20.0 && *hz <= 1000.0)
+    }
+
+    /// Nur für den versteckten Selbsttest: Controller-Knopf wie ein echtes Ereignis einspeisen
+    pub fn test_pad_button(&mut self, pad: usize, name: &str, down: bool) {
+        use gilrs::Button::*;
+        let b = match name { "a" => South, "b" => East, "x" => West, "y" => North, "start" => Start, "select" => Select,
+            "up" => DPadUp, "down" => DPadDown, "left" => DPadLeft, "right" => DPadRight, "lb" => LeftTrigger, "rb" => RightTrigger, _ => return };
+        if let Some(k) = pad_button_key(pad, b) { self.pad_key(pad, k, 0, down); }
+    }
+    /// Nur für den versteckten Selbsttest: linken Stick einspeisen (x/y, -1..1)
+    pub fn test_pad_stick(&mut self, pad: usize, x: f32) {
+        let (neg, pos) = if pad == 0 { (K_a, K_d) } else { (K_LEFT, K_RIGHT) };
+        self.pad_key(pad, neg, 1, x < -0.55);
+        self.pad_key(pad, pos, 1, x > 0.55);
     }
 
     pub fn set_title(&mut self, t: &str) { if let Some(w) = &self.app.window { w.set_title(t); } }

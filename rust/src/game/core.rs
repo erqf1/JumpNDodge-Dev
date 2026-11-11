@@ -280,6 +280,7 @@ impl G {
     pub fn event_get(&mut self) -> Vec<Event> {
         self.poll_online();
         let ev = self.display.event_get();
+        for m in std::mem::take(&mut self.display.pad_messages) { self.push_overlay(&m, (120, 170, 230), 2.5, None); }
         self._handle_window_events(&ev);
         ev
     }

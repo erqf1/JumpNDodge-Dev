@@ -65,7 +65,7 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
       - name: Tests (Spiellogik, Netzwerk, Server, Updater)
         working-directory: rust
         run: |
@@ -85,7 +85,7 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
       - name: Debug-Build (den unsichtbaren Testmodus gibt es nur im Debug-Build)
         working-directory: rust
         run: cargo build --workspace --locked
@@ -159,7 +159,7 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config zip
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config zip
       - name: Bauen
         working-directory: rust
         run: cargo build --release --locked --workspace
