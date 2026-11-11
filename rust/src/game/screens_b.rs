@@ -514,11 +514,21 @@ impl G {
         let t = self.font.render("Mehr", true, self.get_text_color());
         bs.blit(&self.font.render("Mehr", true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 2, 62));
         bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
-        let texts = ["Experimental".to_string(), self.get_text("export_language"), self.get_text("back")];
-        let colors = [(200, 150, 100), (150, 100, 200), (150, 150, 150)];
+        let (on, off) = (self.tde("AN", "ON"), self.tde("AUS", "OFF"));
+        let on_off = |b: bool| if b { on.clone() } else { off.clone() };
+        let fs = self.settings.gb("fullscreen", false);
+        let lim = self.settings.gi("fps_limit", 0);
+        let fps_txt = if lim > 0 { format!("{} FPS", lim) } else { format!("Monitor ({} Hz)", self.target_fps()) };
+        let fp = self.settings.gb("pause_on_focus_loss", true);
+        let texts = [
+            format!("{}: {}", self.tde("Vollbild (F11)", "Fullscreen (F11)"), on_off(fs)),
+            format!("FPS: {}", fps_txt),
+            format!("{}: {}", self.tde("Auto-Pause", "Auto pause"), on_off(fp)),
+            "Experimental".to_string(), self.get_text("export_language"), self.get_text("back")];
+        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
         let mut rects = vec![];
         for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(w / 2 - 180, 240 + i as i32 * 70, 360, 48);
+            let r = Rect::new(w / 2 - 180, 150 + i as i32 * 60, 360, 48);
             rects.push(r);
             let hv = r.collidepoint(mp) || self.nav_is_focused("settings_more_menu", i, texts.len());
             self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, border_color: Some(*c), hover_border_color: Some((200, 220, 255)), hover_border_width: Some(3), ..Default::default() });

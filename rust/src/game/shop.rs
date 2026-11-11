@@ -376,7 +376,7 @@ impl G {
             }
             self.draw_achievement_popups(&bs);
             self.flip();
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            { let fps = self.target_fps(); self.clock.tick(fps); }
         }
     }
 

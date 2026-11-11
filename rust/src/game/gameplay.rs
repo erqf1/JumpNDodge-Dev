@@ -267,7 +267,7 @@ impl G {
         let mut almost_dead_pulse = 0.0f64;
         let mut obstacles: Vec<Obstacle> = vec![];
         let mut top_obstacles: Vec<Obstacle> = vec![];
-        let mut powerups: Vec<Rect> = vec![];
+        let mut powerups: Vec<Obstacle> = vec![];
         let mut obstacle_timer = 0i64;
         let mut obstacle_delay = randint(min_delay, max_delay);
         let mut top_timer = 0i64;
@@ -293,21 +293,18 @@ impl G {
         let mut space_was_down = false;
         used_double_jump = false;
         let mut last_frame = self.base_surface.copy();
+        // Feste Logikrate: die Spielregeln laufen immer mit 60 Schritten/s (wie das pygame-Original),
+        // gezeichnet wird so oft wie der Monitor kann - dazwischen wird interpoliert.
+        let mut acc_ms = LOGIC_TICK_MS;
+        let mut tick_no: u64 = 0;
+        let mut jump_latch = false;
+        let mut focus_pause = false;
+        let mut prev_player = player;
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
-            let dt = clock.tick(60);
-            for (act, arg) in self._drain_dev_round_actions() {
-                match act.as_str() {
-                    "collect_1up" => { let n = arg.unwrap_or(1); lives += n; oneups_collected += n; let t = self.stats.gi("total_1ups", 0) + n; self.stats.insert("total_1ups".into(), json!(t)); }
-                    "add_score" => score += arg.unwrap_or(0),
-                    "add_lives" => lives += arg.unwrap_or(0),
-                    "set_lives" => { if let Some(a) = arg { lives = a; } }
-                    "god_mode" => hit_invuln = if arg.unwrap_or(0) != 0 { 999_999_999 } else { 0 },
-                    _ => {}
-                }
-            }
-            if self.flash_timer > 0.0 { self.flash_timer -= dt as f64; }
+            let fps = self.target_fps();
+            acc_ms += clock.tick_f(fps).min(250.0);
             self.fill_bg(true);
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
@@ -320,11 +317,14 @@ impl G {
                 match ev {
                     Event::Quit => self.quit(),
                     Event::KeyDown { key, .. } => {
-                        if self.action_matches_key(key, "pause") {
+                        if self.action_matches_key(key, "jump") { jump_latch = true; }
+                        if self.action_matches_key(key, "pause") || focus_pause {
+                            focus_pause = false;
                             let pt = now_secs();
                             let res = self._run_pause_menu(Some(last_frame.clone()));
                             round_start += now_secs() - pt;
                             clock.tick(0);
+                            acc_ms = 0.0;
                             if res == "menu" { self.stop_music(); self.game_running = false; self.in_menu = true; return; }
                             else if res == "restart" { self.stop_music(); return; }
                         } else {
@@ -335,254 +335,256 @@ impl G {
                             }
                         }
                     }
+                    // Fenster verliert den Fokus (Alt+Tab, Benachrichtigung ...): automatisch pausieren
+                    Event::FocusLost if self.settings.gb("pause_on_focus_loss", true) && !self.display.hidden => {
+                        focus_pause = true;
+                        self.display.event_post(Event::KeyDown { key: 0, unicode: String::new(), mods: 0 });
+                    }
                     _ => {}
                 }
             }
-            let left_down = self.any_action_pressed("left");
-            let right_down = self.any_action_pressed("right");
-            if !free_roam {
-                let space_down = self.any_action_pressed("jump");
-                if space_down && !space_was_down {
-                    if !is_jumping {
-                        vy = -20.0;
-                        is_jumping = true;
-                        used_double_jump = false;
-                        let t = self.stats.gi("total_jumps", 0) + 1;
-                        self.stats.insert("total_jumps".into(), json!(t));
-                    } else if rp.double_jump && !used_double_jump {
-                        vy = -18.0;
-                        used_double_jump = true;
-                        let t = self.stats.gi("total_jumps", 0) + 1;
-                        self.stats.insert("total_jumps".into(), json!(t));
-                        let txt = format!("{}!", self.get_power_name("Double Jump"));
-                        self.push_overlay(&txt, (120, 200, 255), 1.0, Some((player.centerx(), player.top() - 20)));
+            let mut steps = 0;
+            while acc_ms >= LOGIC_TICK_MS {
+                acc_ms -= LOGIC_TICK_MS;
+                steps += 1;
+                if steps > 8 { acc_ms = 0.0; }
+                let dt = logic_dt(tick_no);
+                tick_no += 1;
+                prev_player = player;
+                for o in obstacles.iter_mut().chain(top_obstacles.iter_mut()).chain(powerups.iter_mut()) { o.prev = Some((o.r.x, o.r.y)); }
+                for (act, arg) in self._drain_dev_round_actions() {
+                    match act.as_str() {
+                        "collect_1up" => { let n = arg.unwrap_or(1); lives += n; oneups_collected += n; let t = self.stats.gi("total_1ups", 0) + n; self.stats.insert("total_1ups".into(), json!(t)); }
+                        "add_score" => score += arg.unwrap_or(0),
+                        "add_lives" => lives += arg.unwrap_or(0),
+                        "set_lives" => { if let Some(a) = arg { lives = a; } }
+                        "god_mode" => hit_invuln = if arg.unwrap_or(0) != 0 { 999_999_999 } else { 0 },
+                        _ => {}
                     }
                 }
-                space_was_down = space_down;
-            }
-            if rp.freeze_remaining == 0.0 {
-                if wind_h {
-                    wh_timer -= dt;
-                    if wh_timer <= 0 { let (t, d) = wind_roll_phase(); wh_t = t; wh_timer = d; }
-                    wh += (wh_t - wh) * 0.02;
+                if self.flash_timer > 0.0 { self.flash_timer -= dt as f64; }
+                let left_down = self.any_action_pressed("left");
+                let right_down = self.any_action_pressed("right");
+                if !free_roam {
+                    let space_down = self.any_action_pressed("jump") || jump_latch;
+                    jump_latch = false;
+                    if space_down && !space_was_down {
+                        if !is_jumping {
+                            vy = -20.0;
+                            is_jumping = true;
+                            used_double_jump = false;
+                            let t = self.stats.gi("total_jumps", 0) + 1;
+                            self.stats.insert("total_jumps".into(), json!(t));
+                        } else if rp.double_jump && !used_double_jump {
+                            vy = -18.0;
+                            used_double_jump = true;
+                            let t = self.stats.gi("total_jumps", 0) + 1;
+                            self.stats.insert("total_jumps".into(), json!(t));
+                            let txt = format!("{}!", self.get_power_name("Double Jump"));
+                            self.push_overlay(&txt, (120, 200, 255), 1.0, Some((player.centerx(), player.top() - 20)));
+                        }
+                    }
+                    space_was_down = space_down;
                 }
-                if wind_v {
-                    wv_timer -= dt;
-                    if wv_timer <= 0 { let (t, d) = wind_roll_phase(); wv_t = t; wv_timer = d; }
-                    wv += (wv_t - wv) * 0.02;
-                }
-            }
-            if free_roam {
-                if self.display.key_pressed(K_w) { player.y -= free_speed; }
-                if self.display.key_pressed(K_s) { player.y += free_speed; }
-                if self.display.key_pressed(K_a) { player.x -= free_speed; }
-                if self.display.key_pressed(K_d) { player.x += free_speed; }
-                if wind_h && rp.freeze_remaining == 0.0 { player.x = addf(player.x, wh * 4.5); }
-                if wind_v && rp.freeze_remaining == 0.0 { player.y = addf(player.y, wv * 3.5); }
-                if player.top() < 0 { player.set_top(0); }
-                if player.bottom() > h { player.set_bottom(h); }
-            } else {
-                if left_down { player.x -= move_speed; }
-                if right_down { player.x += move_speed; }
-                if wind_h && rp.freeze_remaining == 0.0 { player.x = addf(player.x, wh * 4.5); }
-            }
-            if player.left() < 0 { player.set_left(0); }
-            if player.right() > w { player.set_right(w); }
-
-            let eq_trails = self.equipped_trails();
-            if !eq_trails.is_empty() && (left_down || right_down || vy < 0.0) {
-                for t in &eq_trails {
-                    let list = trails.entry(t.clone()).or_default();
-                    for _ in 0..trail_particle_count(t) {
-                        let (sx, vx) = if left_down { (player.right() as f64 + uniform(-5.0, 5.0), uniform(-3.0, -0.5)) }
-                            else if right_down { (player.left() as f64 + uniform(-5.0, 5.0), uniform(0.5, 3.0)) }
-                            else { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) };
-                        list.push(spawn_trail_particle(t, sx, vx, player.centery() as f64));
+                if rp.freeze_remaining == 0.0 {
+                    if wind_h {
+                        wh_timer -= dt;
+                        if wh_timer <= 0 { let (t, d) = wind_roll_phase(); wh_t = t; wh_timer = d; }
+                        wh += (wh_t - wh) * 0.02;
+                    }
+                    if wind_v {
+                        wv_timer -= dt;
+                        if wv_timer <= 0 { let (t, d) = wind_roll_phase(); wv_t = t; wv_timer = d; }
+                        wv += (wv_t - wv) * 0.02;
                     }
                 }
-            }
-            for list in trails.values_mut() { update_particles(list); }
-
-            if !free_roam {
-                vy += gravity;
-                if wind_v && rp.freeze_remaining == 0.0 { vy += wv * 0.6; }
-                player.y = addf(player.y, vy);
-                if player.top() < 0 { player.set_top(0); vy = 0.0; }
-                if player.bottom() >= h - 50 {
-                    player.set_bottom(h - 50);
-                    vy = 0.0;
-                    if is_jumping || used_double_jump { is_jumping = false; used_double_jump = false; }
-                    space_was_down = false;
-                }
-            }
-
-            if rp.freeze_remaining == 0.0 { obstacle_timer += dt; }
-            if obstacle_timer >= obstacle_delay {
-                obstacle_timer = 0;
-                let mult = rp.speed_multiplier();
-                obstacle_delay = if mult > 0.0 { (randint(min_delay, max_delay) as f64 / mult) as i64 } else { 999_999 };
-                let mut chance = 0.015 * if rp.equipped.iter().any(|e| e == "Medic") { 1.15 } else { 1.0 };
-                if difficulty == "Custom" && !self.settings.gb("custom_oneups", true) { chance = 0.0; }
-                if random() < chance { powerups.push(Rect::new(w, h - 100, 50, 50)); }
-                else if free_roam { obstacles.push(self.make_free_roam_obstacle()); }
-                else {
-                    let t = self.pick_obstacle_type(&difficulty, if dynamic_mode { Some(speed) } else { None });
-                    obstacles.extend(self.make_obstacle(w, &t));
-                }
-            }
-            let top_active = !self.klassik_mode && !free_roam && (["Hardcore", "Unmöglich", "Albtraum", "Hölle"].contains(&difficulty.as_str())
-                || (dynamic_mode && speed >= 14.0) || (difficulty == "Custom" && self.settings.gb("custom_vertical_obstacles", false)));
-            if top_active {
-                if rp.freeze_remaining == 0.0 { top_timer += dt; }
-                if top_timer >= top_delay {
-                    top_timer = 0;
-                    top_obstacles.push(self.make_top_obstacle());
-                    top_delay = (randint(900, 1600) as f64 * (800.0 / 400.max(w) as f64)) as i64;
-                }
-            }
-            let current_speed = speed * rp.speed_multiplier();
-            let fall_speed = (current_speed * 0.85).max(2.0);
-            let mut i = 0;
-            while i < obstacles.len() {
-                let o = &mut obstacles[i];
-                let fr = o.dir_x.is_some() || o.dir_y.is_some();
-                if fr {
-                    o.r.x = addf(o.r.x, o.dir_x.unwrap_or(0.0) * current_speed);
-                    o.r.y = addf(o.r.y, o.dir_y.unwrap_or(0.0) * current_speed);
-                    if rp.freeze_remaining == 0.0 {
-                        if wind_h { o.r.x = addf(o.r.x, wh * 5.0); }
-                        if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
-                    }
+                if free_roam {
+                    if self.display.key_pressed(K_w) { player.y -= free_speed; }
+                    if self.display.key_pressed(K_s) { player.y += free_speed; }
+                    if self.display.key_pressed(K_a) { player.x -= free_speed; }
+                    if self.display.key_pressed(K_d) { player.x += free_speed; }
+                    if wind_h && rp.freeze_remaining == 0.0 { player.x = addf(player.x, wh * 4.5); }
+                    if wind_v && rp.freeze_remaining == 0.0 { player.y = addf(player.y, wv * 3.5); }
+                    if player.top() < 0 { player.set_top(0); }
+                    if player.bottom() > h { player.set_bottom(h); }
                 } else {
-                    o.r.x = addf(o.r.x, -current_speed);
-                    if wind_h && rp.freeze_remaining == 0.0 { o.r.x = addf(o.r.x, wh * 5.0); }
+                    if left_down { player.x -= move_speed; }
+                    if right_down { player.x += move_speed; }
+                    if wind_h && rp.freeze_remaining == 0.0 { player.x = addf(player.x, wh * 4.5); }
                 }
-                let off = if fr { o.r.right() < 0 || o.r.left() > w || o.r.bottom() < 0 || o.r.top() > h } else { o.r.right() < 0 };
-                if off { obstacles.remove(i); score += 1; continue; }
-                i += 1;
-            }
-            if rp.freeze_remaining == 0.0 {
-                let mut i = 0;
-                while i < top_obstacles.len() {
-                    let o = &mut top_obstacles[i];
-                    o.r.y = addf(o.r.y, fall_speed);
-                    if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
-                    if wind_h { o.r.x = addf(o.r.x, wh * 5.0); }
-                    if o.r.top() > h { top_obstacles.remove(i); continue; }
-                    i += 1;
-                }
-            }
-            if rp.nuke_remaining > 0.0 {
-                let (pcx, pcy) = player.center();
-                let near = |o: &Obstacle| { let dx = (o.r.centerx() - pcx) as i64; let dy = (o.r.centery() - pcy) as i64; dx * dx + dy * dy < 40000 };
-                obstacles.retain(|o| !near(o));
-                top_obstacles.retain(|o| !near(o));
-            }
-            let mut i = 0;
-            while i < powerups.len() {
-                let p = &mut powerups[i];
-                p.x = addf(p.x, -current_speed);
-                if rp.magnet {
-                    let dx = (player.centerx() - p.centerx()) as f64;
-                    let dy = (player.centery() - p.centery()) as f64;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    if dist > 0.0 && dist < 200.0 {
-                        let pull = 7.0 * (1.0 - dist / 200.0);
-                        p.x += (dx / dist * pull) as i32;
-                        p.y += (dy / dist * pull) as i32;
-                    }
-                }
-                if p.right() < 0 { powerups.remove(i); continue; }
-                i += 1;
-            }
-            let mut i = 0;
-            while i < powerups.len() {
-                if player.colliderect(&powerups[i]) {
-                    lives += 1;
-                    oneups_collected += 1;
-                    let t = self.stats.gi("total_1ups", 0) + 1;
-                    self.stats.insert("total_1ups".into(), json!(t));
-                    powerups.remove(i);
-                    self.play_sound(Snd::OneUp);
-                    self.show_1up_text_overlay(Some(player));
-                    self.push_overlay("1-UP eingesammelt", (0, 150, 0), 1.5, Some((player.centerx(), player.top() - 20)));
-                    continue;
-                }
-                i += 1;
-            }
-            // Kollision (Boden- und dann Top-Hindernisse)
-            for which in 0..2 {
-                let mut i = 0;
-                loop {
-                    let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
-                    if i >= list.len() { break; }
-                    if !player.colliderect(&list[i].r) { i += 1; continue; }
-                    if rp.freeze_remaining > 0.0 || hit_invuln > 0 { i += 1; continue; }
-                    if rp.on_hit_block() {
-                        let t = self.get_text("protected");
-                        self.push_overlay(&t, PURPLE, 1.5, Some((player.centerx(), player.top() - 20)));
-                    } else if rp.auto_dodge && random() < 0.05 {
-                        self.push_overlay("Auto Dodge!", (0, 200, 0), 1.5, Some((player.centerx(), player.top() - 20)));
-                    } else {
-                        lives -= 1;
-                        hit_invuln = 750;
-                        self.play_sound_v(Snd::Hit, "hit_volume");
-                    }
-                    let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
-                    list.remove(i);
-                    if lives <= 0 {
-                        if rp.phoenix && rp.phoenix_cd == 0.0 {
-                            lives = 2;
-                            rp.phoenix_cd = 120000.0;
-                            rp.phoenix_invuln_remaining = 2000.0;
-                            rp.phoenix_slow_remaining = 6000.0;
-                            self.flash_timer = 1000.0;
-                            self.push_overlay("Phoenix Revival!", (150, 50, 200), 2.0, None);
-                        } else {
-                            self.end_round_standard(score, &difficulty, round_start, &rp);
-                            return;
+                if player.left() < 0 { player.set_left(0); }
+                if player.right() > w { player.set_right(w); }
+
+                let eq_trails = self.equipped_trails();
+                if !eq_trails.is_empty() && (left_down || right_down || vy < 0.0) {
+                    for t in &eq_trails {
+                        let list = trails.entry(t.clone()).or_default();
+                        for _ in 0..trail_particle_count(t) {
+                            let (sx, vx) = if left_down { (player.right() as f64 + uniform(-5.0, 5.0), uniform(-3.0, -0.5)) }
+                                else if right_down { (player.left() as f64 + uniform(-5.0, 5.0), uniform(0.5, 3.0)) }
+                                else { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) };
+                            list.push(spawn_trail_particle(t, sx, vx, player.centery() as f64));
                         }
                     }
                 }
-            }
-            if dynamic_mode {
-                dynamic_timer += dt;
-                if dynamic_timer >= 5000 {
-                    dynamic_timer = 0;
-                    speed += 0.5;
-                    min_delay = 20.max(min_delay - 50);
-                    max_delay = (min_delay + 20).max(max_delay - 100);
-                }
-            }
-            rp.update_cooldowns(dt as f64);
-            rp.tick_shield_rearm();
-            if hit_invuln > 0 { hit_invuln = 0.max(hit_invuln - dt); }
+                for list in trails.values_mut() { update_particles(list); }
 
-            // ---- Zeichnen ----
-            let show_player = hit_invuln == 0 || (self.get_ticks() / 80) % 2 == 0;
-            if show_player {
-                draw::rect(&bs, (100, 100, 150), Rect::new(player.x + 3, player.y + 3, player.w, player.h), 0, 8);
-                draw::rect(&bs, self.get_player_color(), player, 0, 8);
-            }
-            self.draw_player_cosmetics(&bs, player, None);
-            for o in &obstacles {
-                draw::rect(&bs, (150, 50, 50), Rect::new(o.r.x + 2, o.r.y + 2, o.r.w, o.r.h), 0, 6);
-                draw::rect(&bs, RED, o.r, 0, 6);
-            }
-            for o in &top_obstacles {
-                draw::rect(&bs, (80, 0, 110), Rect::new(o.r.x + 2, o.r.y + 2, o.r.w, o.r.h), 0, 6);
-                draw::rect(&bs, (160, 0, 200), o.r, 0, 6);
-                let (ax, ay) = (o.r.centerx(), o.r.top() - 8);
-                draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
-            }
-            for p in &powerups {
-                draw::rect(&bs, (100, 255, 100), Rect::new(p.x - 3, p.y - 3, p.w + 6, p.h + 6), 0, 10);
-                draw::rect(&bs, GREEN, *p, 0, 8);
-                let t = self.small_font.render("1-UP", true, WHITE);
-                bs.blit(&t, (p.centerx() - t.get_width() / 2, p.centery() - t.get_height() / 2));
-            }
-            if wind_h || wind_v {
+                if !free_roam {
+                    vy += gravity;
+                    if wind_v && rp.freeze_remaining == 0.0 { vy += wv * 0.6; }
+                    player.y = addf(player.y, vy);
+                    if player.top() < 0 { player.set_top(0); vy = 0.0; }
+                    if player.bottom() >= h - 50 {
+                        player.set_bottom(h - 50);
+                        vy = 0.0;
+                        if is_jumping || used_double_jump { is_jumping = false; used_double_jump = false; }
+                        space_was_down = false;
+                    }
+                }
+
+                if rp.freeze_remaining == 0.0 { obstacle_timer += dt; }
+                if obstacle_timer >= obstacle_delay {
+                    obstacle_timer = 0;
+                    let mult = rp.speed_multiplier();
+                    obstacle_delay = if mult > 0.0 { (randint(min_delay, max_delay) as f64 / mult) as i64 } else { 999_999 };
+                    let mut chance = 0.015 * if rp.equipped.iter().any(|e| e == "Medic") { 1.15 } else { 1.0 };
+                    if difficulty == "Custom" && !self.settings.gb("custom_oneups", true) { chance = 0.0; }
+                    if random() < chance { powerups.push(Obstacle::new(w, h - 100, 50, 50, "1up")); }
+                    else if free_roam { obstacles.push(self.make_free_roam_obstacle()); }
+                    else {
+                        let t = self.pick_obstacle_type(&difficulty, if dynamic_mode { Some(speed) } else { None });
+                        obstacles.extend(self.make_obstacle(w, &t));
+                    }
+                }
+                let top_active = !self.klassik_mode && !free_roam && (["Hardcore", "Unmöglich", "Albtraum", "Hölle"].contains(&difficulty.as_str())
+                    || (dynamic_mode && speed >= 14.0) || (difficulty == "Custom" && self.settings.gb("custom_vertical_obstacles", false)));
+                if top_active {
+                    if rp.freeze_remaining == 0.0 { top_timer += dt; }
+                    if top_timer >= top_delay {
+                        top_timer = 0;
+                        top_obstacles.push(self.make_top_obstacle());
+                        top_delay = (randint(900, 1600) as f64 * (800.0 / 400.max(w) as f64)) as i64;
+                    }
+                }
+                let current_speed = speed * rp.speed_multiplier();
+                let fall_speed = (current_speed * 0.85).max(2.0);
+                let mut i = 0;
+                while i < obstacles.len() {
+                    let o = &mut obstacles[i];
+                    let fr = o.dir_x.is_some() || o.dir_y.is_some();
+                    if fr {
+                        o.r.x = addf(o.r.x, o.dir_x.unwrap_or(0.0) * current_speed);
+                        o.r.y = addf(o.r.y, o.dir_y.unwrap_or(0.0) * current_speed);
+                        if rp.freeze_remaining == 0.0 {
+                            if wind_h { o.r.x = addf(o.r.x, wh * 5.0); }
+                            if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
+                        }
+                    } else {
+                        o.r.x = addf(o.r.x, -current_speed);
+                        if wind_h && rp.freeze_remaining == 0.0 { o.r.x = addf(o.r.x, wh * 5.0); }
+                    }
+                    let off = if fr { o.r.right() < 0 || o.r.left() > w || o.r.bottom() < 0 || o.r.top() > h } else { o.r.right() < 0 };
+                    if off { obstacles.remove(i); score += 1; continue; }
+                    i += 1;
+                }
                 if rp.freeze_remaining == 0.0 {
+                    let mut i = 0;
+                    while i < top_obstacles.len() {
+                        let o = &mut top_obstacles[i];
+                        o.r.y = addf(o.r.y, fall_speed);
+                        if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
+                        if wind_h { o.r.x = addf(o.r.x, wh * 5.0); }
+                        if o.r.top() > h { top_obstacles.remove(i); continue; }
+                        i += 1;
+                    }
+                }
+                if rp.nuke_remaining > 0.0 {
+                    let (pcx, pcy) = player.center();
+                    let near = |o: &Obstacle| { let dx = (o.r.centerx() - pcx) as i64; let dy = (o.r.centery() - pcy) as i64; dx * dx + dy * dy < 40000 };
+                    obstacles.retain(|o| !near(o));
+                    top_obstacles.retain(|o| !near(o));
+                }
+                let mut i = 0;
+                while i < powerups.len() {
+                    let p = &mut powerups[i].r;
+                    p.x = addf(p.x, -current_speed);
+                    if rp.magnet {
+                        let dx = (player.centerx() - p.centerx()) as f64;
+                        let dy = (player.centery() - p.centery()) as f64;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist > 0.0 && dist < 200.0 {
+                            let pull = 7.0 * (1.0 - dist / 200.0);
+                            p.x += (dx / dist * pull) as i32;
+                            p.y += (dy / dist * pull) as i32;
+                        }
+                    }
+                    if p.right() < 0 { powerups.remove(i); continue; }
+                    i += 1;
+                }
+                let mut i = 0;
+                while i < powerups.len() {
+                    if player.colliderect(&powerups[i].r) {
+                        lives += 1;
+                        oneups_collected += 1;
+                        let t = self.stats.gi("total_1ups", 0) + 1;
+                        self.stats.insert("total_1ups".into(), json!(t));
+                        powerups.remove(i);
+                        self.play_sound(Snd::OneUp);
+                        self.show_1up_text_overlay(Some(player));
+                        self.push_overlay("1-UP eingesammelt", (0, 150, 0), 1.5, Some((player.centerx(), player.top() - 20)));
+                        continue;
+                    }
+                    i += 1;
+                }
+                // Kollision (Boden- und dann Top-Hindernisse)
+                for which in 0..2 {
+                    let mut i = 0;
+                    loop {
+                        let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
+                        if i >= list.len() { break; }
+                        if !player.colliderect(&list[i].r) { i += 1; continue; }
+                        if rp.freeze_remaining > 0.0 || hit_invuln > 0 { i += 1; continue; }
+                        if rp.on_hit_block() {
+                            let t = self.get_text("protected");
+                            self.push_overlay(&t, PURPLE, 1.5, Some((player.centerx(), player.top() - 20)));
+                        } else if rp.auto_dodge && random() < 0.05 {
+                            self.push_overlay("Auto Dodge!", (0, 200, 0), 1.5, Some((player.centerx(), player.top() - 20)));
+                        } else {
+                            lives -= 1;
+                            hit_invuln = 750;
+                            self.play_sound_v(Snd::Hit, "hit_volume");
+                        }
+                        let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
+                        list.remove(i);
+                        if lives <= 0 {
+                            if rp.phoenix && rp.phoenix_cd == 0.0 {
+                                lives = 2;
+                                rp.phoenix_cd = 120000.0;
+                                rp.phoenix_invuln_remaining = 2000.0;
+                                rp.phoenix_slow_remaining = 6000.0;
+                                self.flash_timer = 1000.0;
+                                self.push_overlay("Phoenix Revival!", (150, 50, 200), 2.0, None);
+                            } else {
+                                self.end_round_standard(score, &difficulty, round_start, &rp);
+                                return;
+                            }
+                        }
+                    }
+                }
+                if dynamic_mode {
+                    dynamic_timer += dt;
+                    if dynamic_timer >= 5000 {
+                        dynamic_timer = 0;
+                        speed += 0.5;
+                        min_delay = 20.max(min_delay - 50);
+                        max_delay = (min_delay + 20).max(max_delay - 100);
+                    }
+                }
+                rp.update_cooldowns(dt as f64);
+                rp.tick_shield_rearm();
+                if hit_invuln > 0 { hit_invuln = 0.max(hit_invuln - dt); }
+
+                if (wind_h || wind_v) && rp.freeze_remaining == 0.0 {
                     for wp in wind_particles.iter_mut() {
                         wp[0] += wh * 16.0;
                         wp[1] += wv * 16.0;
@@ -593,6 +595,43 @@ impl G {
                         }
                     }
                 }
+                if lives == 1 {
+                    almost_dead_pulse += dt as f64;
+                    heartbeat_timer += dt;
+                    if heartbeat_timer as f64 >= heartbeat_interval { heartbeat_timer = 0; self.play_sound_v(Snd::Heartbeat, "sfx_volume"); }
+                } else {
+                    almost_dead_pulse = 0.0;
+                    heartbeat_timer = 0;
+                }
+            }
+            let alpha = (acc_ms / LOGIC_TICK_MS).clamp(0.0, 1.0);
+            // ---- Zeichnen ----
+            let show_player = hit_invuln == 0 || (self.get_ticks() / 80) % 2 == 0;
+            let dplayer = lerp_rect(Some((prev_player.x, prev_player.y)), player, alpha);
+            if show_player {
+                draw::rect(&bs, (100, 100, 150), Rect::new(dplayer.x + 3, dplayer.y + 3, dplayer.w, dplayer.h), 0, 8);
+                draw::rect(&bs, self.get_player_color(), dplayer, 0, 8);
+            }
+            self.draw_player_cosmetics(&bs, dplayer, None);
+            for o in &obstacles {
+                let r = o.draw_rect(alpha);
+                draw::rect(&bs, (150, 50, 50), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
+                draw::rect(&bs, RED, r, 0, 6);
+            }
+            for o in &top_obstacles {
+                let r = o.draw_rect(alpha);
+                draw::rect(&bs, (80, 0, 110), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
+                draw::rect(&bs, (160, 0, 200), r, 0, 6);
+                let (ax, ay) = (r.centerx(), r.top() - 8);
+                draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
+            }
+            for p in powerups.iter().map(|p| p.draw_rect(alpha)) {
+                draw::rect(&bs, (100, 255, 100), Rect::new(p.x - 3, p.y - 3, p.w + 6, p.h + 6), 0, 10);
+                draw::rect(&bs, GREEN, p, 0, 8);
+                let t = self.small_font.render("1-UP", true, WHITE);
+                bs.blit(&t, (p.centerx() - t.get_width() / 2, p.centery() - t.get_height() / 2));
+            }
+            if wind_h || wind_v {
                 let mag = wh.abs().max(wv.abs());
                 if mag > 0.04 {
                     let a = 200.min((mag * 220.0) as i32);
@@ -675,14 +714,8 @@ impl G {
                 bs.blit(&fs, (0, 0));
             }
             if lives == 1 {
-                almost_dead_pulse += dt as f64;
-                heartbeat_timer += dt;
-                if heartbeat_timer as f64 >= heartbeat_interval { heartbeat_timer = 0; self.play_sound_v(Snd::Heartbeat, "sfx_volume"); }
                 let pulse = 0.3 + 0.55 * (almost_dead_pulse * std::f64::consts::PI / heartbeat_interval).sin().abs();
                 self.draw_almost_dead_vignette(pulse);
-            } else {
-                almost_dead_pulse = 0.0;
-                heartbeat_timer = 0;
             }
             last_frame = self.base_surface.copy();
             let _ = oneups_collected;

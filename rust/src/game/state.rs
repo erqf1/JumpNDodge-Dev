@@ -55,6 +55,10 @@ pub struct G {
     pub _fade_dir: i32,
     pub _fade_callback: Option<Cb>,
     pub _frame_counter: u64,
+    /// Zeitpunkt des letzten flip() (zeitbasierte Überblendung)
+    pub _last_flip: Option<std::time::Instant>,
+    /// (Bildrate, Zeitpunkt der Abfrage) - Monitor-Hz werden nur alle 2 s abgefragt
+    pub _fps_cache: (i32, f64),
     pub _gui_scale_dragging: bool,
     pub _custom_speed_dragging: bool,
     pub _custom_min_delay_dragging: bool,

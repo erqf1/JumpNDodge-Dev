@@ -63,7 +63,7 @@ impl G {
                 }
             }
             self.draw_shop_menu();
-            self.clock.tick(60);
+            { let fps = self.target_fps(); self.clock.tick(fps); }
         }
     }
 
@@ -346,7 +346,7 @@ impl G {
                     _ => {}
                 }
             }
-            self.clock.tick(60);
+            { let fps = self.target_fps(); self.clock.tick(fps); }
         }
     }
 
@@ -416,7 +416,7 @@ impl G {
                     _ => {}
                 }
             }
-            self.clock.tick(60);
+            { let fps = self.target_fps(); self.clock.tick(fps); }
         }
     }
 

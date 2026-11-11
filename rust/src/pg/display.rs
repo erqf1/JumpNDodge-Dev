@@ -387,6 +387,11 @@ impl Default for Clock { fn default() -> Self { Clock::new() } }
 
 impl Clock {
     pub fn new() -> Clock { Clock { last: None, frame_times: VecDeque::new() } }
+    /// Wie tick(), aber mit Bruchteilen von Millisekunden (für die feste Spiellogik-Rate)
+    pub fn tick_f(&mut self, fps: i32) -> f64 {
+        self.tick(fps);
+        *self.frame_times.back().unwrap_or(&0.0)
+    }
     /// Begrenzt auf `fps` Bilder pro Sekunde, gibt die vergangenen Millisekunden zurück.
     pub fn tick(&mut self, fps: i32) -> i64 {
         let now = Instant::now();

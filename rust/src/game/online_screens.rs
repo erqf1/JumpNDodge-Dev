@@ -277,7 +277,7 @@ impl G {
             }
             let nk = (self._lb_difficulty_idx, self._lb_friends_only);
             if nk != last_key && self.in_online_leaderboard { last_key = nk; self._lb_start_fetch(); }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -389,7 +389,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -620,7 +620,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -734,7 +734,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 

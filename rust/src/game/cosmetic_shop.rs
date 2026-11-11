@@ -283,7 +283,7 @@ impl G {
                     _ => {}
                 }
             }
-            self.clock.tick(60);
+            { let fps = self.target_fps(); self.clock.tick(fps); }
         }
     }
 

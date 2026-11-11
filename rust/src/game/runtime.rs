@@ -123,7 +123,7 @@ impl G {
         let end = self.get_ticks() + 1000;
         let mut cl = Clock::new();
         loop {
-            cl.tick(60);
+            { let fps = self.target_fps(); cl.tick(fps); }
             let rem = 0.max(end - self.get_ticks());
             if rem == 0 { break; }
             self.sync_window_size();

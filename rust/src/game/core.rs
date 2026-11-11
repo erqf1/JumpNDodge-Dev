@@ -122,10 +122,29 @@ pub struct Obstacle {
     /// Gleitkomma-Position für Free-Roam (pygame-Rects runden jede Bewegung ab)
     pub fx: f64,
     pub fy: f64,
+    /// Position beim vorigen Logikschritt (zum Zeichnen zwischen zwei Schritten)
+    pub prev: Option<(i32, i32)>,
 }
 impl Obstacle {
-    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64 } }
+    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64, prev: None } }
+    /// Rechteck zum Zeichnen: zwischen voriger und aktueller Position (alpha 0..1)
+    pub fn draw_rect(&self, alpha: f64) -> Rect { lerp_rect(self.prev, self.r, alpha) }
 }
+
+/// Zwischenposition für flüssiges Zeichnen bei mehr Hz als Logikschritten
+pub fn lerp_rect(prev: Option<(i32, i32)>, r: Rect, alpha: f64) -> Rect {
+    match prev {
+        Some((px, py)) if (r.x - px).abs() < 300 && (r.y - py).abs() < 300 => Rect::new(
+            px + ((r.x - px) as f64 * alpha).round() as i32,
+            py + ((r.y - py) as f64 * alpha).round() as i32, r.w, r.h),
+        _ => r,
+    }
+}
+/// Logikschritte pro Sekunde (wie früher die festen 60 FPS von pygame)
+pub const LOGIC_HZ: f64 = 60.0;
+pub const LOGIC_TICK_MS: f64 = 1000.0 / LOGIC_HZ;
+/// Millisekunden des n-ten Logikschritts (16/17/17 ... = genau 1000 ms pro 60 Schritte)
+pub fn logic_dt(n: u64) -> i64 { ((n + 1) * 1000 / 60 - n * 1000 / 60) as i64 }
 
 impl G {
     // ---------------- Hintergrund ----------------
@@ -237,6 +256,21 @@ impl G {
 
     pub fn get_ticks(&self) -> i64 { self.display.get_ticks() }
 
+    /// Bildrate für Menüs und das Zeichnen im Spiel: passend zum Monitor (144/165 Hz ...),
+    /// einstellbar über settings["fps_limit"] (0 = Monitor). Die Spiellogik läuft unabhängig
+    /// davon immer mit 60 Schritten pro Sekunde.
+    pub fn target_fps(&mut self) -> i32 {
+        if self.display.hidden { return 60; }
+        let lim = self.settings.gi("fps_limit", 0);
+        if lim > 0 { return lim.clamp(30, 1000) as i32; }
+        let now = now_secs();
+        if self._fps_cache.0 == 0 || now - self._fps_cache.1 > 2.0 {
+            let hz = self.display.refresh_rate().map(|h| h.round() as i32).unwrap_or(60);
+            self._fps_cache = (hz.clamp(30, 500), now);
+        }
+        self._fps_cache.0
+    }
+
     /// pygame.event.get() - plus Hintergrundarbeiten (Online-Antworten)
     pub fn event_get(&mut self) -> Vec<Event> {
         self.poll_online();
@@ -245,8 +279,15 @@ impl G {
         ev
     }
 
+    /// Kurzer Text je nach Sprache (für neue Optionen der Rust-Version)
+    pub fn tde(&self, de: &str, en: &str) -> String {
+        if ["Deutsch", "Schwiizerdütsch"].contains(&self.lang().as_str()) { de.into() } else { en.into() }
+    }
+
     fn _handle_window_events(&mut self, ev: &[Event]) {
         for e in ev {
+            // F11 schaltet überall zwischen Fenster und Vollbild um
+            if let Event::KeyDown { key, .. } = e { if *key == K_F11 { self.toggle_fullscreen(); } }
             if let Event::Quit = e {
                 // Python: pygame.quit(); sys.exit() an jeder Stelle - hier zentral
             }
@@ -409,8 +450,13 @@ impl G {
         self.poll_online();
         // base_surface hat bereits Fensterauflösung (siehe sync_window_size) - keine Neuskalierung
         let target = if self._fade_dir != 0 || self._fade_alpha > 0 { Some(self.base_surface.copy()) } else { None };
+        let now = std::time::Instant::now();
+        let frame_ms = self._last_flip.map(|t| (now - t).as_secs_f64() * 1000.0).unwrap_or(16.667).clamp(1.0, 50.0);
+        self._last_flip = Some(now);
         if self._fade_dir != 0 || self._fade_alpha > 0 {
-            self._fade_alpha += self._fade_dir * FADE_SPEED;
+            // pygame-Version: FADE_SPEED pro Bild bei 60 FPS -> hier pro 1/60 s, egal wie viele Hz
+            let step = ((FADE_SPEED as f64 * frame_ms / (1000.0 / 60.0)).round() as i32).max(1);
+            self._fade_alpha += self._fade_dir * step;
             if self._fade_dir == 1 && self._fade_alpha >= 255 {
                 self._fade_alpha = 255;
                 if let Some(cb) = self._fade_callback.take() { cb(self); }

@@ -170,7 +170,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -249,7 +249,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -330,7 +330,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 
@@ -621,7 +621,7 @@ impl G {
                     _ => {}
                 }
             }
-            clock.tick(60);
+            { let fps = self.target_fps(); clock.tick(fps); }
         }
     }
 

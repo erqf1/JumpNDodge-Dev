@@ -35,56 +35,92 @@ impl G {
         let mut sim = Sim2p::new(cfg, self.WIDTH, self.HEIGHT);
         let mut round_start = now_secs();
         let mut last_frame = self.base_surface.copy();
+        // Feste Logikrate (60/s) wie Server und pygame-Original, Zeichnen mit Monitor-Hz
+        let mut acc_ms = LOGIC_TICK_MS;
+        let mut tick_no: u64 = 0;
+        let mut jump_latch = [false; 2];
+        let mut focus_pause = false;
+        let mut prev_players = [sim.players[0].rect, sim.players[1].rect];
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
-            let dt = clock.tick(60);
+            let fps = self.target_fps();
+            acc_ms += clock.tick_f(fps).min(250.0);
             self.fill_bg(true);
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
             for ev in self.event_get() {
                 match ev {
                     Event::Quit => self.quit(),
-                    Event::KeyDown { key, .. } if self.action_matches_key(key, "pause") => {
+                    Event::KeyDown { key, .. } if self.action_matches_key(key, "p1_jump") || self.action_matches_key(key, "p2_jump") => {
+                        if self.action_matches_key(key, "p1_jump") { jump_latch[0] = true; }
+                        if self.action_matches_key(key, "p2_jump") { jump_latch[1] = true; }
+                    }
+                    Event::FocusLost if self.settings.gb("pause_on_focus_loss", true) && !self.display.hidden => {
+                        focus_pause = true;
+                        self.display.event_post(Event::KeyDown { key: 0, unicode: String::new(), mods: 0 });
+                    }
+                    Event::KeyDown { key, .. } if self.action_matches_key(key, "pause") || focus_pause => {
+                        focus_pause = false;
                         let pt = now_secs();
                         let res = self._run_pause_menu(Some(last_frame.clone()));
                         round_start += now_secs() - pt;
                         clock.tick(0);
+                        acc_ms = 0.0;
                         if res == "menu" { self.stop_music(); self.game_running = false; self.in_menu = true; return; }
                         else if res == "restart" { self.stop_music(); return; }
                     }
                     _ => {}
                 }
             }
-            let inputs = [self.input_2p("p1"), self.input_2p("p2")];
-            let res = sim.step(dt, inputs, w, h);
-            if res.jumps > 0 { let t = self.stats.gi("total_jumps", 0) + res.jumps; self.stats.insert("total_jumps".into(), json!(t)); }
-            for ev in &res.events {
-                let r = |i: usize| sim.players[i].rect;
-                let at = |i: usize| Some((r(i).centerx(), r(i).top() - 20));
-                match *ev {
-                    SimEvent::Revived(i) => self.push_overlay(&format!("P{} wiederbelebt!", i + 1), P_OVERLAY[i], 1.5, at(i)),
-                    SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), (0, 200, 0), 1.5, at(i)),
-                    SimEvent::Hit(i) => { self.play_sound_v(Snd::Hit, "hit_volume"); self.push_overlay(&format!("P{} Treffer!", i + 1), P_OVERLAY[i], 1.5, at(i)); }
-                    SimEvent::Died(_) => self.play_sound_v(Snd::Hit, "hit_volume"),
+            let mut steps = 0;
+            let mut game_over: Option<Option<sim2p::Winner>> = None;
+            while acc_ms >= LOGIC_TICK_MS && game_over.is_none() {
+                acc_ms -= LOGIC_TICK_MS;
+                steps += 1;
+                if steps > 8 { acc_ms = 0.0; }
+                let dt = logic_dt(tick_no);
+                tick_no += 1;
+                prev_players = [sim.players[0].rect, sim.players[1].rect];
+                let mut inputs = [self.input_2p("p1"), self.input_2p("p2")];
+                for i in 0..2 { inputs[i].jump |= jump_latch[i]; jump_latch[i] = false; }
+                let res = sim.step(dt, inputs, w, h);
+                if res.jumps > 0 { let t = self.stats.gi("total_jumps", 0) + res.jumps; self.stats.insert("total_jumps".into(), json!(t)); }
+                for ev in &res.events {
+                    let r = |i: usize| sim.players[i].rect;
+                    let at = |i: usize| Some((r(i).centerx(), r(i).top() - 20));
+                    match *ev {
+                        SimEvent::Revived(i) => self.push_overlay(&format!("P{} wiederbelebt!", i + 1), P_OVERLAY[i], 1.5, at(i)),
+                        SimEvent::OneUp(i) => self.push_overlay(&format!("1-UP! (P{})", i + 1), (0, 200, 0), 1.5, at(i)),
+                        SimEvent::Hit(i) => { self.play_sound_v(Snd::Hit, "hit_volume"); self.push_overlay(&format!("P{} Treffer!", i + 1), P_OVERLAY[i], 1.5, at(i)); }
+                        SimEvent::Died(_) => self.play_sound_v(Snd::Hit, "hit_volume"),
+                    }
                 }
-            }
 
+                if res.game_over { game_over = Some(res.winner); }
+            }
+            let alpha = (acc_ms / LOGIC_TICK_MS).clamp(0.0, 1.0);
+            // Hindernisse bewegen sich gleichmäßig: Position zwischen letztem und aktuellem Schritt
+            let back = 1.0 - alpha;
+            let cs = sim.speed;
+            let fall = (cs * 0.85).max(2.0);
+            let gnd = |r: Rect| Rect::new(r.x + (cs * back).round() as i32, r.y, r.w, r.h);
+            let top = |r: Rect| Rect::new(r.x, r.y - (fall * back).round() as i32, r.w, r.h);
             for o in &sim.obstacles {
-                let r = o.rect;
+                let r = gnd(o.rect);
                 draw::rect(&bs, (150, 50, 50), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
                 draw::rect(&bs, RED, r, 0, 6);
             }
             for o in &sim.top_obstacles {
-                let r = o.rect;
+                let r = top(o.rect);
                 draw::rect(&bs, (80, 0, 110), Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
                 draw::rect(&bs, (160, 0, 200), r, 0, 6);
                 let (ax, ay) = (r.centerx(), r.top() - 8);
                 draw::polygon(&bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
             }
-            for p in &sim.powerups {
+            for p in sim.powerups.iter().map(|p| gnd(*p)) {
                 draw::rect(&bs, (100, 255, 100), Rect::new(p.x - 3, p.y - 3, p.w + 6, p.h + 6), 0, 10);
-                draw::rect(&bs, GREEN, *p, 0, 8);
+                draw::rect(&bs, GREEN, p, 0, 8);
                 let t = self.small_font.render("1-UP", true, WHITE);
                 bs.blit(&t, (p.centerx() - t.get_width() / 2, p.centery() - t.get_height() / 2));
             }
@@ -92,7 +128,7 @@ impl G {
             let mf = self.menu_font.clone();
             for (i, p) in sim.players.iter().enumerate() {
                 if !p.alive { continue; }
-                let pr = p.rect;
+                let pr = lerp_rect(Some((prev_players[i].x, prev_players[i].y)), p.rect, alpha);
                 if p.invuln == 0 || (p.invuln / 5) % 2 == 0 {
                     draw::rect(&bs, P_SHADOWS[i], Rect::new(pr.x + 3, pr.y + 3, pr.w, pr.h), 0, 8);
                     draw::rect(&bs, P_COLORS[i], pr, 0, 8);
@@ -141,7 +177,7 @@ impl G {
             }
             last_frame = self.base_surface.copy();
             self.flip();
-            if res.game_over {
+            if let Some(winner) = game_over {
                 let secs = (now_secs() - round_start) as i64;
                 let score = sim.score;
                 self.stop_music();
@@ -159,7 +195,7 @@ impl G {
                 rbd.insert(difficulty.clone(), json!(v));
                 s.insert("rounds_by_diff".into(), serde_json::Value::Object(rbd));
                 self.save_section("stats", None);
-                self.show_game_over_2p(score, res.winner.map(|w| w.as_str()), secs);
+                self.show_game_over_2p(score, winner.map(|w| w.as_str()), secs);
                 return;
             }
         }

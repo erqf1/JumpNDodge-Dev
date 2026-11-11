@@ -283,7 +283,7 @@ impl G {
                         _ => {}
                     }
                 }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_profile_select {
                 let (cards, checks) = self.draw_profile_select();
                 let rects: Vec<Rect> = cards.iter().map(|(r, _)| *r).collect();
@@ -330,7 +330,7 @@ impl G {
                         _ => {}
                     }
                 }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_language_select {
                 let (weiter, light, dark, cards) = self.draw_language_select();
                 let mut rects = cards.clone();
@@ -364,7 +364,7 @@ impl G {
                         _ => {}
                     }
                 }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_tutorial {
                 let total = self._get_tutorial_steps().len();
                 for ev in self.event_get() {
@@ -391,7 +391,7 @@ impl G {
                     }
                 }
                 self.draw_tutorial();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_menu {
                 let has_mods = false; // Mods werden später besprochen (mod_system.mods ist leer)
                 let has_online = self.WIDTH >= 500;
@@ -426,11 +426,11 @@ impl G {
                     }
                 }
                 self.draw_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_difficulty_select {
                 self._difficulty_select_events();
                 self.draw_difficulty_select();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_profile_hub {
                 let (swatches, names, hub_btns) = self.draw_profile_hub();
                 'ev: for ev in self.event_get() {
@@ -461,7 +461,7 @@ impl G {
                         _ => {}
                     }
                 }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_more_menu {
                 let (sx, sy, gap) = (self.WIDTH / 2 - 180, 140, 58);
                 let actions: Vec<&str> = if self._check_admin_keyfile() { vec!["admin", "classic", "help", "redeem_code", "back"] } else { vec!["classic", "help", "redeem_code", "back"] };
@@ -495,7 +495,7 @@ impl G {
                     }
                 }
                 self.draw_more_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_classic_game {
                 self.run_classic_game();
             } else if self.in_mods_menu {
@@ -506,17 +506,17 @@ impl G {
             } else if self.in_achievements_screen {
                 self._achievements_events();
                 self.draw_achievements_screen();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_settings_menu {
                 self._settings_events();
                 self.draw_settings_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_controls_menu {
                 self._controls_events();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_settings_more_menu {
                 let rects = self.draw_settings_more_menu();
-                let acts = ["experimental", "export_lang", "back"];
+                let acts = ["fullscreen", "fps", "focus_pause", "experimental", "export_lang", "back"];
                 for ev in self.event_get() {
                     let mut a: Option<&str> = None;
                     match ev {
@@ -532,18 +532,34 @@ impl G {
                         }
                         Event::MouseButtonDown { button: 1, .. } => {
                             let mp = self.get_mouse_pos_logical();
-                            for i in 0..3 { if rects.len() > i && rects[i].collidepoint(mp) { a = Some(acts[i]); break; } }
+                            for i in 0..acts.len() { if rects.len() > i && rects[i].collidepoint(mp) { a = Some(acts[i]); break; } }
                         }
                         _ => {}
                     }
                     match a {
+                        Some("fullscreen") => self.toggle_fullscreen(),
+                        Some("fps") => {
+                            // Monitor -> 60 -> 120 -> 144 -> 165 -> 240 -> unbegrenzt -> Monitor
+                            const STEPS: [i64; 7] = [0, 60, 120, 144, 165, 240, 1000];
+                            let cur = self.settings.gi("fps_limit", 0);
+                            let i = STEPS.iter().position(|v| *v == cur).unwrap_or(0);
+                            self.settings.insert("fps_limit".into(), json!(STEPS[(i + 1) % STEPS.len()]));
+                            self.save_section("settings", None);
+                            self.play_sound(Snd::Click);
+                        }
+                        Some("focus_pause") => {
+                            let v = !self.settings.gb("pause_on_focus_loss", true);
+                            self.settings.insert("pause_on_focus_loss".into(), json!(v));
+                            self.save_section("settings", None);
+                            self.play_sound(Snd::Click);
+                        }
                         Some("experimental") => { self.play_sound(Snd::MenuClick); self.in_settings_more_menu = false; self.in_experimental_menu = true; }
                         Some("export_lang") => { self.play_sound(Snd::Click); self.export_current_language(); }
                         Some("back") => { self.play_sound(Snd::ClickBack); self.in_settings_more_menu = false; self.in_settings_menu = true; }
                         _ => {}
                     }
                 }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_experimental_menu {
                 for ev in self.event_get() {
                     match ev {
@@ -559,10 +575,10 @@ impl G {
                     }
                 }
                 self.draw_experimental_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_settings_sound_menu {
                 self._sound_menu_events();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_help {
                 for ev in self.event_get() {
                     match ev {
@@ -576,13 +592,13 @@ impl G {
                     }
                 }
                 self.draw_help_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.game_running {
                 if self.current_game_mode == "2player" { self.run_game_2p(); } else { self.run_game(); }
             } else if self.showing_stats {
                 self.draw_statistics();
                 self._stats_events();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_shop { self.shop_loop(); }
             else if self.in_loadout { self.loadout_loop(); }
             else if self.in_shop_menu { self.shop_menu_loop(); }
@@ -608,7 +624,7 @@ impl G {
             else if self.in_loading {
                 for ev in self.event_get() { if let Event::Quit = ev { self.quit(); } }
                 self.draw_loading_screen();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_daily_rewards {
                 let (can_claim, _) = self.can_claim_daily_reward();
                 let claim = Rect::new(self.WIDTH / 2 - 100, 200, 200, 50);
@@ -643,11 +659,11 @@ impl G {
                     }
                 }
                 self.draw_daily_rewards_menu();
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             } else {
                 // Kein Screen aktiv (sollte nie passieren) - Frame trotzdem abschließen
                 for ev in self.event_get() { if let Event::Quit = ev { self.quit(); } }
-                clock.tick(60);
+                { let fps = self.target_fps(); clock.tick(fps); }
             }
         }
     }
