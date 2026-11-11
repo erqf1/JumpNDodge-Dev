@@ -64,8 +64,15 @@ jobs:
           workspaces: rust
       - name: Abhängigkeiten
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+          # Die Azure-Spiegel von Ubuntu hängen manchmal (DNS) - dann noch mal und notfalls archive.ubuntu.com
+          ok=0
+          for versuch in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config; then ok=1; break; fi
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            sleep 15
+          done
+          [ "$ok" = 1 ]
       - name: Tests (Spiellogik, Netzwerk, Server, Updater)
         working-directory: rust
         run: |
@@ -84,8 +91,15 @@ jobs:
           key: e2e
       - name: Abhängigkeiten
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
+          # Die Azure-Spiegel von Ubuntu hängen manchmal (DNS) - dann noch mal und notfalls archive.ubuntu.com
+          ok=0
+          for versuch in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2; then ok=1; break; fi
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            sleep 15
+          done
+          [ "$ok" = 1 ]
       - name: Debug-Build (den unsichtbaren Testmodus gibt es nur im Debug-Build)
         working-directory: rust
         run: cargo build --workspace --locked
@@ -158,8 +172,15 @@ jobs:
           workspaces: rust
       - name: Abhängigkeiten
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config zip
+          # Die Azure-Spiegel von Ubuntu hängen manchmal (DNS) - dann noch mal und notfalls archive.ubuntu.com
+          ok=0
+          for versuch in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config zip; then ok=1; break; fi
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            sleep 15
+          done
+          [ "$ok" = 1 ]
       - name: Bauen
         working-directory: rust
         run: cargo build --release --locked --workspace
