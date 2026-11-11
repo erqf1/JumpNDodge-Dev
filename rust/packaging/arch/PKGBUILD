@@ -1,0 +1,21 @@
+# Maintainer: W Software
+# Packt das fertig gebaute Spiel aus dem Linux-Job der CI (kein zweites Kompilieren).
+pkgname=jumpndodge
+pkgver=5.0.0
+pkgrel=1
+pkgdesc="Springen, ausweichen, überleben - allein, zu zweit oder online (Rust Edition)"
+arch=('x86_64')
+url="https://mert.win/jump/"
+license=('Apache-2.0')
+depends=('alsa-lib' 'libxkbcommon' 'libx11' 'libxcursor' 'libxrandr' 'libxi')
+optdepends=('wayland: Wayland-Unterstützung')
+options=('!debug' '!strip')
+source=("JumpNDodge" "jumpndodge.desktop" "jumpndodge.png" "LICENSE")
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 "$srcdir/JumpNDodge" "$pkgdir/usr/bin/jumpndodge"
+  install -Dm644 "$srcdir/jumpndodge.desktop" "$pkgdir/usr/share/applications/jumpndodge.desktop"
+  install -Dm644 "$srcdir/jumpndodge.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/jumpndodge.png"
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=JumpNDodge
+GenericName=Ausweich-Spiel
+Comment=Springen, ausweichen, überleben - allein, zu zweit oder online
+Exec=jumpndodge
+Icon=jumpndodge
+Categories=Game;ActionGame;
+Keywords=game;jump;dodge;spiel;multiplayer;
+Terminal=false
+StartupWMClass=JumpNDodge

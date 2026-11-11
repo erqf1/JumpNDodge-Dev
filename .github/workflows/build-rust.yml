@@ -1,90 +1,80 @@
-name: Rust Build & Release
+name: Rust Edition – Build & Release
 
-# Baut den Rust-Port (rust/) für Windows, Linux und macOS.
-# Release nur bei Tags "rust-v*" - der Updater (updater.py/parse_version) ignoriert
-# solche Tags, die Python-Releases (v*) bleiben also unberührt. Der Release wird als
-# Vorabversion veröffentlicht und nie als "Latest" markiert.
+# Baut JumpNDodge (Rust Edition) für Windows, Linux und macOS mit allen Paketen:
+#   Windows: JumpNDodge-windows-x64-setup.exe (Inno, gleiche AppId wie der alte Installer), JumpNDodge-windows-x64.zip
+#   Linux:   jumpndodge_amd64.deb, jumpndodge-x86_64.pkg.tar.zst, jumpndodge-linux-x86_64.tar.gz
+#   macOS:   JumpNDodge-macos-apple-silicon.dmg, JumpNDodge-macos-intel.dmg
+#   Server:  JumpNDodge-Server-*.zip + Docker-Image ghcr.io/<owner>/jumpndodge-server
+#
+# Veröffentlichen: Actions → "Rust Edition – Build & Release" → Run workflow, tag = v5.0.0
+# (Tag-Pushes aus der Cloud lehnt der Git-Proxy ab, deshalb per Hand starten. Die Version im Tag muss
+#  zur Version in rust/Cargo.toml passen.)
+#   1. erqf1/JumpNDodge:         Release v<version> als "Latest" mit allen Paketen
+#                                (eingebauter Updater und W Hub holen sich die neueste Version dort).
+#   2. erqf1/JumpNDodge-Archive: Release v<version> mit den portablen Zips im alten Format -
+#                                der alte JumpNDodgeUpdater der Python-Version spielt darüber
+#                                automatisch die Rust Edition ein (Spielstand bleibt).
+# Braucht das Secret RELEASE_TOKEN (Schreibrechte auf beide Repos).
 
 on:
   push:
     branches: [ main ]
     paths: [ 'rust/**', '.github/workflows/build-rust.yml' ]
     tags: [ 'rust-v*' ]
+  pull_request:
+    paths: [ 'rust/**', '.github/workflows/build-rust.yml' ]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version zum Veröffentlichen, z.B. v5.0.0 (leer = nur bauen und testen)'
+        required: false
+        default: ''
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: windows
-            exe: JumpNDodge.exe
-          - os: ubuntu-latest
-            name: linux
-            exe: JumpNDodge
-          - os: macos-latest
-            name: macos
-            exe: JumpNDodge
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      ver: ${{ steps.v.outputs.ver }}
+      publish: ${{ steps.v.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
+      - id: v
+        run: |
+          CARGO_VER=$(grep -A3 '^\[workspace.package\]' rust/Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p')
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME#rust-}"; fi
+          if [ -n "$TAG" ]; then
+            VER="${TAG#v}"
+            if [ "$VER" != "$CARGO_VER" ]; then echo "::error::Tag $TAG passt nicht zur Version $CARGO_VER in rust/Cargo.toml"; exit 1; fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            VER="$CARGO_VER"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "Version $VER"
 
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - name: Linux-Abhängigkeiten (ALSA für den Sound)
-        if: matrix.name == 'linux'
+      - name: Abhängigkeiten
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config
-
-      - name: Tests (Spiellogik, Netzwerk, Server)
+      - name: Tests (Spiellogik, Netzwerk, Server, Updater)
         working-directory: rust
-        run: cargo test -p jnd_core -p jnd_server --locked
-
-      - name: Bauen
-        working-directory: rust
-        run: cargo build --release --locked --workspace
-
-      - name: Paket zusammenstellen
         run: |
-          mkdir -p "release/JumpNDodge-rust-${{ matrix.name }}"
-          cp "rust/target/release/${{ matrix.exe }}" "release/JumpNDodge-rust-${{ matrix.name }}/"
-          cp icon.ico LICENSE* "release/JumpNDodge-rust-${{ matrix.name }}/" 2>/dev/null || true
-          SRV="JumpNDodge-Server-${{ matrix.name }}"
-          mkdir -p "release/$SRV"
-          if [ "${{ matrix.name }}" = "windows" ]; then SEXE=JumpNDodge-Server.exe; else SEXE=JumpNDodge-Server; fi
-          cp "rust/target/release/$SEXE" "release/$SRV/"
-          cp rust/server/LIESMICH.txt "release/$SRV/"
-          cd release
-          if [ "${{ matrix.name }}" = "windows" ]; then
-            7z a "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
-            7z a "$SRV.zip" "$SRV"
-          else
-            chmod +x "JumpNDodge-rust-${{ matrix.name }}/${{ matrix.exe }}" "$SRV/$SEXE"
-            zip -r "JumpNDodge-rust-${{ matrix.name }}.zip" "JumpNDodge-rust-${{ matrix.name }}"
-            zip -r "$SRV.zip" "$SRV"
-          fi
+          cargo test -p jnd_core -p jnd_server --locked
+          cargo test --bin JumpNDodge --locked
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: JumpNDodge-rust-${{ matrix.name }}
-          path: |
-            release/JumpNDodge-rust-${{ matrix.name }}.zip
-            release/JumpNDodge-Server-${{ matrix.name }}.zip
-          retention-days: 3
-
-  # Phase 5: echter Server + zwei unsichtbare Spiele spielen zwei Runden gegeneinander
+  # Echter Server + zwei unsichtbare Spiele spielen zwei Runden gegeneinander
   multiplayer-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -96,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
-      - name: Debug-Build (der unsichtbare Testmodus gibt es nur im Debug-Build)
+      - name: Debug-Build (den unsichtbaren Testmodus gibt es nur im Debug-Build)
         working-directory: rust
         run: cargo build --workspace --locked
       - name: Ende-zu-Ende-Test
@@ -109,10 +99,154 @@ jobs:
           path: ${{ runner.temp }}/e2e
           retention-days: 5
 
-  # Docker-Image des Servers (für CasaOS) - bei Releases nach ghcr.io
+  windows:
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      VER: ${{ needs.version.outputs.ver }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Bauen
+        working-directory: rust
+        run: cargo build --release --locked --workspace
+      - name: Pakete
+        working-directory: rust
+        run: |
+          set -e
+          OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT" dist/JumpNDodge
+          cp target/release/JumpNDodge.exe ../icon.ico LICENSE dist/JumpNDodge/
+          # portabel (mit Ordner - so erwartet es der eingebaute Updater)
+          (cd dist && 7z a -bd "$OUT/JumpNDodge-windows-x64.zip" JumpNDodge >/dev/null)
+          # Archiv-Zip im alten flachen Format (alter JumpNDodgeUpdater)
+          mkdir -p arch && cp target/release/JumpNDodge.exe ../icon.ico arch/ && echo "$VER" > arch/version.txt
+          (cd arch && 7z a -bd "$OUT/JumpNDodge-v$VER-windows.zip" . >/dev/null)
+          # Server
+          S=JumpNDodge-Server-windows-x64; mkdir -p "$S"
+          cp target/release/JumpNDodge-Server.exe server/LIESMICH.txt server/docker-compose.yml LICENSE "$S/"
+          7z a -bd "$OUT/$S.zip" "$S" >/dev/null
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VER" rust\packaging\windows\jumpndodge.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item rust\dist\JumpNDodge-windows-x64-setup.exe out\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          retention-days: 5
+
+  linux:
+    needs: version
+    # 22.04 = ältere glibc, läuft damit auch auf Debian 12, Mint 21 usw.
+    runs-on: ubuntu-22.04
+    env:
+      VER: ${{ needs.version.outputs.ver }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config zip
+      - name: Bauen
+        working-directory: rust
+        run: cargo build --release --locked --workspace
+      - name: Pakete (.deb, tar.gz, Zips)
+        working-directory: rust
+        run: packaging/linux/build-packages.sh "$VER" "$GITHUB_WORKSPACE/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-src
+          path: out/arch-src
+          retention-days: 2
+      - name: Arch-Quellen aus den Release-Dateien nehmen
+        run: rm -rf out/arch-src
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+          retention-days: 5
+
+  arch:
+    needs: linux
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Abhängigkeiten
+        run: pacman -Syu --noconfirm --needed base-devel
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-src
+          path: arch-src
+      - name: makepkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          cp -r arch-src /home/builder/pkg
+          chmod +x /home/builder/pkg/JumpNDodge
+          chown -R builder /home/builder/pkg
+          cd /home/builder/pkg
+          su builder -c "makepkg -f -d --noconfirm"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp jumpndodge-[0-9]*-x86_64.pkg.tar.zst "$GITHUB_WORKSPACE/out/jumpndodge-x86_64.pkg.tar.zst"
+          # Probe: installieren muss klappen (pacman holt die Abhängigkeiten)
+          pacman -U --noconfirm "$GITHUB_WORKSPACE/out/jumpndodge-x86_64.pkg.tar.zst"
+          pacman -Q jumpndodge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: out/*
+          retention-days: 5
+
+  macos:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            name: apple-silicon
+          - os: macos-15-intel
+            name: intel
+    runs-on: ${{ matrix.os }}
+    env:
+      VER: ${{ needs.version.outputs.ver }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Bauen
+        working-directory: rust
+        run: cargo build --release --locked --workspace
+      - name: App + DMG
+        working-directory: rust
+        run: packaging/macos/build-dmg.sh "$VER" "${{ matrix.name }}" "$GITHUB_WORKSPACE/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.name }}
+          path: out/*
+          retention-days: 5
+
+  # Docker-Image des Servers (für CasaOS) - nur beim Veröffentlichen
   server-docker:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    needs: [version, test]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,9 +260,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Version
-        id: v
-        run: echo "version=${GITHUB_REF_NAME#rust-v}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: rust
@@ -136,35 +267,56 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:${{ steps.v.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:${{ needs.version.outputs.ver }}
             ghcr.io/${{ github.repository_owner }}/jumpndodge-server:latest
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+            org.opencontainers.image.version=${{ needs.version.outputs.ver }}
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    needs: [version, test, multiplayer-e2e, windows, linux, arch, macos]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    env:
+      VER: ${{ needs.version.outputs.ver }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
-      - name: Release im öffentlichen Archive-Repo (Vorabversion)
+          pattern: '{windows,linux,arch,macos-*}'
+      - name: Dateien aufteilen
+        run: |
+          ls -la dist
+          mkdir -p main archive
+          for f in dist/*; do
+            case "$(basename "$f")" in
+              JumpNDodge-v*) cp "$f" archive/ ;;
+              *) cp "$f" main/ ;;
+            esac
+          done
+          (cd main && sha256sum * > SHA256SUMS.txt)
+          ls -la main archive
+      - name: Release in erqf1/JumpNDodge (Hauptversion, Latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: erqf1/JumpNDodge
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: v${{ env.VER }}
+          name: JumpNDodge ${{ env.VER }} – Rust Edition
+          body_path: rust/packaging/release-notes.md
+          make_latest: true
+          files: main/*
+      - name: Release in erqf1/JumpNDodge-Archive (portable Zips, alter Updater)
         uses: softprops/action-gh-release@v2
         with:
           repository: erqf1/JumpNDodge-Archive
           token: ${{ secrets.RELEASE_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          name: "JumpNDodge (Rust) ${{ github.ref_name }}"
-          prerelease: true
-          make_latest: false
+          tag_name: v${{ env.VER }}
+          name: JumpNDodge ${{ env.VER }} (Rust Edition)
           body: |
-            Rust-Version von JumpNDodge (1:1-Port des Python-Spiels).
-            - Eine einzelne Datei, kein Python nötig, startet sofort.
-            - Spielstände sind kompatibel: `data/gameplay.json` funktioniert in beiden Versionen.
-            - Mods sind in dieser Vorabversion noch nicht enthalten.
-            - Sounds: wie bei der Python-Version den Ordner `data/sound` neben die exe legen.
-          files: dist/*.zip
+            Portable Version von JumpNDodge ${{ env.VER }} (Rust Edition) – entpacken und starten, keine Installation.
+            Installer, Linux-Pakete, macOS und alle Neuerungen: https://github.com/erqf1/JumpNDodge/releases/tag/v${{ env.VER }}
+          make_latest: true
+          files: archive/*

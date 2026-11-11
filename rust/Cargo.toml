@@ -5,9 +5,14 @@ edition = "2021"
 description = "JumpNDodge Rust Edition"
 license = "Apache-2.0"
 
+build = "build.rs"
+
 [[bin]]
 name = "JumpNDodge"
 path = "src/main.rs"
+
+[build-dependencies]
+winresource = "0.1"
 
 [workspace]
 members = ["core", "server"]
