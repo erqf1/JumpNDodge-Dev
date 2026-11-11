@@ -132,6 +132,78 @@ impl G {
         Recording::decode(&b)
     }
 
+    /// Liste der gespeicherten Replays (letzte Runde, Rekordläufe je Schwierigkeit)
+    pub fn run_replays_menu(&mut self) {
+        let mut clock = Clock::new();
+        loop {
+            let mut items: Vec<(String, Recording)> = vec![];
+            if let Some(r) = self.load_last_recording() { items.push((self.tde("Letzte Runde", "Last round"), r)); }
+            for d in crate::game::save::DIFFICULTIES.iter() {
+                if let Some(r) = self.load_best_recording(d) { items.push((format!("{} · {}", self.tde("Rekord", "Best"), self.get_difficulty_name(d)), r)); }
+            }
+            let fps = self.target_fps();
+            clock.tick(fps);
+            self.sync_window_size();
+            self.fill_bg(true);
+            let bs = self.base_surface.clone();
+            let (w, h) = (self.WIDTH, self.HEIGHT);
+            let mp = self.get_mouse_pos_logical();
+            self.draw_title_shadow(&bs, "Replays", 20);
+            let sf = self.small_font.clone();
+            let tc = self.get_text_color();
+            let mut rows = vec![];
+            if items.is_empty() {
+                let t = sf.render(&self.tde("Noch keine Replays - spiel eine Runde!", "No replays yet - play a round!"), true, (150, 150, 170));
+                bs.blit(&t, (w / 2 - t.get_width() / 2, 160));
+            }
+            for (i, (label, r)) in items.iter().enumerate().take(((h - 200) / 50).max(1) as usize) {
+                let row = Rect::new(w / 2 - 250, 110 + i as i32 * 50, 500, 42);
+                let hov = row.collidepoint(mp) || self.nav_is_focused("replays", i, items.len() + 1);
+                draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, row, 0, 10);
+                draw::rect(&bs, (120, 160, 240), row, if hov { 2 } else { 1 }, 10);
+                bs.blit(&sf.render(label, true, tc), (row.x + 14, row.y + 10));
+                let secs = r.seconds() as i64;
+                let info = format!("{} {} · {}:{:02}", r.score, self.get_text("score"), secs / 60, secs % 60);
+                let is = sf.render(&info, true, (150, 160, 190));
+                bs.blit(&is, (row.right() - 14 - is.get_width(), row.y + 10));
+                rows.push(row);
+            }
+            let back = Rect::new(w / 2 - 90, h - 64, 180, 44);
+            let bh = back.collidepoint(mp) || self.nav_is_focused("replays", rows.len(), rows.len() + 1);
+            self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: bh, ..Default::default() });
+            self.flip();
+            let mut all = rows.clone();
+            all.push(back);
+            let mut pick: Option<usize> = None;
+            for ev in self.event_get() {
+                match ev {
+                    Event::Quit => self.quit(),
+                    Event::KeyDown { key, .. } => {
+                        if self.is_back_key(key) || key == K_m { self.play_sound(Snd::ClickBack); return; }
+                        if let Some(dd) = self.nav_direction(key) {
+                            let cur = self.nav_get_focus("replays", all.len());
+                            self.nav_set_focus("replays", nav_move(&all, cur, dd));
+                        } else if self.is_nav_confirm(key) {
+                            match self.nav_get_focus("replays", all.len()) { Some(i) if i < rows.len() => pick = Some(i), _ => { self.play_sound(Snd::ClickBack); return; } }
+                        }
+                    }
+                    Event::MouseButtonDown { button: 1, .. } => {
+                        let p = self.get_mouse_pos_logical();
+                        if back.collidepoint(p) { self.play_sound(Snd::ClickBack); return; }
+                        pick = rows.iter().position(|r| r.collidepoint(p));
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(i) = pick {
+                self.play_sound(Snd::MenuClick);
+                let r = items[i].1.clone();
+                self.run_replay(&r);
+                if self.sound_enabled { self.play_menu_music(); }
+            }
+        }
+    }
+
     /// Replay ansehen: Leertaste Pause, ←/→ 5 s spulen, 1/2/4 Tempo, ESC zurück
     pub fn run_replay(&mut self, rec: &Recording) {
         if rec.frames.is_empty() { return; }

@@ -470,7 +470,7 @@ impl G {
                 { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_more_menu {
                 let (sx, sy, gap) = (self.WIDTH / 2 - 180, 140, 58);
-                let actions: Vec<&str> = if self._check_admin_keyfile() { vec!["admin", "classic", "help", "redeem_code", "back"] } else { vec!["classic", "help", "redeem_code", "back"] };
+                let actions: Vec<&str> = if self._check_admin_keyfile() { vec!["admin", "classic", "help", "redeem_code", "replays", "back"] } else { vec!["classic", "help", "redeem_code", "replays", "back"] };
                 let rects: Vec<Rect> = (0..actions.len()).map(|i| Rect::new(sx, sy + i as i32 * gap, 360, 48)).collect();
                 for ev in self.event_get() {
                     let mut act: Option<&str> = None;
@@ -496,6 +496,7 @@ impl G {
                             "classic" => self.open_classic_game(),
                             "help" => { self.in_more_menu = false; self.in_tutorial = true; self.tutorial_step = 0; }
                             "redeem_code" => self.open_redeem_code_from_more(),
+                            "replays" => self.run_replays_menu(),
                             _ => self.back_to_main_from_more(),
                         }
                     }

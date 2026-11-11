@@ -486,10 +486,12 @@ impl G {
     pub fn more_menu_buttons(&mut self) -> Vec<(String, (i32, i32, i32), &'static str)> {
         if self._check_admin_keyfile() {
             vec![(self.get_text("admin"), (200, 100, 100), "admin"), (self.get_text("classic_mode"), (120, 170, 120), "classic"),
-                 (self.get_text("help"), (200, 150, 100), "help"), (self.get_text("redeem_code_btn"), (80, 170, 220), "redeem"), (self.get_text("back"), (150, 150, 150), "back")]
+                 (self.get_text("help"), (160, 120, 220), "help"), (self.get_text("redeem_code_btn"), (80, 170, 220), "redeem"),
+                 ("Replays".to_string(), (120, 160, 240), "replays"), (self.get_text("back"), (150, 150, 150), "back")]
         } else {
-            vec![(self.get_text("classic_mode"), (120, 170, 120), "classic"), (self.get_text("help"), (200, 150, 100), "help"),
-                 (self.get_text("redeem_code_btn"), (80, 170, 220), "redeem"), (self.get_text("back"), (150, 150, 150), "back")]
+            // Hilfe violett statt orange (nicht neben dem grünen Klassik-Knopf)
+            vec![(self.get_text("classic_mode"), (120, 170, 120), "classic"), (self.get_text("help"), (160, 120, 220), "help"),
+                 (self.get_text("redeem_code_btn"), (80, 170, 220), "redeem"), ("Replays".to_string(), (120, 160, 240), "replays"), (self.get_text("back"), (150, 150, 150), "back")]
         }
     }
 
