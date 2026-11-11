@@ -1,0 +1,37 @@
+# JumpNDodge-Server für CasaOS / Docker Compose
+# CasaOS: App-Store -> "+" (Benutzerdefinierte App) -> "Importieren" -> diese Datei einfügen.
+# Danach im Router UDP-Port 47800 an den CasaOS-Rechner weiterleiten.
+name: jumpndodge-server
+services:
+  jumpndodge-server:
+    image: ghcr.io/erqf1/jumpndodge-server:latest
+    container_name: jumpndodge-server
+    restart: unless-stopped
+    ports:
+      - target: 47800
+        published: "47800"
+        protocol: udp
+    environment:
+      JND_SERVER_NAME: "JumpNDodge Server"
+      JND_SERVER_MOTD: "Viel Spaß!"
+      JND_SERVER_PASSWORD: ""
+      JND_SERVER_MAX_ROOMS: "16"
+    volumes:
+      - type: bind
+        source: /DATA/AppData/jumpndodge-server
+        target: /data
+x-casaos:
+  architectures: [amd64, arm64]
+  main: jumpndodge-server
+  author: W-Software
+  category: Games
+  description:
+    de_DE: Eigener Multiplayer-Server für JumpNDodge (Online-VS und Online-Koop, je 2 Spieler pro Raum). UDP-Port 47800 im Router weiterleiten.
+    en_US: Multiplayer server for JumpNDodge (online versus and co-op, 2 players per room). Forward UDP port 47800 in your router.
+  tagline:
+    de_DE: JumpNDodge Multiplayer-Server
+    en_US: JumpNDodge multiplayer server
+  title:
+    custom: JumpNDodge-Server
+  icon: https://raw.githubusercontent.com/erqf1/JumpNDodge/main/icon.png
+  port_map: ""

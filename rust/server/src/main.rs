@@ -17,7 +17,7 @@ fn exe_dir() -> PathBuf {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).");
+        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS");
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -26,6 +26,14 @@ fn main() {
         Ok(c) => c,
         Err(e) => { eprintln!("Fehler: {e}"); std::process::exit(1); }
     };
+    // Umgebungsvariablen (praktisch für Docker/CasaOS) überschreiben server.json
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    if let Some(v) = env("JND_SERVER_NAME") { cfg.name = v; }
+    if let Some(v) = env("JND_SERVER_MOTD") { cfg.motd = v; }
+    if let Some(v) = env("JND_SERVER_PASSWORD") { cfg.password = v; }
+    if let Some(v) = env("JND_SERVER_BIND") { cfg.bind = v; }
+    if let Some(v) = env("JND_SERVER_PORT").and_then(|v| v.parse().ok()) { cfg.port = v; }
+    if let Some(v) = env("JND_SERVER_MAX_ROOMS").and_then(|v| v.parse().ok()) { cfg.max_rooms = v; }
     if let Some(p) = arg("--port") {
         match p.parse() { Ok(p) => cfg.port = p, Err(_) => { eprintln!("Fehler: ungültiger Port {p}"); std::process::exit(1); } }
     }

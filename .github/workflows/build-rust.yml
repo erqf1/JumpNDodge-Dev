@@ -82,6 +82,66 @@ jobs:
             release/JumpNDodge-Server-${{ matrix.name }}.zip
           retention-days: 3
 
+  # Phase 5: echter Server + zwei unsichtbare Spiele spielen zwei Runden gegeneinander
+  multiplayer-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: e2e
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
+      - name: Debug-Build (der unsichtbare Testmodus gibt es nur im Debug-Build)
+        working-directory: rust
+        run: cargo build --workspace --locked
+      - name: Ende-zu-Ende-Test
+        working-directory: rust
+        run: xvfb-run -a -s "-screen 0 1280x800x24" tests/mp_e2e.sh "$RUNNER_TEMP/e2e"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multiplayer-e2e
+          path: ${{ runner.temp }}/e2e
+          retention-days: 5
+
+  # Docker-Image des Servers (für CasaOS) - bei Releases nach ghcr.io
+  server-docker:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Version
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#rust-v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: rust
+          file: rust/server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:${{ steps.v.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/rust-v')

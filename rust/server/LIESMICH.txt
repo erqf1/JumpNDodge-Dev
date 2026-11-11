@@ -35,3 +35,16 @@ Spieler aus dem Internet
 Hinweis: Wer sich mit deinem Server verbindet, kennt deine öffentliche IP-Adresse.
 
 Wichtig: Server und Spiel müssen dieselbe Version haben.
+
+Docker / CasaOS
+---------------
+Fertiges Image: ghcr.io/erqf1/jumpndodge-server:latest (amd64 und arm64)
+
+  docker run -d --name jumpndodge-server --restart unless-stopped \
+    -p 47800:47800/udp -v jnd-data:/data \
+    -e JND_SERVER_NAME="Mein Server" ghcr.io/erqf1/jumpndodge-server:latest
+
+CasaOS: App-Store -> "+" -> Benutzerdefinierte App -> Importieren -> Inhalt von
+docker-compose.yml einfügen. server.json liegt dann in /DATA/AppData/jumpndodge-server.
+Umgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,
+JND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_MAX_ROOMS.
