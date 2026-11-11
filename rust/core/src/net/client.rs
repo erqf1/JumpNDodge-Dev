@@ -118,6 +118,14 @@ impl Client {
 
     /// Empfangen + Wiederholen + Keepalive. Nicht blockierend, jeden Frame aufrufen.
     pub fn poll(&mut self) -> Vec<ServerMsg> {
+        self.pump();
+        std::mem::take(&mut self.pending)
+    }
+
+    /// Netzwerk bedienen (Bestätigungen, Wiederholungen, Keepalive) und eingehende Nachrichten
+    /// nur zwischenspeichern - für Zeiten, in denen niemand die Nachrichten abholt.
+    /// Ohne das würden verlorene Pakete nicht wiederholt und der Server trennt nach 10 s.
+    pub fn pump(&mut self) {
         let mut out = std::mem::take(&mut self.pending);
         let a = self.peer.addr;
         let peer = &mut self.peer;
@@ -129,7 +137,7 @@ impl Client {
             self.peer.send_unreliable(&self.sock, encode(&ClientMsg::Ping { t }));
         }
         self.peer.update(&self.sock);
-        out
+        self.pending = out;
     }
 
     /// Verbindung verloren (Server seit 10 s stumm)

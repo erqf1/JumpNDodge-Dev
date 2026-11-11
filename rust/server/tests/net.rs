@@ -40,17 +40,18 @@ fn opts(name: &str, loss: f64) -> ConnectOptions {
 }
 
 /// Pollt, bis `f` für eine Nachricht Some liefert
-fn wait_for<T>(c: &mut Client, secs: u64, mut f: impl FnMut(&ServerMsg) -> Option<T>) -> T {
+fn wait_for<T>(c: &mut Client, secs: u64, f: impl FnMut(&ServerMsg) -> Option<T>) -> T { wait_pump(c, None, secs, f) }
+
+/// Wie wait_for, hält dabei aber einen zweiten Client am Leben (Wiederholungen/Bestätigungen),
+/// ohne dessen Nachrichten wegzuwerfen - wie im Spiel, wo jeder Client jeden Frame läuft.
+fn wait_pump<T>(c: &mut Client, mut other: Option<&mut Client>, secs: u64, mut f: impl FnMut(&ServerMsg) -> Option<T>) -> T {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(secs) {
+        if let Some(o) = other.as_deref_mut() { o.pump(); }
         for m in c.poll() { if let Some(v) = f(&m) { return v; } }
         std::thread::sleep(Duration::from_millis(3));
     }
     panic!("Zeitüberschreitung beim Warten");
-}
-
-fn room_code(c: &mut Client) -> String {
-    wait_for(c, 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None })
 }
 
 /// Zwei Spieler in einem Raum, beide bereit, bis zum Start
@@ -58,16 +59,16 @@ fn setup_round(srv: &TestServer, mode: Mode, diff: &str, loss: f64) -> (Client, 
     let mut a = Client::connect(&srv.addr, opts("Alice", loss)).expect("Alice verbindet");
     let mut b = Client::connect(&srv.addr, opts("Bob", loss)).expect("Bob verbindet");
     a.send(&ClientMsg::CreateRoom { mode, difficulty: diff.into() });
-    let code = room_code(&mut a);
+    let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
     b.send(&ClientMsg::ListRooms);
-    let list = wait_for(&mut b, 10, |m| if let ServerMsg::RoomList(l) = m { Some(l.clone()) } else { None });
+    let list = wait_pump(&mut b, Some(&mut a), 10, |m| if let ServerMsg::RoomList(l) = m { Some(l.clone()) } else { None });
     assert!(list.iter().any(|r| r.code == code && r.players == 1 && r.host == "Alice"), "Raum steht in der Liste");
     b.send(&ClientMsg::JoinRoom { code: code.to_lowercase() });
-    wait_for(&mut b, 10, |m| if let ServerMsg::RoomState { players, you, .. } = m { (players[0].is_some() && players[1].is_some() && *you == 1).then_some(()) } else { None });
+    wait_pump(&mut b, Some(&mut a), 10, |m| if let ServerMsg::RoomState { players, you, .. } = m { (players[0].is_some() && players[1].is_some() && *you == 1).then_some(()) } else { None });
     a.send(&ClientMsg::Ready(true));
     b.send(&ClientMsg::Ready(true));
-    let sa = wait_for(&mut a, 15, |m| if let ServerMsg::Start { seed, .. } = m { Some(*seed) } else { None });
-    let sb = wait_for(&mut b, 15, |m| if let ServerMsg::Start { seed, .. } = m { Some(*seed) } else { None });
+    let sa = wait_pump(&mut a, Some(&mut b), 15, |m| if let ServerMsg::Start { seed, .. } = m { Some(*seed) } else { None });
+    let sb = wait_pump(&mut b, Some(&mut a), 15, |m| if let ServerMsg::Start { seed, .. } = m { Some(*seed) } else { None });
     assert_eq!(sa, sb, "beide bekommen denselben Seed");
     (a, b, sa)
 }

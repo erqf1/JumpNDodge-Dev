@@ -61,6 +61,21 @@ Tests: `cargo test -p jnd_core` (u.a. Determinismus: gleicher Seed + gleiche Ein
 - Tests: `cargo test -p jnd_core -p jnd_server` (echter Server + 2 Clients, auch mit 15 % Paketverlust).
 Nächste Phase 3: Multiplayer-Screens im Spiel + Netzwerk in der Runde (Vorhersage eigener Spieler, Interpolation).
 
+## Python-Altlasten behoben (Rust-Version weicht hier bewusst ab)
+- **Scharfe Darstellung**: Jede `Surface` hat einen Faktor `k` (echte Pixel pro logischem Pixel,
+  `pg::surface::set_render_scale`). Der Spielcode rechnet weiter logisch (z.B. 800x600), gezeichnet wird in
+  Fensterauflösung; `sync_window_size` setzt k = physische Größe / logische Größe. `present` kopiert 1:1.
+  Bei k > 1 werden Formen geglättet. Abschaltbar: `settings["sharp_rendering"] = false`.
+  Test mit HiDPI unter Xvfb: `WINIT_X11_SCALE_FACTOR=2`.
+- **Bildrate**: Menüs ticken mit `self.target_fps()` (Monitor-Hz, `settings["fps_limit"]`, 0 = Monitor;
+  im versteckten Test immer 60). Spielrunden (1P/2P): feste Logik mit 60 Schritten/s
+  (`LOGIC_TICK_MS`, `logic_dt(n)` = 16/17 ms), Zeichnen interpoliert (`Obstacle::prev`, `lerp_rect`).
+  Sprungtaste wird gemerkt (`jump_latch`), Überblendung zeitbasiert.
+- Auto-Pause bei Fokusverlust (`pause_on_focus_loss`), Vollbild-Schalter + F11, FPS-Auswahl unter
+  Einstellungen > Mehr.
+- Spielstand wird im Hintergrund-Thread geschrieben (`crypto::save_encrypted_json_bg`, `flush_saves()` beim Beenden).
+- `net::client::Client::pump()`: Netzwerk bedienen ohne Nachrichten abzuholen (sonst trennt der Server nach 10 s).
+
 ## Versteckter Selbsttest (nur Debug-Build)
 `JND_HIDDEN=1 JND_MUTE=1 JND_BASE_DIR=<Testordner> JND_SCRIPT="<frame>:<aktion>:<arg>;..."`
 Aktionen: `shot:<png>`, `cmd:run <befehl>` (Dev-Konsole, ohne key.txt), `key:<taste>`, `hold:<taste>`, `release:<taste>`,
