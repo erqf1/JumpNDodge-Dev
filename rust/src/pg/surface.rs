@@ -5,7 +5,7 @@
 //! wie bei pygame.draw. Auf Flächen ohne SRCALPHA wird der Alphawert einer Farbe ignoriert.
 
 use super::rect::{Num, Rect};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tiny_skia::{
     BlendMode, FillRule, FilterQuality, Mask, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
@@ -35,6 +35,29 @@ impl Color {
     fn skia(&self) -> tiny_skia::Color { tiny_skia::Color::from_rgba8(self.0, self.1, self.2, self.3) }
 }
 
+// =============================
+// Render-Skalierung (scharfe Darstellung bei Windows-Skalierung / Vollbild)
+// =============================
+// pygame zeichnete immer in "logischen" Pixeln und Windows hat das Bild dann unscharf
+// hochgezogen. Hier hat jede Fläche einen Faktor k (echte Pixel pro logischem Pixel).
+// Der Spielcode rechnet weiter in logischen Koordinaten, gezeichnet wird in voller Auflösung.
+thread_local! {
+    static RENDER_SCALE: Cell<f32> = const { Cell::new(1.0) };
+}
+/// Faktor für neu angelegte Flächen setzen (1.0 = wie pygame)
+pub fn set_render_scale(k: f32) { RENDER_SCALE.with(|c| c.set(if k.is_finite() && k > 0.05 { k } else { 1.0 })); }
+pub fn render_scale() -> f32 { RENDER_SCALE.with(|c| c.get()) }
+
+#[inline]
+fn px(v: i32, k: f32) -> i32 { if k == 1.0 { v } else { (v as f32 * k).round() as i32 } }
+/// logisches Rechteck -> Pixelrechteck
+fn prect(r: Rect, k: f32) -> Rect {
+    if k == 1.0 { return r; }
+    let x0 = px(r.x, k); let y0 = px(r.y, k);
+    Rect::new(x0, y0, px(r.x + r.w, k) - x0, px(r.y + r.h, k) - y0)
+}
+fn tf(k: f32) -> Transform { if k == 1.0 { Transform::identity() } else { Transform::from_scale(k, k) } }
+
 /// Positionen akzeptieren wie in pygame ints und floats.
 pub trait Pos { fn xy(&self) -> (f64, f64); }
 impl<A: Num, B: Num> Pos for (A, B) { fn xy(&self) -> (f64, f64) { (self.0.to_f(), self.1.to_f()) } }
@@ -47,28 +70,34 @@ pub struct SurfInner {
     pub alpha: Option<u8>,
     pub clip: Option<Rect>,
     mask: Option<Mask>,
+    /// echte Pixel pro logischem Pixel
+    pub k: f32,
 }
 
 #[derive(Clone)]
 pub struct Surface(pub Rc<RefCell<SurfInner>>);
 
 impl Surface {
-    fn make(w: i32, h: i32, srcalpha: bool) -> Surface {
-        let pw = w.max(1) as u32;
-        let ph = h.max(1) as u32;
+    fn make(w: i32, h: i32, srcalpha: bool) -> Surface { Surface::make_k(w, h, srcalpha, render_scale()) }
+    fn make_k(w: i32, h: i32, srcalpha: bool, k: f32) -> Surface {
+        let pw = px(w.max(1), k).max(1) as u32;
+        let ph = px(h.max(1), k).max(1) as u32;
         let mut pm = Pixmap::new(pw, ph).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
         if !srcalpha {
             pm.fill(tiny_skia::Color::BLACK);
         }
-        Surface(Rc::new(RefCell::new(SurfInner { pm, w: w.max(0), h: h.max(0), srcalpha, alpha: None, clip: None, mask: None })))
+        Surface(Rc::new(RefCell::new(SurfInner { pm, w: w.max(0), h: h.max(0), srcalpha, alpha: None, clip: None, mask: None, k })))
     }
+    /// Fläche mit fester Pixelgröße (z.B. genau Fenstergröße) und logischer Größe w x h
+    pub fn new_scaled(w: i32, h: i32, k: f32) -> Surface { Surface::make_k(w, h, false, k) }
+    pub fn scale_k(&self) -> f32 { self.0.borrow().k }
     /// pygame.Surface((w, h)) - undurchsichtig, schwarz
     pub fn new<A: Num, B: Num>(w: A, h: B) -> Surface { Surface::make(w.to_i(), h.to_i(), false) }
     /// pygame.Surface((w, h), pygame.SRCALPHA) - durchsichtig
     pub fn new_alpha<A: Num, B: Num>(w: A, h: B) -> Surface { Surface::make(w.to_i(), h.to_i(), true) }
     pub fn from_pixmap(pm: Pixmap, srcalpha: bool) -> Surface {
         let (w, h) = (pm.width() as i32, pm.height() as i32);
-        Surface(Rc::new(RefCell::new(SurfInner { pm, w, h, srcalpha, alpha: None, clip: None, mask: None })))
+        Surface(Rc::new(RefCell::new(SurfInner { pm, w, h, srcalpha, alpha: None, clip: None, mask: None, k: 1.0 })))
     }
 
     pub fn get_width(&self) -> i32 { self.0.borrow().w }
@@ -84,7 +113,7 @@ impl Surface {
     pub fn copy(&self) -> Surface {
         let s = self.0.borrow();
         Surface(Rc::new(RefCell::new(SurfInner {
-            pm: s.pm.clone(), w: s.w, h: s.h, srcalpha: s.srcalpha, alpha: s.alpha, clip: None, mask: None,
+            pm: s.pm.clone(), w: s.w, h: s.h, srcalpha: s.srcalpha, alpha: s.alpha, clip: None, mask: None, k: s.k,
         })))
     }
 
@@ -96,7 +125,7 @@ impl Surface {
         s.clip = r;
         s.mask = None;
         if let Some(r) = r {
-            let r = r.clip(&Rect::new(0, 0, s.w, s.h));
+            let r = prect(r.clip(&Rect::new(0, 0, s.w, s.h)), s.k);
             let mut m = Mask::new(s.pm.width(), s.pm.height()).unwrap();
             if r.w > 0 && r.h > 0 {
                 if let Some(rr) = tiny_skia::Rect::from_xywh(r.x as f32, r.y as f32, r.w as f32, r.h as f32) {
@@ -131,6 +160,7 @@ impl Surface {
         let mut r = r.normalized().clip(&Rect::new(0, 0, s.w, s.h));
         if let Some(clip) = s.clip { r = r.clip(&clip); }
         if r.w <= 0 || r.h <= 0 { return; }
+        let r = prect(r, s.k).clip(&Rect::new(0, 0, s.pm.width() as i32, s.pm.height() as i32));
         let pw = s.pm.width() as usize;
         let pc = c.skia().premultiply().to_color_u8();
         let data = s.pm.pixels_mut();
@@ -145,6 +175,8 @@ impl Surface {
     pub fn get_at<P: Pos>(&self, p: P) -> Color {
         let (x, y) = p.xy();
         let s = self.0.borrow();
+        if x < 0.0 || y < 0.0 { return Color(0, 0, 0, 0); }
+        let (x, y) = if s.k == 1.0 { (x, y) } else { ((x.floor() + 0.5) * s.k as f64, (y.floor() + 0.5) * s.k as f64) };
         match s.pm.pixel(x as u32, y as u32) {
             Some(px) => { let c = px.demultiply(); Color(c.red(), c.green(), c.blue(), c.alpha()) }
             None => Color(0, 0, 0, 0),
@@ -168,32 +200,33 @@ impl Surface {
         let opacity = sb.alpha.map(|a| a as f32 / 255.0).unwrap_or(1.0);
         if opacity <= 0.0 { return; }
         let mut d = self.0.borrow_mut();
-        let dsrcalpha = d.srcalpha;
-        let paint = PixmapPaint { opacity, blend_mode: BlendMode::SourceOver, quality: FilterQuality::Nearest };
-        let (src_pm_owned, ox, oy);
-        let src_pm = if let Some(a) = area {
+        let same_k = (d.k - sb.k).abs() < 1e-4;
+        let quality = if same_k { FilterQuality::Nearest } else { FilterQuality::Bilinear };
+        let paint = PixmapPaint { opacity, blend_mode: BlendMode::SourceOver, quality };
+        let src_pm_owned;
+        let (src_pm, ax, ay) = if let Some(a) = area {
             let a = a.clip(&Rect::new(0, 0, sb.w, sb.h));
             if a.w <= 0 || a.h <= 0 { return; }
-            let mut sub = Pixmap::new(a.w as u32, a.h as u32).unwrap();
-            sub.draw_pixmap(-a.x, -a.y, sb.pm.as_ref(), &PixmapPaint { blend_mode: BlendMode::Source, ..Default::default() }, Transform::identity(), None);
+            let pa = prect(a, sb.k);
+            if pa.w <= 0 || pa.h <= 0 { return; }
+            let mut sub = Pixmap::new(pa.w as u32, pa.h as u32).unwrap();
+            sub.draw_pixmap(-pa.x, -pa.y, sb.pm.as_ref(), &PixmapPaint { blend_mode: BlendMode::Source, ..Default::default() }, Transform::identity(), None);
             src_pm_owned = sub;
-            ox = 0; oy = 0;
-            &src_pm_owned
+            (&src_pm_owned, 0, 0)
         } else {
-            ox = 0; oy = 0;
-            &sb.pm
+            (&sb.pm, 0, 0)
         };
-        let _ = (ox, oy);
-        // Nur den sichtbaren Teil (Größe sb.w/h, nicht das 1x1-Mindest-Pixmap) zeichnen
+        let _ = (ax, ay);
         let mask = d.mask.take();
-        if sb.pm.width() as i32 != sb.w.max(1) || sb.pm.height() as i32 != sb.h.max(1) {
-            // sollte nicht vorkommen
+        if same_k {
+            let k = d.k;
+            d.pm.draw_pixmap(px(x, k), px(y, k), src_pm.as_ref(), &paint, Transform::identity(), mask.as_ref());
+        } else {
+            let r = d.k / sb.k;
+            let t = Transform::from_row(r, 0.0, 0.0, r, px(x, d.k) as f32, px(y, d.k) as f32);
+            d.pm.draw_pixmap(0, 0, src_pm.as_ref(), &paint, t, mask.as_ref());
         }
-        d.pm.draw_pixmap(x, y, src_pm.as_ref(), &paint, Transform::identity(), mask.as_ref());
         d.mask = mask;
-        if !dsrcalpha {
-            // Ziel bleibt undurchsichtig (pygame ignoriert Alpha auf normalen Flächen)
-        }
     }
 
     /// Ganzes Pixmap (für Ausgabe/Screenshots)
@@ -205,7 +238,8 @@ impl Surface {
         // pygame teilt die Pixel - hier reicht eine Kopie (wird nur gelesen)
         let s = self.0.borrow();
         let r = r.clip(&Rect::new(0, 0, s.w, s.h));
-        let out = Surface::make(r.w, r.h, s.srcalpha);
+        let out = Surface::make_k(r.w, r.h, s.srcalpha, s.k);
+        let r = prect(r, s.k);
         if r.w > 0 && r.h > 0 {
             out.0.borrow_mut().pm.draw_pixmap(-r.x, -r.y, s.pm.as_ref(), &PixmapPaint { blend_mode: BlendMode::Source, ..Default::default() }, Transform::identity(), None);
         }
@@ -222,7 +256,8 @@ fn paint_for(dst: &SurfInner, c: Color) -> Paint<'static> {
     if !dst.srcalpha { c.3 = 255; }
     let mut p = Paint::default();
     p.set_color(c.skia());
-    p.anti_alias = false;
+    // pygame zeichnet ohne Kantenglättung; in hoher Auflösung sieht geglättet besser aus
+    p.anti_alias = dst.k > 1.01;
     p.blend_mode = if dst.srcalpha && c.3 < 255 { BlendMode::Source } else { BlendMode::SourceOver };
     p
 }
@@ -266,12 +301,14 @@ pub mod draw {
 
     fn fill_path_on(s: &mut SurfInner, path: &tiny_skia::Path, paint: &Paint, rule: FillRule) {
         let mask = s.mask.take();
-        s.pm.fill_path(path, paint, rule, Transform::identity(), mask.as_ref());
+        let t = tf(s.k);
+        s.pm.fill_path(path, paint, rule, t, mask.as_ref());
         s.mask = mask;
     }
     fn stroke_path_on(s: &mut SurfInner, path: &tiny_skia::Path, paint: &Paint, stroke: &Stroke) {
         let mask = s.mask.take();
-        s.pm.stroke_path(path, paint, stroke, Transform::identity(), mask.as_ref());
+        let t = tf(s.k);
+        s.pm.stroke_path(path, paint, stroke, t, mask.as_ref());
         s.mask = mask;
     }
 
@@ -329,7 +366,9 @@ pub mod draw {
 
     fn fill_rect_blend(surf: &Surface, c: Color, r: Rect) {
         let mut s = surf.0.borrow_mut();
-        let paint = paint_for(&s, c);
+        let mut paint = paint_for(&s, c);
+        paint.anti_alias = false;
+        let r = prect(r, s.k);
         if let Some(rr) = tiny_skia::Rect::from_xywh(r.x as f32, r.y as f32, r.w as f32, r.h as f32) {
             let mask = s.mask.take();
             s.pm.fill_rect(rr, &paint, Transform::identity(), mask.as_ref());
@@ -517,9 +556,9 @@ pub mod transform {
         let (w, h) = (size.0.max(0), size.1.max(0));
         let out = Surface::make(w, h, s.srcalpha);
         if w > 0 && h > 0 && s.w > 0 && s.h > 0 {
-            let sx = w as f32 / s.w as f32;
-            let sy = h as f32 / s.h as f32;
             let mut o = out.0.borrow_mut();
+            let sx = o.pm.width() as f32 / s.pm.width() as f32;
+            let sy = o.pm.height() as f32 / s.pm.height() as f32;
             if !s.srcalpha { o.pm.fill(tiny_skia::Color::TRANSPARENT); }
             o.pm.draw_pixmap(0, 0, s.pm.as_ref(), &PixmapPaint { opacity: 1.0, blend_mode: BlendMode::Source, quality: q }, Transform::from_scale(sx, sy), None);
         }
@@ -530,7 +569,7 @@ pub mod transform {
     /// pygame.transform.flip(surface, flip_x, flip_y)
     pub fn flip(src: &Surface, fx: bool, fy: bool) -> Surface {
         let s = src.0.borrow();
-        let out = Surface::make(s.w, s.h, s.srcalpha);
+        let out = Surface::make_k(s.w, s.h, s.srcalpha, s.k);
         {
             let mut o = out.0.borrow_mut();
             let t = Transform::from_row(if fx { -1.0 } else { 1.0 }, 0.0, 0.0, if fy { -1.0 } else { 1.0 },
@@ -548,13 +587,15 @@ pub mod transform {
         let (w, h) = (s.w as f64, s.h as f64);
         let nw = (w * a.cos().abs() + h * a.sin().abs()).ceil() as i32;
         let nh = (w * a.sin().abs() + h * a.cos().abs()).ceil() as i32;
-        let out = Surface::make(nw, nh, true);
+        let out = Surface::make_k(nw, nh, true, s.k);
         {
             let mut o = out.0.borrow_mut();
-            let t = Transform::from_translate(nw as f32 / 2.0, nh as f32 / 2.0)
+            let (opw, oph) = (o.pm.width() as f32, o.pm.height() as f32);
+            let t = Transform::from_translate(opw / 2.0, oph / 2.0)
                 .pre_rotate(-angle as f32)
-                .pre_translate(-(w as f32) / 2.0, -(h as f32) / 2.0);
-            o.pm.draw_pixmap(0, 0, s.pm.as_ref(), &PixmapPaint { quality: FilterQuality::Nearest, ..Default::default() }, t, None);
+                .pre_translate(-(s.pm.width() as f32) / 2.0, -(s.pm.height() as f32) / 2.0);
+            let q = if s.k > 1.01 { FilterQuality::Bilinear } else { FilterQuality::Nearest };
+            o.pm.draw_pixmap(0, 0, s.pm.as_ref(), &PixmapPaint { quality: q, ..Default::default() }, t, None);
             o.alpha = s.alpha;
         }
         out

@@ -245,6 +245,22 @@ impl Display {
         }
     }
 
+    /// Echte Pixelgröße des Fensterinhalts
+    pub fn physical_size(&self) -> (i32, i32) {
+        match &self.app.window {
+            Some(w) => { let ps = w.inner_size(); (ps.width as i32, ps.height as i32) }
+            None => (self.app.init_size.0 as i32, self.app.init_size.1 as i32),
+        }
+    }
+    /// Skalierung des Betriebssystems (Windows 125 % = 1.25)
+    pub fn os_scale(&self) -> f64 { self.app.scale() }
+    /// Bildwiederholrate des aktuellen Monitors in Hz (falls bekannt)
+    pub fn refresh_rate(&self) -> Option<f64> {
+        let w = self.app.window.as_ref()?;
+        let m = w.current_monitor()?;
+        m.refresh_rate_millihertz().map(|mhz| mhz as f64 / 1000.0).filter(|hz| *hz >= 20.0 && *hz <= 1000.0)
+    }
+
     pub fn set_title(&mut self, t: &str) { if let Some(w) = &self.app.window { w.set_title(t); } }
 
     /// pygame.display.set_mode((w, h), flags)
@@ -296,12 +312,24 @@ impl Display {
         surf.with_pixmap(|pm| {
             let (sw, sh) = (pm.width(), pm.height());
             let src = pm.pixels();
-            if sw == pw && sh == ph {
-                for (d, s) in buf.iter_mut().zip(src.iter()) {
-                    *d = ((s.red() as u32) << 16) | ((s.green() as u32) << 8) | (s.blue() as u32);
+            let near = sw.abs_diff(pw) <= 3 && sh.abs_diff(ph) <= 3;
+            if near {
+                // Gleiche Auflösung (Normalfall): 1:1 kopieren, ggf. 1-3 Pixel Rand schwarz
+                let cw = sw.min(pw) as usize;
+                for y in 0..ph as usize {
+                    let drow = &mut buf[y * pw as usize..(y + 1) * pw as usize];
+                    if y < sh as usize {
+                        let srow = &src[y * sw as usize..y * sw as usize + cw];
+                        for (d, s) in drow[..cw].iter_mut().zip(srow.iter()) {
+                            *d = ((s.red() as u32) << 16) | ((s.green() as u32) << 8) | (s.blue() as u32);
+                        }
+                        for d in drow[cw..].iter_mut() { *d = 0; }
+                    } else {
+                        for d in drow.iter_mut() { *d = 0; }
+                    }
                 }
             } else {
-                // bilineare Skalierung (wie Windows bei DPI-Skalierung)
+                // bilineare Skalierung (nur noch Ausnahmefall, z.B. Fenster kleiner als 400x300)
                 let fx = sw as f32 / pw as f32;
                 let fy = sh as f32 / ph as f32;
                 for y in 0..ph {

@@ -385,7 +385,15 @@ impl G {
         let gui_scale = if self.game_running { 1.0 } else { self.settings.gf("gui_scale", 1.0).clamp(0.5, 2.0) };
         let lw = 400.max((win_w as f64 / gui_scale) as i32);
         let lh = 300.max((win_h as f64 / gui_scale) as i32);
-        if lw != self.WIDTH || lh != self.HEIGHT {
+        // Scharfe Darstellung: in echter Pixelauflösung zeichnen statt (wie pygame) klein
+        // zeichnen und dann unscharf hochziehen. Abschaltbar über settings["sharp_rendering"].
+        let (pw, ph) = self.display.physical_size();
+        let k = if self.settings.gb("sharp_rendering", true) {
+            ((pw as f64 / lw as f64).min(ph as f64 / lh as f64)).clamp(0.25, 4.0) as f32
+        } else { 1.0 };
+        let k = (k * 1000.0).round() / 1000.0;
+        crate::pg::surface::set_render_scale(k);
+        if lw != self.WIDTH || lh != self.HEIGHT || (self.base_surface.scale_k() - k).abs() > 1e-4 {
             self.WIDTH = lw;
             self.HEIGHT = lh;
             self.base_surface = Surface::new(self.WIDTH, self.HEIGHT);
@@ -399,16 +407,8 @@ impl G {
     /// pygame.display.flip() (= _jnd_flip + _patched_flip)
     pub fn flip(&mut self) {
         self.poll_online();
-        let (dw, dh) = self.display.size();
-        let need_display = self.base_surface.get_width() != dw || self.base_surface.get_height() != dh || self._fade_dir != 0 || self._fade_alpha > 0;
-        let target = if need_display {
-            let ds = if self.base_surface.get_width() != dw || self.base_surface.get_height() != dh {
-                transform::smoothscale(&self.base_surface, (dw, dh))
-            } else {
-                self.base_surface.copy()
-            };
-            Some(ds)
-        } else { None };
+        // base_surface hat bereits Fensterauflösung (siehe sync_window_size) - keine Neuskalierung
+        let target = if self._fade_dir != 0 || self._fade_alpha > 0 { Some(self.base_surface.copy()) } else { None };
         if self._fade_dir != 0 || self._fade_alpha > 0 {
             self._fade_alpha += self._fade_dir * FADE_SPEED;
             if self._fade_dir == 1 && self._fade_alpha >= 255 {

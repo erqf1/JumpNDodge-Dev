@@ -20,8 +20,8 @@ struct FontData {
     ascent: i32,
     height: i32,
     linesize: i32,
-    glyphs: RefCell<HashMap<char, (usize, Rc<Glyph>)>>,
-    cache: RefCell<HashMap<(String, u32), Surface>>,
+    glyphs: RefCell<HashMap<(char, u32), (usize, Rc<Glyph>)>>,
+    cache: RefCell<HashMap<(String, u32, u32), Surface>>,
     bold: bool,
 }
 
@@ -126,8 +126,12 @@ impl Font {
     pub fn get_linesize(&self) -> i32 { self.0.linesize }
     pub fn get_ascent(&self) -> i32 { self.0.ascent }
 
-    fn glyph(&self, ch: char) -> (usize, Rc<Glyph>) {
-        if let Some(g) = self.0.glyphs.borrow().get(&ch) { return g.clone(); }
+    fn glyph(&self, ch: char) -> (usize, Rc<Glyph>) { self.glyph_k(ch, 1.0) }
+
+    /// Glyphe in k-facher Größe (für scharfe Darstellung bei hoher Auflösung)
+    fn glyph_k(&self, ch: char, k: f32) -> (usize, Rc<Glyph>) {
+        let key = (ch, k.to_bits());
+        if let Some(g) = self.0.glyphs.borrow().get(&key) { return g.clone(); }
         let mut src = 0usize;
         let mut idx = self.0.font.lookup_glyph_index(ch);
         if idx == 0 && !ch.is_whitespace() {
@@ -137,9 +141,11 @@ impl Font {
         }
         let _ = idx;
         let f: &fontdue::Font = if src == 0 { &self.0.font } else { &self.0.fallbacks[src - 1] };
-        let (m, bmp) = f.rasterize(ch, self.0.px);
+        let (m, bmp) = f.rasterize(ch, self.0.px * k);
         let g = Rc::new(Glyph { m, bmp });
-        self.0.glyphs.borrow_mut().insert(ch, (src, g.clone()));
+        let mut gl = self.0.glyphs.borrow_mut();
+        if gl.len() > 4000 { gl.clear(); }
+        gl.insert(key, (src, g.clone()));
         (src, g)
     }
 
@@ -157,7 +163,7 @@ impl Font {
     /// font.render(text, antialias, color) -> Surface mit Alphakanal
     pub fn render<C: Into<Color>>(&self, text: &str, _aa: bool, color: C) -> Surface {
         let c: Color = color.into();
-        let key = (text.to_string(), u32::from_be_bytes([c.0, c.1, c.2, c.3]));
+        let key = (text.to_string(), u32::from_be_bytes([c.0, c.1, c.2, c.3]), super::surface::render_scale().to_bits());
         if let Some(s) = self.0.cache.borrow().get(&key) {
             return s.copy();
         }
@@ -184,15 +190,17 @@ impl Font {
         if w <= 0 { return surf; }
         {
             let mut inner = surf.0.borrow_mut();
+            let k = inner.k;
             let pm: &mut Pixmap = &mut inner.pm;
             let pw = pm.width() as i32;
             let ph = pm.height() as i32;
             let data = pm.pixels_mut();
             let mut pen = 0.0f32;
-            let base = self.0.ascent;
+            let base = if k == 1.0 { self.0.ascent } else { (self.0.ascent as f32 * k).round() as i32 };
+            let bold_off = (k.round() as i32).max(1);
             let passes = if self.0.bold { 2 } else { 1 };
             for ch in text.chars() {
-                let (_, g) = self.glyph(ch);
+                let (_, g) = self.glyph_k(ch, k);
                 let gx0 = (pen + g.m.xmin as f32).round() as i32;
                 let gy0 = base - (g.m.height as i32 + g.m.ymin);
                 for pass in 0..passes {
@@ -200,7 +208,7 @@ impl Font {
                         let y = gy0 + gy;
                         if y < 0 || y >= ph { continue; }
                         for gx in 0..g.m.width as i32 {
-                            let x = gx0 + gx + pass;
+                            let x = gx0 + gx + pass * bold_off;
                             if x < 0 || x >= pw { continue; }
                             let cov = g.bmp[(gy * g.m.width as i32 + gx) as usize] as u32;
                             if cov == 0 { continue; }
