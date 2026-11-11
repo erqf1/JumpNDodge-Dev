@@ -72,6 +72,10 @@ struct Mp {
     last_ping_sent: Instant,
     /// Buttons des letzten Bildes: (Rechteck, Aktion)
     buttons: Vec<(Rect, String)>,
+    /// Test/Dev: dem ersten offenen Raum beitreten, sobald einer in der Liste steht
+    auto_join: Option<Instant>,
+    /// Test/Dev: bereit melden, sobald man in einem vollen Raum ist
+    auto_ready: bool,
 }
 
 impl Mp {
@@ -84,7 +88,7 @@ impl Mp {
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
             create_mode: Mode::Vs, create_diff: 1, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
-            ping_ms: None, last_ping_sent: now, buttons: vec![],
+            ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false,
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -253,11 +257,30 @@ impl G {
 
     fn mp_message(&mut self, mp: &mut Mp, m: ServerMsg) {
         match m {
-            ServerMsg::RoomList(l) => mp.rooms = l,
+            ServerMsg::RoomList(l) => {
+                mp.rooms = l;
+                if mp.auto_join.map(|t| t.elapsed() < Duration::from_secs(30)).unwrap_or(false) && mp.room.is_none() {
+                    if let Some(r) = mp.rooms.iter().find(|r| r.players == 1 && !r.playing) {
+                        let c = r.code.clone();
+                        mp.auto_join = None;
+                        mp.send(ClientMsg::JoinRoom { code: c });
+                    } else {
+                        mp.last_list = Instant::now() - Duration::from_millis(2500);
+                    }
+                }
+            }
             ServerMsg::RoomState { code, mode, difficulty, you, players } => {
                 if mp.room.as_ref().map(|r| r.code != code).unwrap_or(true) { println!("[MP] Raum {}", code); }
                 mp.room = Some(RoomView { code, mode, difficulty, you: you as usize, players });
                 if matches!(mp.screen, Screen::Lobby | Screen::Connecting) { mp.screen = Screen::Room; }
+                if mp.auto_ready {
+                    if let Some(r) = &mp.room {
+                        if r.players.iter().all(|p| p.is_some()) && !r.players[r.you].as_ref().map(|p| p.ready).unwrap_or(false) {
+                            mp.auto_ready = false;
+                            mp.send(ClientMsg::Ready(true));
+                        }
+                    }
+                }
                 let both_ready = mp.room.as_ref().map(|r| r.players.iter().all(|p| p.as_ref().map(|p| p.ready).unwrap_or(false))).unwrap_or(false);
                 if !both_ready { mp.countdown = None; }
             }
@@ -509,13 +532,12 @@ impl G {
                 self.mp_action(mp, "create");
             }
             "join" => {
-                let code = match p.get(1).copied() {
-                    Some("first") | None => mp.rooms.iter().find(|r| r.players == 1 && !r.playing).map(|r| r.code.clone()).unwrap_or_default(),
-                    Some(c) => c.to_string(),
-                };
-                if code.is_empty() { println!("[MP] kein offener Raum gefunden"); } else { self.mp_action(mp, &format!("join:{}", code)); }
+                match p.get(1).copied() {
+                    Some("first") | None => { mp.auto_join = Some(Instant::now()); mp.send(ClientMsg::ListRooms); }
+                    Some(c) => self.mp_action(mp, &format!("join:{}", c)),
+                }
             }
-            "ready" => mp.send(ClientMsg::Ready(true)),
+            "ready" => { mp.auto_ready = true; mp.send(ClientMsg::Ready(true)); }
             "rematch" => self.mp_action(mp, "rematch"),
             "leave" => mp.send(ClientMsg::LeaveRoom),
             "disconnect" => self.mp_disconnect(mp, None),
