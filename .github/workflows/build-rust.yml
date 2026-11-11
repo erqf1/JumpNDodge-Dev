@@ -68,7 +68,11 @@ jobs:
           ok=0
           for versuch in 1 2 3; do
             if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config; then ok=1; break; fi
-            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com und öffentliches DNS um"
+            sudo rm -f /etc/resolv.conf
+            echo 'nameserver 1.1.1.1' | sudo tee /etc/resolv.conf >/dev/null
+            echo 'nameserver 8.8.8.8' | sudo tee -a /etc/resolv.conf >/dev/null
+            getent hosts archive.ubuntu.com || true
             sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
             sleep 15
           done
@@ -95,7 +99,11 @@ jobs:
           ok=0
           for versuch in 1 2 3; do
             if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config xvfb libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2; then ok=1; break; fi
-            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com und öffentliches DNS um"
+            sudo rm -f /etc/resolv.conf
+            echo 'nameserver 1.1.1.1' | sudo tee /etc/resolv.conf >/dev/null
+            echo 'nameserver 8.8.8.8' | sudo tee -a /etc/resolv.conf >/dev/null
+            getent hosts archive.ubuntu.com || true
             sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
             sleep 15
           done
@@ -176,7 +184,11 @@ jobs:
           ok=0
           for versuch in 1 2 3; do
             if sudo apt-get update && sudo apt-get install -y --fix-missing libasound2-dev libudev-dev pkg-config zip; then ok=1; break; fi
-            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com um"
+            echo "apt-Versuch $versuch fehlgeschlagen, schalte auf archive.ubuntu.com und öffentliches DNS um"
+            sudo rm -f /etc/resolv.conf
+            echo 'nameserver 1.1.1.1' | sudo tee /etc/resolv.conf >/dev/null
+            echo 'nameserver 8.8.8.8' | sudo tee -a /etc/resolv.conf >/dev/null
+            getent hosts archive.ubuntu.com || true
             sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure.archive.ubuntu.com#archive.ubuntu.com#g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
             sleep 15
           done
