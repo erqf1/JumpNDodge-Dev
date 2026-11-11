@@ -12,6 +12,7 @@ pub mod mainloop;
 pub mod icon;
 pub mod loadout;
 pub mod menus;
+pub mod multiplayer;
 pub mod online;
 pub mod online_screens;
 pub mod online_screens2;

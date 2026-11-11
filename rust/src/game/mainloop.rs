@@ -610,6 +610,7 @@ impl G {
             else if self.in_player_search { self.player_search_loop(); }
             else if self.in_public_profile { self.public_profile_loop(); }
             else if self.in_online_hub { self.online_hub_loop(); }
+            else if self.in_multiplayer { self.multiplayer_loop(); }
             else if self.in_friends_hub { self.friends_hub_loop(); }
             else if self.in_messages_hub { self.messages_hub_loop(); }
             else if self.in_clan_hub { self.clan_hub_loop(); }

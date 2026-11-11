@@ -163,6 +163,10 @@ pub struct G {
     pub in_profile_hub: bool,
     pub in_profile_select: bool,
     pub in_online_hub: bool,
+    /// Online-Multiplayer (nur Rust-Version)
+    pub in_multiplayer: bool,
+    pub _mp_dev_cmds: Vec<String>,
+    pub mixer_playing_ingame: bool,
     pub in_online_leaderboard: bool,
     pub in_friends_hub: bool,
     pub in_player_search: bool,

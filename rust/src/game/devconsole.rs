@@ -8,7 +8,7 @@ use crate::util::*;
 use serde_json::{json, Value};
 use std::io::Write;
 
-pub const ALL_SCREEN_FLAGS: [&str; 43] = [
+pub const ALL_SCREEN_FLAGS: [&str; 44] = [
     "in_menu", "game_running", "showing_stats", "in_shop", "in_loadout", "in_profile_select",
     "in_profile_name_input", "in_mods_menu", "in_more_menu", "in_classic_game", "in_controls_menu",
     "in_settings_menu", "in_settings_more_menu", "in_experimental_menu", "in_settings_sound_menu",
@@ -18,7 +18,7 @@ pub const ALL_SCREEN_FLAGS: [&str; 43] = [
     "in_online_leaderboard", "in_player_search", "in_public_profile",
     "in_rename_profile", "in_redeem_code",
     "in_online_hub", "in_friends_hub", "in_messages_hub", "in_clan_hub", "in_clan_create", "in_clan_search",
-    "in_clan_view", "in_chat", "in_username_gate",
+    "in_clan_view", "in_chat", "in_username_gate", "in_multiplayer",
 ];
 
 /// (Name, Beschreibung) - Reihenfolge egal, `help` sortiert.
@@ -85,7 +85,7 @@ const NAV_CMDS: &[(&str, &str)] = &[
     ("redeem_code", "in_redeem_code"), ("stats", "showing_stats"), ("difficulty", "in_difficulty_select"),
     ("daily_rewards", "in_daily_rewards"), ("admin_login", "in_admin_login"), ("admin_panel", "in_admin_panel"),
     ("mods", "in_mods_menu"), ("tutorial", "in_tutorial"), ("achievements", "in_achievements_screen"),
-    ("language_select", "in_language_select"),
+    ("language_select", "in_language_select"), ("multiplayer", "in_multiplayer"),
 ];
 
 pub fn now_hms_ms() -> String { chrono::Local::now().format("%H:%M:%S%.3f").to_string() }
@@ -121,7 +121,7 @@ impl G {
             "in_online_hub" => &mut self.in_online_hub, "in_friends_hub" => &mut self.in_friends_hub,
             "in_messages_hub" => &mut self.in_messages_hub, "in_clan_hub" => &mut self.in_clan_hub,
             "in_clan_create" => &mut self.in_clan_create, "in_clan_search" => &mut self.in_clan_search,
-            "in_clan_view" => &mut self.in_clan_view, "in_chat" => &mut self.in_chat, "in_username_gate" => &mut self.in_username_gate,
+            "in_clan_view" => &mut self.in_clan_view, "in_chat" => &mut self.in_chat, "in_multiplayer" => &mut self.in_multiplayer, "in_username_gate" => &mut self.in_username_gate,
             _ => return None,
         })
     }
@@ -303,6 +303,12 @@ impl G {
             "add_lives" => { let n = parse_int(args, 0, 1); self._dev_round_action(cmd, Some(n)); }
             "set_lives" => { let n = parse_int(args, 0, 0); self._dev_round_action(cmd, Some(n)); }
             "god_mode" => { let on = args.first().map(|a| a.to_lowercase() != "off").unwrap_or(true); self._dev_round_action(cmd, Some(on as i64)); }
+            "mp" => {
+                // Multiplayer fernsteuern (Tests): run mp connect <adr> | create vs Hölle | join first | ready | rematch | leave
+                let line = args.join(" ");
+                if !self.in_multiplayer { println!("[DEV] 'mp' braucht den Multiplayer-Bildschirm (run multiplayer)"); }
+                self._mp_dev_cmds.push(line);
+            }
             "help" | "list" => {
                 println!("[DEV] Verfügbare Befehle (Aufruf: run <befehl> [args]):");
                 let mut v: Vec<&(&str, &str)> = DEV_COMMANDS.iter().collect();

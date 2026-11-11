@@ -198,10 +198,10 @@ impl G {
             let o = self.small_font.render(&self.get_text("offline_hint"), true, (210, 150, 70));
             bs.blit(&o, (w / 2 - o.get_width() / 2, 60));
         }
-        let (sx, sy, gap) = (w / 2 - 180, 140, 56);
-        let texts = [self.get_text("online_leaderboard_btn"), self.get_text("friends_hub_title"), self.get_text("clan_hub_title"), self.get_text("messages_hub_title"), self.get_text("back")];
-        let colors = [(100, 180, 160), (100, 190, 130), (210, 175, 80), (100, 150, 200), (150, 150, 150)];
-        let badges = [0, self._notif_pending_friend_requests, self._notif_pending_clan_requests, self._notif_unread_conversations, 0];
+        let (sx, sy, gap) = (w / 2 - 180, 112, 56);
+        let texts = ["Multiplayer".to_string(), self.get_text("online_leaderboard_btn"), self.get_text("friends_hub_title"), self.get_text("clan_hub_title"), self.get_text("messages_hub_title"), self.get_text("back")];
+        let colors = [(120, 160, 255), (100, 180, 160), (100, 190, 130), (210, 175, 80), (100, 150, 200), (150, 150, 150)];
+        let badges = [0, 0, self._notif_pending_friend_requests, self._notif_pending_clan_requests, self._notif_unread_conversations, 0];
         let mut rects = vec![];
         for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
             let r = Rect::new(sx, sy + i as i32 * gap, 360, 48);
@@ -216,10 +216,11 @@ impl G {
 
     fn online_hub_act(&mut self, i: usize) {
         match i {
-            0 => self.open_online_leaderboard_from_hub(),
-            1 => self.open_friends_hub_from_hub(),
-            2 => self.open_clan_hub_from_hub(),
-            3 => self.open_messages_hub(),
+            0 => self.open_multiplayer(),
+            1 => self.open_online_leaderboard_from_hub(),
+            2 => self.open_friends_hub_from_hub(),
+            3 => self.open_clan_hub_from_hub(),
+            4 => self.open_messages_hub(),
             _ => self.back_from_online_hub(),
         }
     }
@@ -239,7 +240,7 @@ impl G {
                             let n = nav_move(&rects, cur, d);
                             self.nav_set_focus("online_hub", n);
                         } else if self.is_nav_confirm(key) {
-                            if let Some(i) = self.nav_get_focus("online_hub", rects.len()) { if i < 5 { self.online_hub_act(i); } }
+                            if let Some(i) = self.nav_get_focus("online_hub", rects.len()) { if i < 6 { self.online_hub_act(i); } }
                         }
                     }
                     Event::MouseButtonDown { .. } => {

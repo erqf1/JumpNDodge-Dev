@@ -48,7 +48,7 @@ pub struct Player {
 
 impl Player {
     fn new(x: i32, floor_y: i32) -> Player {
-        Player { rect: Rect::new(x, floor_y - 40, 40, 40), vy: 0, jumping: false, up_was: false, alive: true, lives: START_LIVES, invuln: 0 }
+        Player { rect: Rect::new(x, floor_y - PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE), vy: 0, jumping: false, up_was: false, alive: true, lives: START_LIVES, invuln: 0 }
     }
     fn revive(&mut self, x: i32, floor_y: i32) {
         self.alive = true;
@@ -61,6 +61,30 @@ impl Player {
         self.invuln = REVIVE_INVULN;
     }
 }
+
+/// Bewegung eines Spielers für einen Frame (auch für die Vorhersage beim Online-Client).
+/// Gibt true zurück, wenn der Spieler in diesem Frame abgesprungen ist.
+pub fn move_player(p: &mut Player, inp: Input, width: i32, floor_y: i32) -> bool {
+    if !p.alive { return false; }
+    let mut jumped = false;
+    if inp.jump && !p.up_was && !p.jumping { p.vy = JUMP_VELOCITY; p.jumping = true; jumped = true; }
+    p.up_was = inp.jump;
+    if inp.left { p.rect.x -= MOVE_SPEED; }
+    if inp.right { p.rect.x += MOVE_SPEED; }
+    p.rect.set_left(0.max(p.rect.left()));
+    p.rect.set_right(width.min(p.rect.right()));
+    p.vy += GRAVITY;
+    p.rect.y += p.vy;
+    if p.rect.bottom() >= floor_y {
+        p.rect.set_bottom(floor_y);
+        p.vy = 0;
+        if p.jumping { p.jumping = false; p.up_was = false; }
+    }
+    jumped
+}
+
+/// Seitenlänge der Spieler im 2P-/Online-Modus
+pub const PLAYER_SIZE: i32 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObstacleKind { Ground, Top }
@@ -201,20 +225,7 @@ impl Sim2p {
 
         // Bewegung
         for (p, inp) in self.players.iter_mut().zip(inputs.iter()) {
-            if !p.alive { continue; }
-            if inp.jump && !p.up_was && !p.jumping { p.vy = JUMP_VELOCITY; p.jumping = true; out.jumps += 1; }
-            p.up_was = inp.jump;
-            if inp.left { p.rect.x -= MOVE_SPEED; }
-            if inp.right { p.rect.x += MOVE_SPEED; }
-            p.rect.set_left(0.max(p.rect.left()));
-            p.rect.set_right(width.min(p.rect.right()));
-            p.vy += GRAVITY;
-            p.rect.y += p.vy;
-            if p.rect.bottom() >= floor_y {
-                p.rect.set_bottom(floor_y);
-                p.vy = 0;
-                if p.jumping { p.jumping = false; p.up_was = false; }
-            }
+            if move_player(p, *inp, width, floor_y) { out.jumps += 1; }
         }
         for p in self.players.iter_mut() { if p.invuln > 0 { p.invuln -= 1; } }
 
