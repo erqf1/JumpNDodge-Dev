@@ -1,0 +1,46 @@
+name: Server – Docker-Image
+
+# Baut nur das Docker-Image des Multiplayer-Servers (amd64 + arm64) und lädt es nach
+# ghcr.io/<owner>/jumpndodge-server. Normalerweise passiert das im Release-Workflow;
+# hiermit lässt es sich einzeln (nach)bauen: Actions → Run workflow, tag = v5.0.0
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version, z.B. v5.0.0 (muss zu rust/Cargo.toml passen)'
+        required: true
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version prüfen
+        id: v
+        run: |
+          CARGO_VER=$(grep -A3 '^\[workspace.package\]' rust/Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p')
+          VER="${{ github.event.inputs.tag }}"; VER="${VER#v}"
+          [ "$VER" = "$CARGO_VER" ] || { echo "::error::$VER passt nicht zu $CARGO_VER"; exit 1; }
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: rust
+          file: rust/server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:${{ steps.v.outputs.ver }}
+            ghcr.io/${{ github.repository_owner }}/jumpndodge-server:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.v.outputs.ver }}

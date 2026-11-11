@@ -201,3 +201,69 @@ pub fn squash(r: Rect, vy: f64, land_ms: f64) -> Rect {
     let nh = (r.h as f64 * sy).round() as i32;
     Rect::new(r.centerx() - nw / 2, r.bottom() - nh, nw, nh)
 }
+
+// =====================================================================
+// Effekte: Partikel (Treffer, 1-UP, Landen) - rein optisch
+// =====================================================================
+#[derive(Clone)]
+struct Part { x: f64, y: f64, vx: f64, vy: f64, life: f64, max: f64, col: Col, size: f64, grav: f64 }
+
+#[derive(Default)]
+pub struct Fx { parts: Vec<Part> }
+
+impl Fx {
+    pub fn new() -> Fx { Fx { parts: Vec::new() } }
+    pub fn clear(&mut self) { self.parts.clear(); }
+    fn push(&mut self, p: Part) { if self.parts.len() < 600 { self.parts.push(p); } }
+
+    /// Splitter in alle Richtungen (Treffer)
+    pub fn burst(&mut self, x: f64, y: f64, col: Col, n: usize) {
+        use crate::util::uniform;
+        for _ in 0..n {
+            let a = uniform(0.0, std::f64::consts::TAU);
+            let sp = uniform(2.0, 7.5);
+            let life = uniform(350.0, 700.0);
+            let c = if uniform(0.0, 1.0) < 0.35 { lighten(col, 0.45) } else { col };
+            self.push(Part { x, y, vx: a.cos() * sp, vy: a.sin() * sp - 2.0, life, max: life, col: c, size: uniform(2.5, 5.0), grav: 0.25 });
+        }
+    }
+    /// Funkeln nach oben (1-UP)
+    pub fn sparkle(&mut self, x: f64, y: f64, col: Col, n: usize) {
+        use crate::util::uniform;
+        for _ in 0..n {
+            let life = uniform(450.0, 900.0);
+            self.push(Part { x: x + uniform(-18.0, 18.0), y: y + uniform(-10.0, 10.0), vx: uniform(-1.2, 1.2), vy: uniform(-4.0, -1.5), life, max: life, col: lighten(col, uniform(0.0, 0.5)), size: uniform(2.0, 4.0), grav: -0.02 });
+        }
+    }
+    /// Staub beim Landen
+    pub fn dust(&mut self, x: f64, y: f64, dark: bool) {
+        use crate::util::uniform;
+        let col = if dark { (150, 140, 190) } else { (170, 165, 200) };
+        for i in 0..10 {
+            let dir = if i % 2 == 0 { -1.0 } else { 1.0 };
+            let life = uniform(220.0, 420.0);
+            self.push(Part { x: x + dir * uniform(4.0, 20.0), y, vx: dir * uniform(1.0, 3.2), vy: uniform(-1.6, -0.3), life, max: life, col, size: uniform(2.0, 3.5), grav: 0.05 });
+        }
+    }
+    /// Ein Logikschritt (dt in ms, Bewegung pro 1/60 s)
+    pub fn update(&mut self, dt: f64) {
+        let k = dt / (1000.0 / 60.0);
+        for p in self.parts.iter_mut() {
+            p.x += p.vx * k;
+            p.y += p.vy * k;
+            p.vy += p.grav * k;
+            p.vx *= 0.985f64.powf(k);
+            p.life -= dt;
+        }
+        self.parts.retain(|p| p.life > 0.0);
+    }
+    pub fn draw(&self, bs: &Surface) {
+        for p in &self.parts {
+            let f = (p.life / p.max).clamp(0.0, 1.0);
+            let r = (p.size * (0.4 + 0.6 * f)) as f32;
+            if r < 0.6 { continue; }
+            draw::aacircle(bs, p.col, (p.x, p.y), r);
+        }
+    }
+    pub fn is_empty(&self) -> bool { self.parts.is_empty() }
+}

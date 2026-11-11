@@ -7,7 +7,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY core core
 COPY server server
 # Das Spiel selbst wird nicht gebraucht - nur Bibliothek + Server bauen
-RUN printf '[workspace]\nmembers = ["core", "server"]\nresolver = "2"\n\n[profile.release]\nopt-level = 3\nlto = "thin"\nstrip = true\n' > Cargo.toml \
+RUN VER=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml) \
+ && printf '[workspace]\nmembers = ["core", "server"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\n\n[profile.release]\nopt-level = 3\nlto = "thin"\nstrip = true\n' "$VER" > Cargo.toml \
+ && cat Cargo.toml \
  && cargo build --release -p jnd_server
 
 FROM debian:bookworm-slim

@@ -75,6 +75,7 @@ struct Mp {
     auto_join: Option<Instant>,
     /// Test/Dev: bereit melden, sobald man in einem vollen Raum ist
     auto_ready: bool,
+    fx: super::art::Fx,
 }
 
 impl Mp {
@@ -87,7 +88,7 @@ impl Mp {
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
             create_mode: Mode::Vs, create_diff: 1, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
-            ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false,
+            ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -307,6 +308,7 @@ impl G {
                 mp.result = None;
                 mp.leave_confirm_until = None;
                 mp.screen = Screen::Playing;
+                mp.fx.clear();
                 self.overlays.clear();
                 self.play_ingame_music();
                 self.mixer_playing_ingame = true;
@@ -316,7 +318,22 @@ impl G {
                 if let Some(r) = mp.round.as_mut() {
                     let you = r.you;
                     let evs = r.on_snapshot(s);
-                    for e in evs { self.mp_event_fx(mp, e, you); }
+                    for e in evs {
+                        self.mp_event_fx(mp, e, you);
+                        if self.effects_on() {
+                            let Some(r) = mp.round.as_ref() else { continue; };
+                            let at = |i: usize| -> Option<Rect> { if i == r.you { Some(r.own_draw(1.0).rect) } else { r.other_draw().map(|p| p.rect) } };
+                            match e {
+                                SimEvent::Hit(i) | SimEvent::Died(i) => {
+                                    if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.burst(x as f64, y as f64, super::art::HAZARD, 20); }
+                                    if i == you { self.shake(6.0); }
+                                }
+                                SimEvent::OneUp(i) | SimEvent::Revived(i) => {
+                                    if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.sparkle(x as f64, y as f64, super::art::ONEUP, 16); }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             ServerMsg::GameOver { winner, score, frames, reason } => {
@@ -385,6 +402,7 @@ impl G {
                 right: self.any_action_pressed("right"),
             };
             mp.jump_latch = false;
+            mp.fx.update(LOGIC_TICK_MS);
             let (f, inp) = r.tick(raw);
             if let Some(c) = mp.client.as_mut() { c.send_input(f, inp); }
         }
@@ -851,6 +869,7 @@ impl G {
         }
         let you = r.you;
         let other = 1 - you;
+        mp.fx.draw(&bs);
         if let Some(o) = r.other_draw() { self.mp_draw_player(&bs, other, &o, &format!("P{}", other + 1)); }
         let me = r.own_draw(alpha);
         self.mp_draw_player(&bs, you, &me, &self.tde("Du", "You"));

@@ -302,6 +302,9 @@ impl G {
         let mut prev_player = player;
         let (mut floor_scroll, mut prev_floor_scroll) = (0.0f64, 0.0f64);
         let mut land_ms = 1000.0f64;
+        let mut fx = super::art::Fx::new();
+        let fx_on = self.effects_on();
+        let dark_round = self.is_dark_mode();
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
@@ -441,7 +444,10 @@ impl G {
                     if player.bottom() >= h - 50 {
                         player.set_bottom(h - 50);
                         vy = 0.0;
-                        if is_jumping || used_double_jump { is_jumping = false; used_double_jump = false; land_ms = 0.0; }
+                        if is_jumping || used_double_jump {
+                            is_jumping = false; used_double_jump = false; land_ms = 0.0;
+                            if fx_on { fx.dust(player.centerx() as f64, player.bottom() as f64, dark_round); }
+                        }
                         space_was_down = false;
                     }
                 }
@@ -533,6 +539,7 @@ impl G {
                         oneups_collected += 1;
                         let t = self.stats.gi("total_1ups", 0) + 1;
                         self.stats.insert("total_1ups".into(), json!(t));
+                        if fx_on { let pr = powerups[i].r; fx.sparkle(pr.centerx() as f64, pr.centery() as f64, super::art::ONEUP, 18); }
                         powerups.remove(i);
                         self.play_sound(Snd::OneUp);
                         self.show_1up_text_overlay(Some(player));
@@ -558,6 +565,8 @@ impl G {
                             lives -= 1;
                             hit_invuln = 750;
                             self.play_sound_v(Snd::Hit, "hit_volume");
+                            if fx_on { fx.burst(player.centerx() as f64, player.centery() as f64, super::art::HAZARD, 22); }
+                            self.shake(7.0);
                         }
                         let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
                         list.remove(i);
@@ -586,6 +595,7 @@ impl G {
                     }
                 }
                 rp.update_cooldowns(dt as f64);
+                fx.update(dt as f64);
                 rp.tick_shield_rearm();
                 if hit_invuln > 0 { hit_invuln = 0.max(hit_invuln - dt); }
 
@@ -623,6 +633,7 @@ impl G {
                 super::art::draw_faller(&bs, r);
                 super::art::draw_faller_marker(&bs, r, tsec);
             }
+            fx.draw(&bs);
             if show_player { super::art::draw_player(&bs, dplayer, self.get_player_color()); }
             self.draw_player_cosmetics(&bs, dplayer, None);
             if wind_h || wind_v {

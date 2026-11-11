@@ -41,6 +41,8 @@ impl G {
         let mut jump_latch = [false; 2];
         let mut focus_pause = false;
         let mut prev_players = [sim.players[0].rect, sim.players[1].rect];
+        let mut fx = super::art::Fx::new();
+        let fx_on = self.effects_on();
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
@@ -84,7 +86,23 @@ impl G {
                 prev_players = [sim.players[0].rect, sim.players[1].rect];
                 let mut inputs = [self.input_2p("p1"), self.input_2p("p2")];
                 for i in 0..2 { inputs[i].jump |= jump_latch[i]; jump_latch[i] = false; }
+                let was_jumping = [sim.players[0].jumping, sim.players[1].jumping];
                 let res = sim.step(dt, inputs, w, h);
+                fx.update(dt as f64);
+                if fx_on {
+                    let dark = self.is_dark_mode();
+                    for i in 0..2 {
+                        let p = &sim.players[i];
+                        if was_jumping[i] && !p.jumping && p.alive { fx.dust(p.rect.centerx() as f64, p.rect.bottom() as f64, dark); }
+                    }
+                    for e in &res.events {
+                        match *e {
+                            SimEvent::Hit(i) | SimEvent::Died(i) => { let r = sim.players[i].rect; fx.burst(r.centerx() as f64, r.centery() as f64, super::art::HAZARD, 20); }
+                            SimEvent::OneUp(i) | SimEvent::Revived(i) => { let r = sim.players[i].rect; fx.sparkle(r.centerx() as f64, r.centery() as f64, super::art::ONEUP, 16); }
+                        }
+                    }
+                }
+                if res.events.iter().any(|e| matches!(e, SimEvent::Hit(_) | SimEvent::Died(_))) { self.shake(6.0); }
                 if res.jumps > 0 { let t = self.stats.gi("total_jumps", 0) + res.jumps; self.stats.insert("total_jumps".into(), json!(t)); }
                 for ev in &res.events {
                     let r = |i: usize| sim.players[i].rect;
@@ -118,6 +136,7 @@ impl G {
                 super::art::draw_faller(&bs, r);
                 super::art::draw_faller_marker(&bs, r, tsec);
             }
+            fx.draw(&bs);
             let sf = self.small_font.clone();
             let mf = self.menu_font.clone();
             for (i, p) in sim.players.iter().enumerate() {

@@ -284,6 +284,11 @@ impl G {
         ev
     }
 
+    /// Effekte an? (Partikel, Bildschirmwackeln) - Einstellungen > Mehr
+    pub fn effects_on(&self) -> bool { self.settings.gb("effects", true) }
+    /// Bildschirm wackeln lassen (nur wenn Effekte an)
+    pub fn shake(&mut self, px: f64) { if self.effects_on() { self._shake = self._shake.max(px); } }
+
     /// Kurzer Text je nach Sprache (für neue Optionen der Rust-Version)
     pub fn tde(&self, de: &str, en: &str) -> String {
         if ["Deutsch", "Schwiizerdütsch"].contains(&self.lang().as_str()) { de.into() } else { en.into() }
@@ -454,10 +459,21 @@ impl G {
     pub fn flip(&mut self) {
         self.poll_online();
         // base_surface hat bereits Fensterauflösung (siehe sync_window_size) - keine Neuskalierung
-        let target = if self._fade_dir != 0 || self._fade_alpha > 0 { Some(self.base_surface.copy()) } else { None };
+        let mut target = if self._fade_dir != 0 || self._fade_alpha > 0 { Some(self.base_surface.copy()) } else { None };
+        // Bildschirmwackeln (Treffer): Bild kurz versetzt zeigen
+        if self._shake > 0.4 {
+            let (w, h) = self.base_surface.get_size();
+            let a = self.get_ticks() as f64 * 0.09;
+            let (dx, dy) = ((a * 1.7).sin() * self._shake, (a * 2.3).cos() * self._shake * 0.7);
+            let s = Surface::new(w, h);
+            s.fill(self.get_bg_color());
+            s.blit(target.as_ref().unwrap_or(&self.base_surface), (dx.round() as i32, dy.round() as i32));
+            target = Some(s);
+        }
         let now = std::time::Instant::now();
         let frame_ms = self._last_flip.map(|t| (now - t).as_secs_f64() * 1000.0).unwrap_or(16.667).clamp(1.0, 50.0);
         self._last_flip = Some(now);
+        self._shake = if self._shake > 0.4 { self._shake * 0.86f64.powf(frame_ms / 16.667) } else { 0.0 };
         if self._fade_dir != 0 || self._fade_alpha > 0 {
             // pygame-Version: FADE_SPEED pro Bild bei 60 FPS -> hier pro 1/60 s, egal wie viele Hz
             let step = ((FADE_SPEED as f64 * frame_ms / (1000.0 / 60.0)).round() as i32).max(1);
