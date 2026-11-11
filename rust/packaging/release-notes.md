@@ -1,3 +1,7 @@
+## JumpNDodge 5.2.1
+
+- Hauptmenü: unter dem Logo steht jetzt **RUST EDITION** (statt „Ein actionreiches Sprungspiel“).
+
 ## JumpNDodge 5.2.0
 
 - **Sound für alle:** Klick, Zurück, Treffer, 1-UP und Game Over sind jetzt eingebaut (vorher war das Spiel ohne eigene

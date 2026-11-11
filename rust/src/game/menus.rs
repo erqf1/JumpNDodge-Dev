@@ -250,8 +250,21 @@ impl G {
         let title_sh = self.font.render("JumpNDodge", true, (100, 100, 120));
         bs.blit(&title_sh, (w / 2 - title.get_width() / 2 + 3, 73));
         bs.blit(&title, (w / 2 - title.get_width() / 2, 70));
-        let sub = self.small_font.render(&self.get_text("game_subtitle"), true, (80, 80, 100));
-        bs.blit(&sub, (w / 2 - sub.get_width() / 2, 110));
+        // Wie bei Minecraft "JAVA EDITION": Edition in Großbuchstaben mit Abstand unter dem Logo
+        thread_local! { static ED_FONT: Font = Font::sys("arial", 17, true); }
+        let ef = ED_FONT.with(|f| f.clone());
+        let text = "RUST EDITION";
+        let spacing = 5;
+        let glyphs: Vec<Surface> = text.chars().map(|c| ef.render(&c.to_string(), true, (226, 140, 96))).collect();
+        let shadows: Vec<Surface> = text.chars().map(|c| ef.render(&c.to_string(), true, if self.is_dark_mode() { (60, 34, 24) } else { (190, 150, 130) })).collect();
+        let total: i32 = glyphs.iter().map(|g| g.get_width()).sum::<i32>() + spacing * (glyphs.len() as i32 - 1);
+        let mut x = w / 2 - total / 2;
+        let y = 117;
+        for (g, sh) in glyphs.iter().zip(shadows.iter()) {
+            bs.blit(sh, (x + 2, y + 2));
+            bs.blit(g, (x, y));
+            x += g.get_width() + spacing;
+        }
         let coin_bg = Rect::new(15, 15, 200, 35);
         draw::rect(&bs, self.get_panel_color(), coin_bg, 0, 18);
         draw::rect(&bs, (200, 200, 200), coin_bg, 2, 18);
