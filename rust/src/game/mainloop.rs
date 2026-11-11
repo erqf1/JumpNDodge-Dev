@@ -521,7 +521,7 @@ impl G {
             } else if self.in_settings_more_menu {
                 if self.update_dialog_if_due() { continue; }
                 let rects = self.draw_settings_more_menu();
-                let acts = ["fullscreen", "fps", "focus_pause", "effects", "update", "experimental", "export_lang", "back"];
+                let acts = ["fullscreen", "fps", "focus_pause", "effects", "ghost", "update", "experimental", "export_lang", "back"];
                 for ev in self.event_get() {
                     let mut a: Option<&str> = None;
                     match ev {
@@ -550,6 +550,12 @@ impl G {
                             let cur = self.settings.gi("fps_limit", 0);
                             let i = STEPS.iter().position(|v| *v == cur).unwrap_or(0);
                             self.settings.insert("fps_limit".into(), json!(STEPS[(i + 1) % STEPS.len()]));
+                            self.save_section("settings", None);
+                            self.play_sound(Snd::Click);
+                        }
+                        Some("ghost") => {
+                            let v = !self.settings.gb("ghost", true);
+                            self.settings.insert("ghost".into(), json!(v));
                             self.save_section("settings", None);
                             self.play_sound(Snd::Click);
                         }

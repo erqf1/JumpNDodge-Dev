@@ -87,7 +87,7 @@ impl G {
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
             let cx = w / 2;
-            let panel = Rect::new(cx - 240, h / 2 - 300, 480, 480);
+            let panel = Rect::new(cx - 240, h / 2 - 290, 480, 500);
             self.draw_card(&bs, panel, 20, true, None, 3, new_record, if new_record { Some((255, 215, 0)) } else { None });
             let av = Rect::new(cx - 25, h / 2 - 265, 50, 50);
             self.draw_avatar(&bs, av, None, true, None);
@@ -130,11 +130,16 @@ impl G {
                 hover_border_width: Some(3), ..Default::default()
             });
             self.draw_ui_button(&bs, menu_rect, &self.get_text("back"), BtnOpts { font: Some(mf.clone()), hovered: menu_hl, ..Default::default() });
+            let replay_rect = Rect::new(cx - 100, btn_y + 56, 200, 38);
+            let has_replay = self.replay_dir().join("last.jnr").exists();
+            if has_replay {
+                self.draw_ui_button(&bs, replay_rect, "Replay (V)", BtnOpts { font: Some(self.small_font.clone()), hovered: replay_rect.collidepoint(mp), border_color: Some((120, 160, 240)), ..Default::default() });
+            }
             let rs = self.small_font.render(&format!("R: {}   ·   M: {}", self.get_text("retry"), self.get_text("back")), true, (130, 130, 150));
-            bs.blit(&rs, (cx - rs.get_width() / 2, btn_y + 58));
+            bs.blit(&rs, (cx - rs.get_width() / 2, btn_y + 102));
             if self._server_reachable == Some(false) {
                 let off = self.small_font.render(&self.get_text("offline_hint"), true, (210, 150, 70));
-                bs.blit(&off, (cx - off.get_width() / 2, btn_y + 58 + rs.get_height() + 6));
+                bs.blit(&off, (cx - off.get_width() / 2, btn_y + 102 + rs.get_height() + 6));
             }
             self.flip();
             for ev in self.event_get() {
@@ -142,6 +147,7 @@ impl G {
                     Event::Quit => self.quit(),
                     Event::KeyDown { key, .. } => {
                         if key == K_r { self.game_running = true; self.in_menu = false; return; }
+                        if key == K_v && has_replay { if let Some(r) = self.load_last_recording() { self.play_sound(Snd::MenuClick); self.run_replay(&r); } continue; }
                         if key == K_m || self.is_back_key(key) { self.in_menu = true; self.game_running = false; return; }
                         if let Some(d) = self.nav_direction(key) {
                             let cur = self.nav_get_focus("game_over_1p", 2);
@@ -157,6 +163,7 @@ impl G {
                     Event::MouseButtonDown { .. } => {
                         let mp2 = self.get_mouse_pos_logical();
                         if retry_rect.collidepoint(mp2) { self.play_sound(Snd::MenuClick); self.game_running = true; self.in_menu = false; return; }
+                        if has_replay && replay_rect.collidepoint(mp2) { if let Some(r) = self.load_last_recording() { self.play_sound(Snd::MenuClick); self.run_replay(&r); } continue; }
                         if menu_rect.collidepoint(mp2) { self.play_sound(Snd::ClickBack); self.in_menu = true; self.game_running = false; return; }
                     }
                     _ => {}

@@ -64,6 +64,21 @@ pub fn draw_player(bs: &Surface, r: Rect, color: Col) {
     bs.blit(&spr, (r.x - PAD, r.y - PAD));
 }
 
+/// Geist (Rekordlauf): halbtransparente Spielfigur
+pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
+    if r.w <= 0 || r.h <= 0 { return; }
+    let spr = cached(format!("g{}x{}:{:?}", r.w, r.h, color), || {
+        let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
+        let b = Rect::new(PAD, PAD, r.w, r.h);
+        let c = lighten(color, 0.35);
+        draw::rect_vgrad(&s, b, (r.w.min(r.h) / 5).max(4), lighten(c, 0.3), c);
+        draw::rect(&s, lighten(c, 0.6), b, 2, (r.w.min(r.h) / 5).max(4));
+        s.set_alpha(Some(95));
+        s
+    });
+    bs.blit(&spr, (r.x - PAD, r.y - PAD));
+}
+
 /// Bodenhindernis: kantiger Block mit Warnstreifen
 pub fn draw_hazard(bs: &Surface, r: Rect) {
     if r.w <= 0 || r.h <= 0 { return; }

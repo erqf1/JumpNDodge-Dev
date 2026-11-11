@@ -61,6 +61,8 @@ pub struct G {
     pub _fps_cache: (i32, f64),
     /// Bildschirmwackeln: Stärke in Pixeln (klingt zeitbasiert ab)
     pub _shake: f64,
+    /// Aufzeichnung der gerade beendeten Runde (wird in end_round_standard gespeichert)
+    pub _last_recording: Option<super::replay::Recording>,
     pub _gui_scale_dragging: bool,
     pub _custom_speed_dragging: bool,
     pub _custom_min_delay_dragging: bool,

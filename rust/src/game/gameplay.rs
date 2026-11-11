@@ -228,6 +228,11 @@ impl G {
         self.save_section("stats", None);
         let old = self.saved_scores.gi(difficulty, 0);
         let new_record = score > old;
+        if let Some(mut r) = self._last_recording.take() {
+            r.score = score;
+            let best = new_record && difficulty != "Custom" && !self.klassik_mode;
+            self.save_recording(&r, best);
+        }
         self.saved_scores.insert(difficulty.into(), json!(old.max(score)));
         let ss = self.session_scores.gi(difficulty, 0).max(score);
         self.session_scores.insert(difficulty.into(), json!(ss));
@@ -304,6 +309,9 @@ impl G {
         let mut land_ms = 1000.0f64;
         let mut fx = super::art::Fx::new();
         let fx_on = self.effects_on();
+        // Aufzeichnung (Replay) und Geist des Rekordlaufs
+        let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
+        let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
         let dark_round = self.is_dark_mode();
         loop {
             self.sync_window_size();
@@ -579,6 +587,7 @@ impl G {
                                 self.flash_timer = 1000.0;
                                 self.push_overlay("Phoenix Revival!", (150, 50, 200), 2.0, None);
                             } else {
+                                self._last_recording = Some(std::mem::replace(&mut rec, super::replay::Recording::new(0, 0, (0, 0, 0), "")));
                                 self.end_round_standard(score, &difficulty, round_start, &rp);
                                 return;
                             }
@@ -596,6 +605,8 @@ impl G {
                 }
                 rp.update_cooldowns(dt as f64);
                 fx.update(dt as f64);
+                rec.push(player, hit_invuln == 0 || (tick_no / 5) % 2 == 0, score, lives,
+                    obstacles.iter().map(|o| (0u8, o.r)).chain(top_obstacles.iter().map(|o| (1u8, o.r))).chain(powerups.iter().map(|o| (2u8, o.r))));
                 rp.tick_shield_rearm();
                 if hit_invuln > 0 { hit_invuln = 0.max(hit_invuln - dt); }
 
@@ -632,6 +643,19 @@ impl G {
                 let r = o.draw_rect(alpha);
                 super::art::draw_faller(&bs, r);
                 super::art::draw_faller_marker(&bs, r, tsec);
+            }
+            if let Some(g) = &ghost {
+                // Geist: Position aus dem Rekordlauf, Höhe relativ zum Boden (Fenstergröße darf abweichen)
+                let gi = tick_no as usize;
+                if let (Some(a), Some(b)) = (g.frames.get(gi.saturating_sub(1)), g.frames.get(gi)) {
+                    let gx = a.px as f64 + (b.px - a.px) as f64 * alpha;
+                    let gy = a.py as f64 + (b.py - a.py) as f64 * alpha;
+                    let gy = (h - 50) as f64 - ((g.h - 50) as f64 - gy);
+                    let gr = Rect::new(gx.round() as i32, gy.round() as i32, 50, 50);
+                    super::art::draw_ghost(&bs, gr, g.color);
+                    let lbl = self.badge_font.render(&self.tde("Rekord", "Best"), true, (190, 190, 215));
+                    bs.blit(&lbl, (gr.centerx() - lbl.get_width() / 2, gr.top() - lbl.get_height() - 2));
+                }
             }
             fx.draw(&bs);
             if show_player { super::art::draw_player(&bs, dplayer, self.get_player_color()); }
