@@ -80,55 +80,58 @@ pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
 }
 
 /// Bodenhindernis: kantiger Block mit Warnstreifen
-pub fn draw_hazard(bs: &Surface, r: Rect) {
+pub fn draw_hazard(bs: &Surface, r: Rect) { draw_hazard_c(bs, r, HAZARD) }
+pub fn draw_hazard_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
-    let spr = cached(format!("h{}x{}", r.w, r.h), || {
+    let spr = cached(format!("h{}x{}:{:?}", r.w, r.h, base), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
         draw::rect_vgrad(&s, Rect::new(b.x + 2, b.y + 3, b.w, b.h), 7, (60, 10, 25, 120), (60, 10, 25, 50));
-        draw::rect_vgrad(&s, b, 7, lighten(HAZARD, 0.18), darken(HAZARD, 0.32));
+        draw::rect_vgrad(&s, b, 7, lighten(base, 0.18), darken(base, 0.32));
         // Warnstreifen (dunkel, schräg) im Inneren
         let inner = Rect::new(b.x + 6, b.y + 6, b.w - 12, b.h - 12);
         if inner.w > 8 && inner.h > 8 {
             s.set_clip(Some(inner));
             let mut x = inner.x - inner.h;
             while x < inner.right() {
-                draw::polygon(&s, darken(HAZARD, 0.3), &[(x, inner.bottom()), (x + 7, inner.bottom()), (x + 7 + inner.h, inner.y), (x + inner.h, inner.y)], 0);
+                draw::polygon(&s, darken(base, 0.3), &[(x, inner.bottom()), (x + 7, inner.bottom()), (x + 7 + inner.h, inner.y), (x + inner.h, inner.y)], 0);
                 x += 16;
             }
             s.set_clip(None);
-            draw::rect(&s, darken(HAZARD, 0.38), inner, 1, 4);
+            draw::rect(&s, darken(base, 0.38), inner, 1, 4);
         }
-        draw::rect(&s, darken(HAZARD, 0.55), b, 2, 7);
+        draw::rect(&s, darken(base, 0.55), b, 2, 7);
         // helle Oberkante
-        draw::line(&s, lighten(HAZARD, 0.55), (b.x + 6, b.y + 2), (b.right() - 7, b.y + 2), 2);
+        draw::line(&s, lighten(base, 0.55), (b.x + 6, b.y + 2), (b.right() - 7, b.y + 2), 2);
         s
     });
     bs.blit(&spr, (r.x - PAD, r.y - PAD));
 }
 
 /// Hindernis von oben: Kristallblock mit Zacken nach unten
-pub fn draw_faller(bs: &Surface, r: Rect) {
+pub fn draw_faller(bs: &Surface, r: Rect) { draw_faller_c(bs, r, FALLER) }
+pub fn draw_faller_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
-    let spr = cached(format!("f{}x{}", r.w, r.h), || {
+    let spr = cached(format!("f{}x{}:{:?}", r.w, r.h, base), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
-        draw::glow(&s, (180, 120, 255, 70), (b.centerx(), b.centery()), (b.w.max(b.h) as f32) * 0.75);
+        let gc = lighten(base, 0.3);
+        draw::glow(&s, (gc.0, gc.1, gc.2, 70), (b.centerx(), b.centery()), (b.w.max(b.h) as f32) * 0.75);
         let body = Rect::new(b.x, b.y, b.w, b.h * 3 / 4);
-        draw::rect_vgrad(&s, body, 6, lighten(FALLER, 0.3), darken(FALLER, 0.15));
+        draw::rect_vgrad(&s, body, 6, lighten(base, 0.3), darken(base, 0.15));
         // Zacken
         let n = 4;
         let zw = b.w as f64 / n as f64;
         for i in 0..n {
             let x0 = b.x as f64 + i as f64 * zw;
-            draw::polygon(&s, darken(FALLER, 0.1), &[(x0 + 1.0, body.bottom() as f64 - 1.0), (x0 + zw - 1.0, body.bottom() as f64 - 1.0), (x0 + zw / 2.0, b.bottom() as f64)], 0);
+            draw::polygon(&s, darken(base, 0.1), &[(x0 + 1.0, body.bottom() as f64 - 1.0), (x0 + zw - 1.0, body.bottom() as f64 - 1.0), (x0 + zw / 2.0, b.bottom() as f64)], 0);
         }
-        draw::rect(&s, darken(FALLER, 0.45), body, 2, 6);
+        draw::rect(&s, darken(base, 0.45), body, 2, 6);
         // Kristall-Kern (Raute) mit Lichtkante
         let (cx, cy) = (body.centerx() as f64, body.centery() as f64);
         let (dw, dh) = (body.w as f64 * 0.22, body.h as f64 * 0.32);
-        draw::polygon(&s, lighten(FALLER, 0.35), &[(cx, cy - dh), (cx + dw, cy), (cx, cy + dh), (cx - dw, cy)], 0);
-        draw::polygon(&s, lighten(FALLER, 0.65), &[(cx, cy - dh), (cx + dw * 0.45, cy - dh * 0.1), (cx - dw * 0.45, cy - dh * 0.1)], 0);
+        draw::polygon(&s, lighten(base, 0.35), &[(cx, cy - dh), (cx + dw, cy), (cx, cy + dh), (cx - dw, cy)], 0);
+        draw::polygon(&s, lighten(base, 0.65), &[(cx, cy - dh), (cx + dw * 0.45, cy - dh * 0.1), (cx - dw * 0.45, cy - dh * 0.1)], 0);
         s
     });
     bs.blit(&spr, (r.x - PAD, r.y - PAD));

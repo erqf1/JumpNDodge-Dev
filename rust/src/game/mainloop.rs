@@ -68,6 +68,7 @@ impl G {
         g._live_sections_ready = true;
 
         g.set_display_mode();
+        g.reload_mods();
         g.load_sound_theme();
         g.load_custom_languages();
 
@@ -397,7 +398,8 @@ impl G {
             } else if self.in_menu && self.update_dialog_if_due() {
                 continue;
             } else if self.in_menu {
-                let has_mods = false; // Mods werden später besprochen (mod_system.mods ist leer)
+                if self.current_game_mode == "mod" { self.current_game_mode = "standard".into(); self._mod_mode = None; }
+                let has_mods = true; // Rust Edition: Lua-Mods (Knopf unten links)
                 let has_online = self.WIDTH >= 500;
                 let daily = Rect::new(self.WIDTH - 200, 15, 180, 40);
                 let mods_btn = Rect::new(20, self.HEIGHT - 56, 130, 36);
@@ -503,10 +505,8 @@ impl G {
             } else if self.in_classic_game {
                 self.run_classic_game();
             } else if self.in_mods_menu {
-                // Mod-Menü ist (noch) nicht portiert - sofort zurück ins Hauptmenü
-                self.play_sound(Snd::ClickBack);
-                self.in_mods_menu = false;
-                self.in_menu = true;
+                // Rust Edition: Lua-Mods (die Python-Mods werden nicht unterstützt)
+                self.mods_menu_loop();
             } else if self.in_achievements_screen {
                 self._achievements_events();
                 self.draw_achievements_screen();

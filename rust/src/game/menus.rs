@@ -239,7 +239,7 @@ impl G {
         if self.sound_enabled && self.menu_music_path.is_some() && !self.mixer.music_get_busy() { self.play_menu_music(); }
         let bx = self.WIDTH / 2 - 180;
         for (i, b) in self.buttons.iter_mut().enumerate() { b.rect.x = bx; b.rect.y = 155 + i as i32 * 56; }
-        let has_mods = false;
+        let has_mods = true;
         let has_online = self.WIDTH >= 500;
         let nb = self.buttons.len();
         let nav_total = nb + has_mods as usize + 2 + has_online as usize;
@@ -283,6 +283,15 @@ impl G {
         for (i, b) in buttons.iter().enumerate() {
             let hov = b.rect.collidepoint(mouse_pos) || self.nav_is_focused("menu", i, nav_total);
             self.draw_ui_button(&bs, b.rect, &b.text, BtnOpts { font: Some(self.menu_font.clone()), hovered: hov, ..Default::default() });
+        }
+
+        if has_mods {
+            // Rust Edition: Lua-Mods (wie in Python unten links)
+            let mc = self.mods.active().count();
+            let label = if mc > 0 { format!("Mods ({})", mc) } else { "Mods".to_string() };
+            let mr = Rect::new(20, h - 56, 130, 36);
+            let mhov = mr.collidepoint(mouse_pos) || self.nav_is_focused("menu", nb, nav_total);
+            self.draw_ui_button(&bs, mr, &label, BtnOpts { font: Some(self.small_font.clone()), hovered: mhov, radius: Some(8), ..Default::default() });
         }
 
         let dr = Rect::new(w - 200, 15, 180, 40);

@@ -18,6 +18,7 @@ install -Dm755 "$BIN" "$D/usr/bin/jumpndodge"
 install -Dm644 $P/linux/jumpndodge.desktop "$D/usr/share/applications/jumpndodge.desktop"
 for s in 16 32 48 64 128 256 512; do install -Dm644 "$P/icons/jumpndodge-$s.png" "$D/usr/share/icons/hicolor/${s}x${s}/apps/jumpndodge.png"; done
 install -Dm644 LICENSE "$D/usr/share/doc/jumpndodge/copyright"
+install -Dm644 LUA_MODS.md "$D/usr/share/doc/jumpndodge/LUA_MODS.md"
 mkdir -p "$D/DEBIAN"
 SIZE=$(du -sk "$D/usr" | cut -f1)
 cat > "$D/DEBIAN/control" <<CTRL
@@ -43,7 +44,7 @@ T=$W/jumpndodge-linux-x86_64
 mkdir -p "$T"
 install -m755 "$BIN" "$T/JumpNDodge"
 cp $P/icons/jumpndodge-256.png "$T/jumpndodge.png"
-cp $P/linux/jumpndodge.desktop $P/linux/install.sh LICENSE "$T/"
+cp $P/linux/jumpndodge.desktop $P/linux/install.sh LICENSE LUA_MODS.md "$T/"
 chmod +x "$T/install.sh"
 tar -C "$W" -czf "$OUT/jumpndodge-linux-x86_64.tar.gz" jumpndodge-linux-x86_64
 

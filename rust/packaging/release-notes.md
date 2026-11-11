@@ -1,3 +1,13 @@
+## JumpNDodge 5.1.0
+
+- **Replays:** Nach jeder Runde im Game Over „Replay (V)“ – mit Pause, 5 s spulen und 1×/2×/4× Tempo.
+- **Rekord-Geist:** Dein bester Lauf der gewählten Schwierigkeit läuft halbtransparent mit (abschaltbar unter Einstellungen → Mehr).
+- **Controller:** Xbox, PlayStation und andere Gamepads. Controller 1 steuert Menüs und Spiel, Controller 2 ist P2 im lokalen 2-Spieler-Modus.
+  A springen/bestätigen · B/Start zurück/Pause · X/LB Power 1 · Y/RB Power 2 · Steuerkreuz/Stick laufen.
+- **Lua-Mods:** Hauptmenü → Mods. Eigene Hindernisse, Spielwerte und Modi als `.lua`-Datei – sicher in einer Sandbox
+  (kein Zugriff auf Dateien oder Netzwerk). „Beispiel-Mod anlegen“ zeigt, wie es geht; Anleitung: `LUA_MODS.md`.
+  Runden mit Mods zählen getrennt und nicht online.
+
 ## JumpNDodge 5.0.1
 
 - **Effekte:** Splitter bei Treffern, Funkeln beim 1-UP, Staub beim Landen und kurzes Bildschirmwackeln – im Einzelspieler,
@@ -41,7 +51,7 @@ Oder einfach über **W Hub** installieren und aktuell halten.
 - Linux mit der alten Python-Version: bitte einmal das `.deb`/Arch-Paket oder `jumpndodge-linux-x86_64.tar.gz` (`./install.sh`) installieren –
   der Spielstand in `~/.local/share/JumpNDodge` wird übernommen.
 - macOS: Die App ist nicht von Apple beglaubigt – beim ersten Start Rechtsklick → Öffnen.
-- Mods gibt es in der Rust Edition noch nicht (kommen später als sichere Lua-Mods).
+- Mods: die Rust Edition hat sichere Lua-Mods (Hauptmenü → Mods); Python-Mods (.py) laufen nur in der Python-Version.
 
 ---
 

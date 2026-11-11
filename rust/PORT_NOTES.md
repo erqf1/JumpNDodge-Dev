@@ -76,6 +76,19 @@ Nächste Phase 3: Multiplayer-Screens im Spiel + Netzwerk in der Runde (Vorhersa
 - Spielstand wird im Hintergrund-Thread geschrieben (`crypto::save_encrypted_json_bg`, `flush_saves()` beim Beenden).
 - `net::client::Client::pump()`: Netzwerk bedienen ohne Nachrichten abzuholen (sonst trennt der Server nach 10 s).
 
+## Rust Edition (ab 5.0) – neue Teile
+- `src/updater.rs` + `game/update_ui.rs`: eingebauter Updater (erqf1/JumpNDodge, releases/latest). Testvariablen:
+  `UPDATER_FAKE_VERSION`, `UPDATER_AUTO=now|show`, `UPDATER_DRY=1`, `UPDATER_REPO`, `UPDATER_ASSET_SUFFIX`.
+- `game/save.rs::base_dir()`: Datenordner neben dem Programm, bei /usr, /opt, .app oder schreibgeschützt im Benutzerordner.
+- `game/multiplayer.rs` (Bildschirme) + `jnd_core::net::netround` (Vorhersage/Interpolation). Dev: `run multiplayer`, `run mp …`.
+- `game/art.rs`: Sprites (Figur, Hindernisse, 1-UP, Boden, Hintergrund, Geist) + Partikel `Fx`. Dev: `run art_preview <png>`.
+- `game/replay.rs`: Aufzeichnung pro Logikschritt (`data/replays/*.jnr`), Replay-Ansicht, Rekord-Geist.
+- `pg/display.rs`: Controller über gilrs, als Tasten abgebildet (Pad 1 = WASD/Leertaste, Pad 2 = Pfeile).
+  Test: `pad:<nr>:<knopf>:<down|up>`, `pad:<nr>:stick=<x>`.
+- `game/mods.rs` + `game/mods_ui.rs`: Lua-Mods (mlua, Lua 5.4 eingebaut, Sandbox). Anleitung `LUA_MODS.md`.
+  Mod-Runden wie in Python getrennt (`modded_*`), nicht online.
+- Pakete: `packaging/` (Inno, deb, Arch, tar.gz, macOS) + `.github/workflows/build-rust.yml` (Release per Run workflow, tag = vX.Y.Z).
+
 ## Versteckter Selbsttest (nur Debug-Build)
 `JND_HIDDEN=1 JND_MUTE=1 JND_BASE_DIR=<Testordner> JND_SCRIPT="<frame>:<aktion>:<arg>;..."`
 Aktionen: `shot:<png>`, `cmd:run <befehl>` (Dev-Konsole, ohne key.txt), `key:<taste>`, `hold:<taste>`, `release:<taste>`,

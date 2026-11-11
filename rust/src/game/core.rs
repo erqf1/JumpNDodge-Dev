@@ -124,9 +124,22 @@ pub struct Obstacle {
     pub fy: f64,
     /// Position beim vorigen Logikschritt (zum Zeichnen zwischen zwei Schritten)
     pub prev: Option<(i32, i32)>,
+    /// Lua-Mods: eigene Farbe und Tempo-Faktor
+    pub tint: Option<(i32, i32, i32)>,
+    pub spd: f64,
 }
 impl Obstacle {
-    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64, prev: None } }
+    pub fn new(x: i32, y: i32, w: i32, h: i32, t: &'static str) -> Obstacle { Obstacle { r: Rect::new(x, y, w, h), obs_type: t, dir_x: None, dir_y: None, fx: x as f64, fy: y as f64, prev: None, tint: None, spd: 1.0 } }
+    /// Hindernis aus einer Lua-Mod (Boden: rechts am Rand, oben: zufällige Spalte)
+    pub fn from_mod(o: &super::mods::ModObstacle, w: i32, h: i32) -> Obstacle {
+        let mut ob = if o.top {
+            let rx = crate::util::randint(20, (w - o.w - 20).max(21) as i64) as i32;
+            Obstacle::new(rx, -o.h - 5, o.w, o.h, "mod")
+        } else { Obstacle::new(w, h - 50 - o.h, o.w, o.h, "mod") };
+        ob.tint = Some(o.color);
+        ob.spd = o.speed;
+        ob
+    }
     /// Rechteck zum Zeichnen: zwischen voriger und aktueller Position (alpha 0..1)
     pub fn draw_rect(&self, alpha: f64) -> Rect { lerp_rect(self.prev, self.r, alpha) }
 }

@@ -13,6 +13,8 @@ pub mod icon;
 pub mod loadout;
 pub mod art;
 pub mod menus;
+pub mod mods;
+pub mod mods_ui;
 pub mod multiplayer;
 pub mod online;
 pub mod online_screens;

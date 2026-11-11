@@ -19,7 +19,7 @@ members = ["core", "server"]
 
 [workspace.package]
 # Eine Version für Spiel, Bibliothek und Server (Online: Client und Server müssen gleich sein)
-version = "5.0.1"
+version = "5.1.0"
 
 [dependencies]
 jnd_core = { path = "core" }
@@ -40,6 +40,7 @@ chrono = "0.4"
 unicode-normalization = "0.1"
 serde = "1"
 gilrs = "0.11"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
 
 [profile.release]
 opt-level = 3

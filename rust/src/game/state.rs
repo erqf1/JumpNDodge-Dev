@@ -63,6 +63,10 @@ pub struct G {
     pub _shake: f64,
     /// Aufzeichnung der gerade beendeten Runde (wird in end_round_standard gespeichert)
     pub _last_recording: Option<super::replay::Recording>,
+    /// Lua-Mods (Rust Edition)
+    pub mods: super::mods::Mods,
+    pub _mod_mode: Option<super::mods::ModMode>,
+    pub _round_modded: bool,
     pub _gui_scale_dragging: bool,
     pub _custom_speed_dragging: bool,
     pub _custom_min_delay_dragging: bool,

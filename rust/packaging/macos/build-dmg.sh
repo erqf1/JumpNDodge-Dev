@@ -19,7 +19,7 @@ for s in 16 32 128 256 512; do
   d=$((s * 2)); [ $d -le 512 ] && sips -z $d $d $P/icons/jumpndodge-512.png --out "$IS/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$IS" -o "$APP/Contents/Resources/JumpNDodge.icns"
-cp LICENSE "$APP/Contents/Resources/"
+cp LICENSE LUA_MODS.md "$APP/Contents/Resources/"
 # Ad-hoc-Signatur (ohne Apple-Entwicklerkonto): beim ersten Start Rechtsklick > Öffnen
 codesign --force --deep -s - "$APP"
 ln -s /Applications "$W/dmg/Applications"

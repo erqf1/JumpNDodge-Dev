@@ -206,6 +206,30 @@ impl G {
             if round_duration >= req { gained += 3; }
         }
         let round_seconds = round_duration as i64;
+        if self._round_modded {
+            // Mod-Runde: eigene Statistik/Highscores, keine echten Coins, nicht online (wie in Python)
+            let mut ms = self.modded_stats.clone();
+            ms.insert("total_time_played".into(), jf(ms.gf("total_time_played", 0.0) + round_duration));
+            ms.insert("total_rounds".into(), json!(ms.gi("total_rounds", 0) + 1));
+            ms.insert("coins".into(), json!(ms.gi("coins", 0) + gained));
+            self.modded_stats = ms.clone();
+            self.save_modded_section("modded_stats", serde_json::Value::Object(ms));
+            let old = self.modded_scores.gi(difficulty, 0);
+            let new_record = score > old;
+            self.modded_scores.insert(difficulty.into(), json!(old.max(score)));
+            let ss = self.modded_session_scores.gi(difficulty, 0).max(score);
+            self.modded_session_scores.insert(difficulty.into(), json!(ss));
+            self.save_modded_section("modded_highscores", serde_json::Value::Object(self.modded_scores.clone()));
+            let bt = self.modded_best_times.gi(difficulty, 0).max(round_seconds);
+            self.modded_best_times.insert(difficulty.into(), json!(bt));
+            let st = self.modded_session_times.gi(difficulty, 0).max(round_seconds);
+            self.modded_session_times.insert(difficulty.into(), json!(st));
+            self.save_modded_section("modded_best_times", serde_json::Value::Object(self.modded_best_times.clone()));
+            if let Some(mut r) = self._last_recording.take() { r.score = score; self.save_recording(&r, false); }
+            self.stop_music();
+            self.show_game_over(score, gained, old, new_record, round_seconds);
+            return;
+        }
         let s = &mut self.stats;
         let ttp = s.gf("total_time_played", 0.0) + round_duration;
         s.insert("total_time_played".into(), jf(ttp));
@@ -249,7 +273,10 @@ impl G {
 
     pub fn run_game(&mut self) {
         let mut clock = Clock::new();
-        let (difficulty, mut speed, mut min_delay, mut max_delay): (String, f64, i64, i64) = if self.current_game_mode == "custom" {
+        let mod_mode = if self.current_game_mode == "mod" { self._mod_mode.clone() } else { None };
+        let (difficulty, mut speed, mut min_delay, mut max_delay): (String, f64, i64, i64) = if let Some(m) = &mod_mode {
+            (format!("Mod: {}", m.name), m.speed, m.min_delay, m.max_delay)
+        } else if self.current_game_mode == "custom" {
             ("Custom".into(), self.settings.gf("custom_speed", 10.0), self.settings.gi("custom_min_delay", 900), self.settings.gi("custom_max_delay", 1600))
         } else {
             let dd = DIFFICULTIES[self.difficulty_index];
@@ -263,7 +290,15 @@ impl G {
         let mut player = Rect::new(50, h0 - 50, 50, 50);
         let mut vy: f64 = 0.0;
         let mut trails: HashMap<String, Vec<Particle>> = all_trail_keys().into_iter().map(|k| (k, vec![])).collect();
-        let gravity = 1.0;
+        // Lua-Mods: Spielwerte, eigene Hindernisse, Ereignisse (Runden zählen getrennt)
+        let modded = self.mods.any_active() || mod_mode.is_some();
+        self._round_modded = modded;
+        let modm = if modded { self.mods.modifier() } else { super::mods::ModModifier::default() };
+        let mod_obs = if modded { self.mods.obstacles() } else { vec![] };
+        let mod_w_sum: f64 = mod_obs.iter().map(|o| o.weight).sum();
+        speed *= modm.speed;
+        let gravity = 1.0 * modm.gravity;
+        if modded { let (w0m, h0m, gm) = (self.WIDTH, self.HEIGHT, self.current_game_mode.clone()); self.mods.on_round_start(&difficulty, w0m, h0m, &gm); }
         let mut is_jumping = false;
         let mut used_double_jump;
         let move_speed = 8;
@@ -278,7 +313,7 @@ impl G {
         let mut top_timer = 0i64;
         let mut top_delay = (randint(900, 1600) as f64 * (800.0 / 400.max(w0) as f64)) as i64;
         let mut score: i64 = 0;
-        let mut lives: i64 = 3;
+        let mut lives: i64 = (mod_mode.as_ref().map(|m| m.lives).unwrap_or(3) + modm.lives).max(1);
         let mut oneups_collected = 0;
         let mut hit_invuln: i64 = 0;
         let custom = self.current_game_mode == "custom";
@@ -385,13 +420,13 @@ impl G {
                     jump_latch = false;
                     if space_down && !space_was_down {
                         if !is_jumping {
-                            vy = -20.0;
+                            vy = -20.0 * modm.jump;
                             is_jumping = true;
                             used_double_jump = false;
                             let t = self.stats.gi("total_jumps", 0) + 1;
                             self.stats.insert("total_jumps".into(), json!(t));
                         } else if rp.double_jump && !used_double_jump {
-                            vy = -18.0;
+                            vy = -18.0 * modm.jump;
                             used_double_jump = true;
                             let t = self.stats.gi("total_jumps", 0) + 1;
                             self.stats.insert("total_jumps".into(), json!(t));
@@ -469,12 +504,18 @@ impl G {
                     if difficulty == "Custom" && !self.settings.gb("custom_oneups", true) { chance = 0.0; }
                     if random() < chance { powerups.push(Obstacle::new(w, h - 100, 50, 50, "1up")); }
                     else if free_roam { obstacles.push(self.make_free_roam_obstacle()); }
-                    else {
+                    else if mod_w_sum > 0.0 && random() * (100.0 + mod_w_sum) >= 100.0 {
+                        // eigenes Hindernis einer Lua-Mod (nach Gewicht)
+                        let mut r = random() * mod_w_sum;
+                        let pick = mod_obs.iter().find(|o| { r -= o.weight; r < 0.0 }).or(mod_obs.last());
+                        if let Some(o) = pick { if o.top { top_obstacles.push(Obstacle::from_mod(o, w, h)); } else { obstacles.push(Obstacle::from_mod(o, w, h)); } }
+                    } else {
                         let t = self.pick_obstacle_type(&difficulty, if dynamic_mode { Some(speed) } else { None });
                         obstacles.extend(self.make_obstacle(w, &t));
                     }
                 }
                 let top_active = !self.klassik_mode && !free_roam && (["Hardcore", "Unmöglich", "Albtraum", "Hölle"].contains(&difficulty.as_str())
+                    || mod_mode.as_ref().map(|m| m.top).unwrap_or(false)
                     || (dynamic_mode && speed >= 14.0) || (difficulty == "Custom" && self.settings.gb("custom_vertical_obstacles", false)));
                 if top_active {
                     if rp.freeze_remaining == 0.0 { top_timer += dt; }
@@ -499,7 +540,7 @@ impl G {
                             if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
                         }
                     } else {
-                        o.r.x = addf(o.r.x, -current_speed);
+                        o.r.x = addf(o.r.x, -current_speed * o.spd);
                         if wind_h && rp.freeze_remaining == 0.0 { o.r.x = addf(o.r.x, wh * 5.0); }
                     }
                     let off = if fr { o.r.right() < 0 || o.r.left() > w || o.r.bottom() < 0 || o.r.top() > h } else { o.r.right() < 0 };
@@ -510,7 +551,7 @@ impl G {
                     let mut i = 0;
                     while i < top_obstacles.len() {
                         let o = &mut top_obstacles[i];
-                        o.r.y = addf(o.r.y, fall_speed);
+                        o.r.y = addf(o.r.y, fall_speed * o.spd);
                         if wind_v { o.r.y = addf(o.r.y, wv * 4.5); }
                         if wind_h { o.r.x = addf(o.r.x, wh * 5.0); }
                         if o.r.top() > h { top_obstacles.remove(i); continue; }
@@ -575,6 +616,7 @@ impl G {
                             self.play_sound_v(Snd::Hit, "hit_volume");
                             if fx_on { fx.burst(player.centerx() as f64, player.centery() as f64, super::art::HAZARD, 22); }
                             self.shake(7.0);
+                            if modded { self.mods.on_hit(score, lives); }
                         }
                         let list = if which == 0 { &mut obstacles } else { &mut top_obstacles };
                         list.remove(i);
@@ -605,6 +647,12 @@ impl G {
                 }
                 rp.update_cooldowns(dt as f64);
                 fx.update(dt as f64);
+                if modded {
+                    let res = self.mods.on_tick(tick_no, score, lives, player.x, player.y, w, h);
+                    for id in res.spawns {
+                        if let Some(o) = mod_obs.iter().find(|o| o.id == id) { if o.top { top_obstacles.push(Obstacle::from_mod(o, w, h)); } else { obstacles.push(Obstacle::from_mod(o, w, h)); } }
+                    }
+                }
                 rec.push(player, hit_invuln == 0 || (tick_no / 5) % 2 == 0, score, lives,
                     obstacles.iter().map(|o| (0u8, o.r)).chain(top_obstacles.iter().map(|o| (1u8, o.r))).chain(powerups.iter().map(|o| (2u8, o.r))));
                 rp.tick_shield_rearm();
@@ -638,10 +686,10 @@ impl G {
             for p in powerups.iter().map(|p| p.draw_rect(alpha)) {
                 super::art::draw_oneup(&bs, p, tsec, &self.badge_font);
             }
-            for o in &obstacles { super::art::draw_hazard(&bs, o.draw_rect(alpha)); }
+            for o in &obstacles { super::art::draw_hazard_c(&bs, o.draw_rect(alpha), o.tint.unwrap_or(super::art::HAZARD)); }
             for o in &top_obstacles {
                 let r = o.draw_rect(alpha);
-                super::art::draw_faller(&bs, r);
+                super::art::draw_faller_c(&bs, r, o.tint.unwrap_or(super::art::FALLER));
                 super::art::draw_faller_marker(&bs, r, tsec);
             }
             if let Some(g) = &ghost {
@@ -676,7 +724,7 @@ impl G {
             let lh = 22;
             let (tx, ty) = (12, 10);
             let elapsed = (now_secs() - round_start) as i64;
-            let hs = self.saved_scores.gi(&difficulty, 0);
+            let hs = if modded { self.modded_scores.gi(&difficulty, 0) } else { self.saved_scores.gi(&difficulty, 0) };
             let coins = self.stats.gi("coins", 0);
             let lines = [format!("{}: {}", self.get_text("score"), score), format!("{}: {}", self.get_text("lives"), lives),
                          format!("{}: {}", self.get_text("highscore"), hs), format!("{}: {}", self.get_text("coins"), coins)];

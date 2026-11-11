@@ -121,7 +121,7 @@ jobs:
         run: |
           set -e
           OUT="$GITHUB_WORKSPACE/out"; mkdir -p "$OUT" dist/JumpNDodge
-          cp target/release/JumpNDodge.exe ../icon.ico LICENSE dist/JumpNDodge/
+          cp target/release/JumpNDodge.exe ../icon.ico LICENSE LUA_MODS.md dist/JumpNDodge/
           # portabel (mit Ordner - so erwartet es der eingebaute Updater)
           (cd dist && 7z a -bd "$OUT/JumpNDodge-windows-x64.zip" JumpNDodge >/dev/null)
           # Archiv-Zip im alten flachen Format (alter JumpNDodgeUpdater)
