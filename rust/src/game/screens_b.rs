@@ -524,14 +524,23 @@ impl G {
             format!("{}: {}", self.tde("Vollbild (F11)", "Fullscreen (F11)"), on_off(fs)),
             format!("FPS: {}", fps_txt),
             format!("{}: {}", self.tde("Auto-Pause", "Auto pause"), on_off(fp)),
+            format!("{} (v{})", self.tde("Nach Updates suchen", "Check for updates"), env!("CARGO_PKG_VERSION")),
             "Experimental".to_string(), self.get_text("export_language"), self.get_text("back")];
-        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
+        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (110, 190, 150), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
         let mut rects = vec![];
         for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(w / 2 - 180, 150 + i as i32 * 60, 360, 48);
+            let r = Rect::new(w / 2 - 180, 140 + i as i32 * 56, 360, 46);
             rects.push(r);
             let hv = r.collidepoint(mp) || self.nav_is_focused("settings_more_menu", i, texts.len());
             self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, border_color: Some(*c), hover_border_color: Some((200, 220, 255)), hover_border_width: Some(3), ..Default::default() });
+        }
+        // Meldungen (z.B. Ergebnis der Update-Suche)
+        self.cleanup_overlays();
+        let mut y = 8;
+        for o in self.overlays.clone() {
+            let t = self.small_font.render(&o.text, true, o.color);
+            bs.blit(&t, ((w - t.get_width()) / 2, y));
+            y += t.get_height() + 4;
         }
         self.flip();
         rects

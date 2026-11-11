@@ -167,6 +167,11 @@ pub struct G {
     pub in_multiplayer: bool,
     pub _mp_dev_cmds: Vec<String>,
     pub mixer_playing_ingame: bool,
+    /// Eingebauter Updater
+    pub _upd_rx: Option<std::sync::mpsc::Receiver<Result<crate::updater::Release, String>>>,
+    pub _upd_release: Option<crate::updater::Release>,
+    pub _upd_manual: bool,
+    pub _upd_show: bool,
     pub in_online_leaderboard: bool,
     pub in_friends_hub: bool,
     pub in_player_search: bool,

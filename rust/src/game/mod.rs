@@ -27,3 +27,4 @@ pub mod stats_screen;
 pub mod sound;
 pub mod state;
 pub mod stubs;
+pub mod update_ui;

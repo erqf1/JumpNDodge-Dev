@@ -873,7 +873,7 @@ fn weighted_sample_without_replacement(items: Vec<(String, f64)>, k: usize) -> V
 }
 
 pub fn check_internet_connection() -> bool {
-    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(5)).build();
+    let agent = ureq::AgentBuilder::new().try_proxy_from_env(true).timeout(std::time::Duration::from_secs(5)).build();
     match agent.get("http://www.google.com").call() {
         Ok(_) => true,
         Err(ureq::Error::Status(_, _)) => true,
@@ -883,7 +883,7 @@ pub fn check_internet_connection() -> bool {
 
 /// get_current_datetime() übers Netz (WorldTimeAPI Europe/Berlin); None bei Fehler
 pub fn get_current_datetime_net() -> Option<chrono::NaiveDateTime> {
-    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(5)).build();
+    let agent = ureq::AgentBuilder::new().try_proxy_from_env(true).timeout(std::time::Duration::from_secs(5)).build();
     let r = agent.get("http://worldtimeapi.org/api/timezone/Europe/Berlin").call().ok()?;
     let v: Value = serde_json::from_str(&r.into_string().ok()?).ok()?;
     let s = v.gs("datetime", "");

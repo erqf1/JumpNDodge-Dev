@@ -1,6 +1,6 @@
 [package]
 name = "jnd_server"
-version = "4.9.1"
+version.workspace = true
 edition = "2021"
 description = "JumpNDodge Multiplayer-Server (Online-VS und Online-Koop, Direktverbindung per IP)"
 license = "Apache-2.0"

@@ -1,8 +1,8 @@
 [package]
 name = "jumpndodge"
-version = "4.9.1"
+version.workspace = true
 edition = "2021"
-description = "JumpNDodge - 1:1 Rust-Port des Python/pygame-Spiels"
+description = "JumpNDodge Rust Edition"
 license = "Apache-2.0"
 
 [[bin]]
@@ -12,6 +12,10 @@ path = "src/main.rs"
 [workspace]
 members = ["core", "server"]
 
+[workspace.package]
+# Eine Version für Spiel, Bibliothek und Server (Online: Client und Server müssen gleich sein)
+version = "5.0.0"
+
 [dependencies]
 jnd_core = { path = "core" }
 winit = "0.30"
@@ -20,7 +24,7 @@ tiny-skia = "0.11"
 fontdue = "0.9"
 rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-wav", "symphonia-vorbis"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "2", features = ["json", "native-certs"] }
 arboard = { version = "3", default-features = false }
 sha2 = "0.10"
 hmac = "0.12"

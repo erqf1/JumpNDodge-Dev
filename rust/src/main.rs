@@ -5,6 +5,7 @@ mod crypto;
 mod data;
 mod game;
 mod pg;
+mod updater;
 mod util;
 
 fn main() {

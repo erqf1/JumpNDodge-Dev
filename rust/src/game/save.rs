@@ -348,7 +348,51 @@ pub fn default_settings() -> Value {
     })
 }
 
+/// Ordner für Spielstand (data/), Sounds, Custom-Sprachen und key.txt.
+/// - Portable, Windows-Installation, alte Python-Installation: neben dem Programm (wie bisher).
+/// - Paket-Installation (/usr, /opt, macOS-.app) oder schreibgeschützter Ordner (z.B. Program Files):
+///   Benutzerordner (Windows %APPDATA%\JumpNDodge, macOS ~/Library/Application Support/JumpNDodge,
+///   Linux ~/.local/share/JumpNDodge = Ordner der alten Python-Installation). Liegt neben dem
+///   Programm noch ein Spielstand, wird er beim ersten Start dorthin übernommen.
 pub fn base_dir() -> PathBuf {
     if let Ok(d) = std::env::var("JND_BASE_DIR") { return PathBuf::from(d); }
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_else(|| PathBuf::from("."))
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok().or(Some(p))).and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_else(|| PathBuf::from("."));
+    if !is_system_install(&exe_dir) && dir_writable(&exe_dir) && (exe_dir.join("data").is_dir() == false || dir_writable(&exe_dir.join("data"))) {
+        return exe_dir;
+    }
+    let ud = user_data_dir();
+    let _ = std::fs::create_dir_all(ud.join("data"));
+    let old = exe_dir.join("data").join("gameplay.json");
+    let new = ud.join("data").join("gameplay.json");
+    if old.is_file() && !new.exists() {
+        if let Ok(rd) = std::fs::read_dir(exe_dir.join("data")) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_file() { let _ = std::fs::copy(&p, ud.join("data").join(e.file_name())); }
+            }
+        }
+    }
+    ud
+}
+
+fn dir_writable(d: &std::path::Path) -> bool {
+    let t = d.join(format!(".jnd-write-test-{}", std::process::id()));
+    match std::fs::write(&t, b"x") { Ok(_) => { let _ = std::fs::remove_file(&t); true } Err(_) => false }
+}
+
+fn is_system_install(d: &std::path::Path) -> bool {
+    if cfg!(windows) { return false; }
+    let s = d.to_string_lossy();
+    s.starts_with("/usr/") || s.starts_with("/opt/") || s.starts_with("/app/") || s.contains(".app/Contents/MacOS")
+}
+
+pub fn user_data_dir() -> PathBuf {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Roaming")).join("JumpNDodge")
+    } else if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("JumpNDodge")
+    } else {
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home.join(".local").join("share")).join("JumpNDodge")
+    }
 }

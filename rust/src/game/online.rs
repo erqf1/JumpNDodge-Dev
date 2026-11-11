@@ -23,7 +23,7 @@ pub fn online_server_url() -> String {
 pub fn online_request_blocking(method: &str, path: &str, payload: Option<&Value>, timeout: u64) -> (Option<Value>, Option<bool>) {
     if !ONLINE_ENABLED { return (None, None); }
     let url = format!("{}{}", online_server_url().trim_end_matches('/'), path);
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(timeout)).build();
+    let agent = ureq::AgentBuilder::new().try_proxy_from_env(true).timeout(Duration::from_secs(timeout)).build();
     let req = agent.request(method, &url)
         .set("Accept", "application/json")
         .set("User-Agent", "JumpNDodge-Game-Client/1.0");

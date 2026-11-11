@@ -261,6 +261,7 @@ impl G {
     /// Die Hauptschleife (while True: am Ende von JumpNDodge.py)
     pub fn main_loop(&mut self) -> ! {
         self.update_button_texts();
+        self.maybe_auto_update_check();
         let mut clock = Clock::new();
         loop {
             self.sync_window_size();
@@ -393,6 +394,8 @@ impl G {
                 }
                 self.draw_tutorial();
                 { let fps = self.target_fps(); clock.tick(fps); }
+            } else if self.in_menu && self.update_dialog_if_due() {
+                continue;
             } else if self.in_menu {
                 let has_mods = false; // Mods werden später besprochen (mod_system.mods ist leer)
                 let has_online = self.WIDTH >= 500;
@@ -516,8 +519,9 @@ impl G {
                 self._controls_events();
                 { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_settings_more_menu {
+                if self.update_dialog_if_due() { continue; }
                 let rects = self.draw_settings_more_menu();
-                let acts = ["fullscreen", "fps", "focus_pause", "experimental", "export_lang", "back"];
+                let acts = ["fullscreen", "fps", "focus_pause", "update", "experimental", "export_lang", "back"];
                 for ev in self.event_get() {
                     let mut a: Option<&str> = None;
                     match ev {
@@ -539,6 +543,7 @@ impl G {
                     }
                     match a {
                         Some("fullscreen") => self.toggle_fullscreen(),
+                        Some("update") => { self.play_sound(Snd::Click); self.start_update_check(true); }
                         Some("fps") => {
                             // Monitor -> 60 -> 120 -> 144 -> 165 -> 240 -> unbegrenzt -> Monitor
                             const STEPS: [i64; 7] = [0, 60, 120, 144, 165, 240, 1000];
