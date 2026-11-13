@@ -291,7 +291,35 @@ fn aa_paint_for(dst: &SurfInner, c: Color) -> Paint<'static> {
     p
 }
 
+// Stil der Rust Edition ab 5.3: abgerundete Ecken werden zu Pixel-Treppen (zwei Stufen à Radius/2).
+// Damit sieht jede Box, die ein Bildschirm zeichnet, automatisch wie die neue Grafik aus.
+thread_local! {
+    static STEP_CORNERS: Cell<bool> = const { Cell::new(false) };
+}
+pub fn set_step_corners(on: bool) { STEP_CORNERS.with(|c| c.set(on)); }
+pub fn step_corners() -> bool { STEP_CORNERS.with(|c| c.get()) }
+
+fn step_path(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4]) {
+    // Stufen in ganzen logischen Pixeln, höchstens 5 (sonst wirkt es grob)
+    let st = |r: f32| (r / 2.0).round().clamp(0.0, 5.0);
+    let [a, b, c, d] = [st(radii[0]), st(radii[1]), st(radii[2]), st(radii[3])];
+    pb.move_to(x + 2.0 * a, y);
+    pb.line_to(x + w - 2.0 * b, y);
+    if b > 0.0 { pb.line_to(x + w - 2.0 * b, y + b); pb.line_to(x + w - b, y + b); pb.line_to(x + w - b, y + 2.0 * b); }
+    pb.line_to(x + w, y + 2.0 * b);
+    pb.line_to(x + w, y + h - 2.0 * c);
+    if c > 0.0 { pb.line_to(x + w - c, y + h - 2.0 * c); pb.line_to(x + w - c, y + h - c); pb.line_to(x + w - 2.0 * c, y + h - c); }
+    pb.line_to(x + w - 2.0 * c, y + h);
+    pb.line_to(x + 2.0 * d, y + h);
+    if d > 0.0 { pb.line_to(x + 2.0 * d, y + h - d); pb.line_to(x + d, y + h - d); pb.line_to(x + d, y + h - 2.0 * d); }
+    pb.line_to(x, y + h - 2.0 * d);
+    pb.line_to(x, y + 2.0 * a);
+    if a > 0.0 { pb.line_to(x + a, y + 2.0 * a); pb.line_to(x + a, y + a); pb.line_to(x + 2.0 * a, y + a); }
+    pb.close();
+}
+
 fn rrect_path(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4]) {
+    if step_corners() { return step_path(pb, x, y, w, h, radii); }
     // radii: tl, tr, br, bl
     let [tl, tr, br, bl] = radii;
     const K: f32 = 0.552_284_8;
@@ -345,7 +373,8 @@ pub mod draw {
         let r = r.normalized();
         if r.w <= 0 || r.h <= 0 || o.width < 0 { return r; }
         let mut s = surf.0.borrow_mut();
-        let paint = paint_for(&s, c);
+        let mut paint = paint_for(&s, c);
+        if step_corners() { paint.anti_alias = false; } // Treppen-Ecken scharf, wie Pixel
         let maxr = r.w.min(r.h) / 2;
         let pick = |v: i32| -> f32 { let v = if v < 0 { o.radius } else { v }; v.clamp(0, maxr) as f32 };
         let radii = [pick(o.tl), pick(o.tr), pick(o.br), pick(o.bl)];

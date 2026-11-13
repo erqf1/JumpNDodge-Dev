@@ -155,7 +155,7 @@ impl G {
         }
         let pt = self.inv_panel_top();
         let mut y = pt + 10;
-        let panel = Rect::new(50, pt, w - 100, h - pt - 60);
+        let panel = Rect::new(50, pt, w - 100, h - pt - 70);
         draw::rect(&bs, self.get_panel_color(), panel, 0, 16);
         draw::rect(&bs, (60, 80, 140), panel, 3, 16);
         let (owned, active) = self.get_cosmetics_for_tab(self.cosmetic_tab);
@@ -205,19 +205,17 @@ impl G {
                 if y > panel.bottom() - 80 { break; }
             }
         }
-        let back = Rect::new(w / 2 - 180, h - 120, 360, 48);
+        // Zurück unter dem Kasten (lag vorher über der Liste)
+        let back = Rect::new(w / 2 - 150, h - 58, 300, 46);
         let hv = back.collidepoint(mp) || self.nav_is_focused("cosmetic_inventory", owned.len(), owned.len() + 1);
-        draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, back, 0, 12);
-        draw::rect(&bs, (180, 180, 180), back, if hv { 3 } else { 2 }, 12);
-        let bt = self.menu_font.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bt, (back.centerx() - bt.get_width() / 2, back.centery() - bt.get_height() / 2));
+        self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, ..Default::default() });
         self.flip();
         back
     }
 
     fn inv_item_buttons(&self) -> Vec<(Rect, String)> {
         let pt = self.inv_panel_top();
-        let panel = Rect::new(50, pt, self.WIDTH - 100, self.HEIGHT - pt - 60);
+        let panel = Rect::new(50, pt, self.WIDTH - 100, self.HEIGHT - pt - 70);
         let mut y = pt + 10;
         let (owned, _) = self.get_cosmetics_for_tab(self.cosmetic_tab);
         let mut out = vec![];

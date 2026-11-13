@@ -47,6 +47,19 @@ pub fn step_rect<C: Into<Color> + Copy>(s: &Surface, c: C, r: Rect, n: i32) {
     draw::rect(s, c, Rect::new(r.x + 2 * n, r.y, r.w - 4 * n, r.h), 0, 0);
 }
 
+pub fn luma(c: Col) -> f64 { 0.299 * c.0 as f64 + 0.587 * c.1 as f64 + 0.114 * c.2 as f64 }
+
+/// Farbige Schrift lesbar machen: auf Dunkel zu dunkle Farben aufhellen, auf Hell zu helle abdunkeln
+pub fn readable(c: Col, dark: bool) -> Col {
+    let mut c = c;
+    if dark { let mut i = 0; while luma(c) < 125.0 && i < 8 { c = mix(c, (255, 255, 255), 0.22); i += 1; } }
+    else { let mut i = 0; while luma(c) > 160.0 && i < 8 { c = mix(c, (0, 0, 0), 0.2); i += 1; } }
+    c
+}
+
+/// Lesbare Schriftfarbe für eine Fläche (dunkel auf hell, hell auf dunkel)
+pub fn text_on(bg: Col) -> Col { if luma(bg) > 150.0 { (28, 24, 44) } else { (245, 243, 255) } }
+
 fn mix(a: Col, b: Col, t: f64) -> Col {
     let m = |x: i32, y: i32| (x as f64 + (y - x) as f64 * t).round() as i32;
     (m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
@@ -74,10 +87,14 @@ pub fn button(s: &Surface, r: Rect, text: &str, font: &Font, base: Col, hover_ba
         draw::rect(s, accent, Rect::new(body_r.x + n + 2, body_r.centery() - lh / 2, 4, lh), 0, 0);
     }
     if !text.is_empty() {
-        let ts = font.render(text, true, text_col);
+        let max_w = r.w - 22;
+        let ts = font.render_fit(text, max_w, text_col);
         let (tx, ty) = (body_r.centerx() - ts.get_width() / 2, body_r.centery() - ts.get_height() / 2 - 1);
-        let sh = font.render(text, true, if dark { (12, 10, 20) } else { darken(body, 0.35) });
-        s.blit(&sh, (tx + 2, ty + 2));
+        // harter Schatten nur auf dunklen Flächen; auf hellen wird es sonst matschig
+        if luma(body) < 150.0 {
+            let sh = font.render_fit(text, max_w, (12, 10, 20));
+            s.blit(&sh, (tx + 2, ty + 2));
+        }
         s.blit(&ts, (tx, ty));
     }
 }

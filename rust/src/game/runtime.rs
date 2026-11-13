@@ -153,35 +153,32 @@ impl G {
             let bs = self.base_surface.clone();
             bs.blit(&frozen, (0, 0));
             let dim = Surface::new_alpha(self.WIDTH, self.HEIGHT);
-            dim.fill((0, 0, 0, 170));
+            dim.fill(if self.is_dark_mode() { (0, 0, 0, 170) } else { (236, 238, 252, 170) });
             bs.blit(&dim, (0, 0));
             let dark = self.is_dark_mode();
             let px = self.WIDTH / 2 - pw / 2;
             let py = self.HEIGHT / 2 - ph / 2;
             draw::rect(&bs, if dark { (20, 22, 36) } else { (238, 242, 252) }, Rect::new(px, py, pw, ph), 0, 16);
             draw::rect(&bs, if dark { (80, 110, 215) } else { (140, 170, 225) }, Rect::new(px, py, pw, ph), 2, 16);
-            let t = self.menu_font.render("Pausiert", true, self.get_text_color());
+            let t = self.menu_font.render(&self.tde("Pausiert", "Paused"), true, self.get_text_color());
             bs.blit(&t, (self.WIDTH / 2 - t.get_width() / 2, py + 16));
             let mp = self.get_mouse_pos_logical();
             let bx = self.WIDTH / 2 - bw / 2;
             let by = py + 68;
-            let btns: [(&str, &'static str, (i32, i32, i32), (i32, i32, i32)); 3] = [
-                ("Weitermachen", "resume", (0, 110, 50), (255, 255, 255)),
-                ("Neu starten", "restart", self.get_button_color(), self.get_text_color()),
-                ("Hauptmenü", "menu", self.get_button_color(), self.get_text_color()),
+            let btns: [(String, &'static str, (i32, i32, i32), (i32, i32, i32)); 3] = [
+                (self.tde("Weitermachen", "Resume"), "resume", (0, 110, 50), (255, 255, 255)),
+                (self.tde("Neu starten", "Restart"), "restart", self.get_button_color(), self.get_text_color()),
+                (self.tde("Hauptmenü", "Main menu"), "menu", self.get_button_color(), self.get_text_color()),
             ];
             let mut rects: Vec<(Rect, &'static str)> = vec![];
             for (i, (label, action, base, tc)) in btns.iter().enumerate() {
                 let r = Rect::new(bx, by + i as i32 * (bh + bg), bw, bh);
                 rects.push((r, action));
                 let hv = r.collidepoint(mp) || self.nav_is_focused("pause_menu", i, 3);
-                let c = if *action == "resume" { if hv { (0, 140, 60) } else { *base } } else if hv { self.get_button_hover_color() } else { *base };
-                draw::rect(&bs, c, r, 0, 10);
-                draw::rect(&bs, (150, 150, 160), r, 2, 10);
-                let ls = self.menu_font.render(label, true, *tc);
-                bs.blit(&ls, (r.centerx() - ls.get_width() / 2, r.centery() - ls.get_height() / 2));
+                let resume = *action == "resume";
+                self.draw_ui_button(&bs, r, label, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, base_color: Some(*base), hover_color: Some(if resume { (0, 140, 60) } else { self.get_button_hover_color() }), text_color: Some(*tc), border_color: Some(if resume { (60, 220, 120) } else { (150, 130, 230) }), ..Default::default() });
             }
-            let hint = self.small_font.render("ESC = Weitermachen", true, (100, 100, 120));
+            let hint = self.small_font.render(&self.tde("ESC = Weitermachen", "ESC = resume"), true, if dark { (130, 128, 150) } else { (100, 100, 120) });
             bs.blit(&hint, (self.WIDTH / 2 - hint.get_width() / 2, py + ph - 22));
             self.flip();
             for ev in self.event_get() {

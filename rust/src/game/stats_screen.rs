@@ -70,7 +70,7 @@ impl G {
                 let rb = Rect::new(70, *y, w - 140, 36);
                 draw::rect(bs, if i % 2 == 0 { self.get_bg_color() } else { self.get_panel_color() }, rb, 0, 6);
                 draw::rect(bs, (180, 180, 180), rb, 1, 6);
-                let ds = sf.render(&self.get_difficulty_name(diff), true, diff_col_map(diff).unwrap_or(self.get_text_color()));
+                let ds = sf.render(&self.get_difficulty_name(diff), true, diff_col_map(diff).map(|c| super::ui_c::readable(c, self.is_dark_mode())).unwrap_or(self.get_text_color()));
                 ds.set_alpha(Some(alpha));
                 bs.blit(&ds, (90, *y + 10));
                 for (sv_, tv, cx) in [(record.clone(), rt.clone(), 320), (sv.clone(), st.clone(), 470)] {
@@ -119,7 +119,7 @@ impl G {
         let t = self.font.render(&self.get_text("stats"), true, self.get_text_color());
         bs.blit(&self.font.render(&self.get_text("stats"), true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 3, 15));
         bs.blit(&t, (w / 2 - t.get_width() / 2, 12));
-        let has_modded = self._MODDED_DATA_FILE.is_file();
+        let has_modded = self.mods_installed();
         let vis: Vec<&str> = STAT_CATEGORIES.iter().copied().filter(|c| *c != "stat_modded" || has_modded).collect();
         if self.current_stat_tab >= vis.len() { self.current_stat_tab = 0; }
         let modded_idx = vis.iter().position(|c| *c == "stat_modded");

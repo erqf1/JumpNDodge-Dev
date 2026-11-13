@@ -617,7 +617,7 @@ impl G {
             let base = o.base_color.unwrap_or(self.get_button_color());
             let hover = o.hover_color.unwrap_or(if dark { (78, 76, 104) } else { (214, 222, 255) });
             let accent = if o.hovered { o.hover_border_color.or(o.border_color) } else { o.border_color }.unwrap_or(if dark { (150, 130, 230) } else { (110, 90, 200) });
-            let tc = o.text_color.unwrap_or(self.get_text_color());
+            let tc = o.text_color.unwrap_or(if o.base_color.is_some() { super::ui_c::text_on(base) } else { self.get_text_color() });
             super::ui_c::button(surface, rect, text, &font, base, hover, accent, tc, o.hovered, dark);
             return;
         }
@@ -628,7 +628,7 @@ impl G {
         let bw = if o.hovered { o.hover_border_width.unwrap_or(3) } else { o.border_width.unwrap_or(2) };
         draw::rect(surface, bc, rect, bw, radius);
         let tc = o.text_color.unwrap_or(self.get_text_color());
-        let ts = font.render(text, true, tc);
+        let ts = font.render_fit(text, rect.w - 16, tc);
         surface.blit(&ts, (rect.centerx() - ts.get_width() / 2, rect.centery() - ts.get_height() / 2));
     }
 

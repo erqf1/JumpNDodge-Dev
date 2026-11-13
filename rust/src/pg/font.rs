@@ -174,6 +174,33 @@ impl Font {
         surf
     }
 
+    /// Dieselbe Schrift in anderer Größe (zwischengespeichert)
+    pub fn scaled(&self, factor: f32) -> Font {
+        thread_local! { static SCALED: RefCell<HashMap<(usize, u32), Font>> = RefCell::new(HashMap::new()); }
+        let px = (self.0.px * factor).round().max(6.0);
+        let key = (Rc::as_ptr(&self.0) as usize, px as u32);
+        SCALED.with(|m| {
+            let mut m = m.borrow_mut();
+            if m.len() > 200 { m.clear(); }
+            m.entry(key).or_insert_with(|| Font::from_font(self.0.font.clone(), px, self.0.bold)).clone()
+        })
+    }
+
+    /// Text, der höchstens `max_w` breit ist: erst die normale Größe, dann schrittweise kleiner,
+    /// zuletzt gekürzt mit "…". So läuft nichts mehr aus Knöpfen und Kästen.
+    pub fn render_fit<C: Into<Color> + Copy>(&self, text: &str, max_w: i32, color: C) -> Surface {
+        if max_w <= 0 || self.size(text).0 <= max_w { return self.render(text, true, color); }
+        for f in [0.92, 0.84, 0.76, 0.68] {
+            let ft = self.scaled(f);
+            if ft.size(text).0 <= max_w { return ft.render(text, true, color); }
+        }
+        let ft = self.scaled(0.68);
+        let mut t: Vec<char> = text.chars().collect();
+        while t.len() > 1 && ft.size(&(t.iter().collect::<String>() + "…")).0 > max_w { t.pop(); }
+        while t.last().map(|c| c.is_whitespace()).unwrap_or(false) { t.pop(); }
+        ft.render(&(t.iter().collect::<String>() + "…"), true, color)
+    }
+
     /// render mit Hintergrundfarbe (pygame: font.render(text, aa, color, background))
     pub fn render_bg<C: Into<Color>, B: Into<Color>>(&self, text: &str, aa: bool, color: C, bg: B) -> Surface {
         let t = self.render(text, aa, color);

@@ -68,6 +68,8 @@ pub struct G {
     pub _mod_mode: Option<super::mods::ModMode>,
     pub _round_modded: bool,
     pub _gui_scale_dragging: bool,
+    /// Einstellungsseite (settings_ui: Darstellung/Spiel/System)
+    pub settings_page: usize,
     pub _custom_speed_dragging: bool,
     pub _custom_min_delay_dragging: bool,
     pub _custom_max_delay_dragging: bool,

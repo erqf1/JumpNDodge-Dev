@@ -85,8 +85,9 @@ impl G {
                 grid_start_y = content_top;
             }
         }
-        let cols = 3;
-        let (tile_w, tile_h, spx, spy) = (220, 155, 18, 18);
+        // kompakte Kacheln: 4 Spalten, damit auch 11 Spuren auf einen Bildschirm passen
+        let cols = 4;
+        let (tile_w, tile_h, spx, spy) = (172, 96, 12, 12);
         let db = d("COSMETICS_DB").as_object().unwrap();
         let mut items: Vec<(String, Value)> = match resolved.as_deref() {
             Some("__sale__") => self.get_sale_items().into_iter().filter(|k| db.contains_key(k)).map(|k| { let m = db[&k].clone(); (k, m) }).collect(),
@@ -108,8 +109,9 @@ impl G {
             bs.blit(&m, (w / 2 - m.get_width() / 2, grid_start_y + 60));
         }
         let pos_of = |i: usize, n: usize| -> (i32, i32) {
-            let (col, row) = ((i % 3) as i32, (i / 3) as i32);
-            let rc = (cols as usize).min(n - row as usize * 3) as i32;
+            let cu = cols as usize;
+            let (col, row) = ((i % cu) as i32, (i / cu) as i32);
+            let rc = cu.min(n - row as usize * cu) as i32;
             let off = ((cols - rc) * (tile_w + spx)) / 2;
             (gx + off + col * (tile_w + spx), grid_start_y + row * (tile_h + spy))
         };
@@ -128,37 +130,37 @@ impl G {
             draw::rect(&bs, cbg, ir, 0, 14);
             let foc = !owned && self.nav_is_focused("cosmetic_shop", buy_idx, total_buyable + 1);
             if ir.collidepoint(mp) || foc { draw::rect(&bs, rc.border, ir, 3, 14); } else { draw::rect(&bs, sub(rc.border, 50), ir, 2, 14); }
-            let bt = sf.render(rc.label, true, (255, 255, 255));
-            let br = Rect::new(x + 8, y + 8, bt.get_width() + 14, 20);
-            draw::rect(&bs, rc.badge, br, 0, 10);
-            bs.blit(&bt, (br.x + 7, br.y + 2));
-            let (icx, icy) = (x + tile_w - 28, y + 22);
-            draw::circle(&bs, add(cbg, 40), (icx, icy), 18, 0);
-            draw::circle(&bs, rc.border, (icx, icy), 18, 2);
+            let bt = self.badge_font.render(rc.label, true, (255, 255, 255));
+            let br = Rect::new(x + 6, y + 6, bt.get_width() + 12, bt.get_height() + 4);
+            draw::rect(&bs, rc.badge, br, 0, 6);
+            bs.blit(&bt, (br.x + 6, br.y + 2));
+            let (icx, icy) = (x + tile_w - 24, y + 24);
+            draw::circle(&bs, add(cbg, 40), (icx, icy), 17, 0);
+            draw::circle(&bs, rc.border, (icx, icy), 17, 2);
             draw_cosmetic_icon(&bs, key, icx, icy, false);
-            bs.blit(&mf.render(&name, true, (255, 255, 255)), (x + 10, y + 42));
-            bs.blit(&sf.render(&capitalize(&meta.gs("type", "")), true, (200, 200, 220)), (x + 10, y + 68));
-            draw::line(&bs, add(cbg, 30), (x + 10, y + 88), (x + tile_w - 10, y + 88), 1);
-            draw::circle(&bs, GOLD, (x + 20, y + 104), 7, 0);
-            draw::circle(&bs, (200, 160, 0), (x + 20, y + 104), 7, 2);
+            let nm = mf.render_fit(&name, tile_w - 52, (255, 255, 255));
+            bs.blit(&nm, (x + 8, y + 32));
+            let py = y + tile_h - 26;
+            draw::circle(&bs, GOLD, (x + 16, py + 9), 6, 0);
+            draw::circle(&bs, (200, 160, 0), (x + 16, py + 9), 6, 2);
             if disc != 0 {
-                let bps = sf.render(&base_price.to_string(), true, (170, 170, 170));
-                bs.blit(&bps, (x + 32, y + 96));
-                let sy = y + 96 + bps.get_height() / 2;
-                draw::line(&bs, (170, 170, 170), (x + 32, sy), (x + 32 + bps.get_width(), sy), 2);
-                bs.blit(&sf.render(&price.to_string(), true, (255, 70, 70)), (x + 32 + bps.get_width() + 8, y + 96));
+                let bps = sf.render(&base_price.to_string(), true, (190, 190, 190));
+                bs.blit(&bps, (x + 26, py));
+                let sy = py + bps.get_height() / 2;
+                draw::line(&bs, (190, 190, 190), (x + 26, sy), (x + 26 + bps.get_width(), sy), 2);
+                bs.blit(&sf.render(&price.to_string(), true, (255, 110, 110)), (x + 26 + bps.get_width() + 6, py));
             } else {
-                bs.blit(&sf.render(&price.to_string(), true, GOLD), (x + 32, y + 96));
+                bs.blit(&sf.render(&price.to_string(), true, GOLD), (x + 26, py));
             }
-            let br2 = Rect::new(x + tile_w - 90, y + tile_h - 34, 80, 24);
+            let br2 = Rect::new(x + tile_w - 78, y + tile_h - 28, 70, 22);
             if owned {
                 draw::rect(&bs, (30, 160, 60), br2, 0, 12);
-                let os = sf.render(&self.get_text("owned"), true, (255, 255, 255));
+                let os = sf.render_fit(&self.get_text("owned"), br2.w - 6, (255, 255, 255));
                 bs.blit(&os, (br2.centerx() - os.get_width() / 2, br2.centery() - os.get_height() / 2));
             } else {
                 let hv = br2.collidepoint(mp) || foc;
                 draw::rect(&bs, if hv { (255, 200, 20) } else { (200, 160, 10) }, br2, 0, 12);
-                let bt2 = sf.render(&self.get_text("buy"), true, (30, 20, 0));
+                let bt2 = sf.render_fit(&self.get_text("buy"), br2.w - 6, (30, 20, 0));
                 bs.blit(&bt2, (br2.centerx() - bt2.get_width() / 2, br2.centery() - bt2.get_height() / 2));
                 item_rects.push((key.clone(), br2));
                 buy_idx += 1;
@@ -183,9 +185,9 @@ impl G {
             let powned = owned_keys.contains(&hk);
             let total_rows = (items.len() as i32 + cols - 1) / cols;
             let pv_w = cols * tile_w + (cols - 1) * spx;
-            let pv_h = 88;
+            let pv_h = 76;
             let pv_x = gx;
-            let pv_y = (grid_start_y + total_rows * (tile_h + spy) + 6).min(h - 52 - pv_h - 10);
+            let pv_y = (grid_start_y + total_rows * (tile_h + spy) + 2).min(h - 58 - pv_h - 6);
             draw::rect(&bs, self.get_panel_color(), Rect::new(pv_x, pv_y, pv_w, pv_h), 0, 12);
             draw::rect(&bs, prc.border, Rect::new(pv_x, pv_y, pv_w, pv_h), 2, 12);
             let (icx2, icy2) = (pv_x + 46, pv_y + pv_h / 2);
@@ -208,15 +210,12 @@ impl G {
             bs.blit(&bsf, (bbg.x + 7, bbg.y + 2));
             bs.blit(&sf.render(&capitalize(&pm.gs("type", "")), true, (180, 180, 200)), (tx + bbg.w + 10, pv_y + 37));
             bs.blit(&sf.render(&format!("{} Coins", pprice), true, GOLD), (tx, pv_y + 60));
-            let ss = sf.render(if powned { "Besessen" } else { "Nicht besessen" }, true, if powned { (80, 200, 120) } else { (200, 120, 100) });
+            let ss = sf.render(&if powned { self.tde("Besessen", "Owned") } else { self.tde("Nicht besessen", "Not owned") }, true, if powned { (80, 200, 120) } else { (200, 120, 100) });
             bs.blit(&ss, (pv_x + pv_w - ss.get_width() - 14, pv_y + pv_h - 22));
         }
-        let back = Rect::new(w / 2 - 150, h - 52, 300, 42);
+        let back = Rect::new(w / 2 - 150, h - 54, 300, 44);
         let bh = back.collidepoint(mp) || self.nav_is_focused("cosmetic_shop", total_buyable, total_buyable + 1);
-        draw::rect(&bs, if bh { self.get_button_hover_color() } else { self.get_button_color() }, back, 0, 12);
-        draw::rect(&bs, (180, 180, 200), back, if bh { 3 } else { 2 }, 12);
-        let bt = mf.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bt, (back.centerx() - bt.get_width() / 2, back.centery() - bt.get_height() / 2));
+        self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(mf.clone()), hovered: bh, ..Default::default() });
         self.cleanup_overlays();
         for o in self.overlays.clone() {
             let t = sf.render(&o.text, true, o.color);

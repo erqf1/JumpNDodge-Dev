@@ -18,7 +18,7 @@ thread_local! {
     static TEX: RefCell<HashMap<String, Option<(Surface, f64, f64)>>> = RefCell::new(HashMap::new());
 }
 /// Legacy-Grafik an/aus (wird jedes Bild aus den Einstellungen gesetzt)
-pub fn set_legacy(v: bool) { LEGACY.with(|c| c.set(v)); }
+pub fn set_legacy(v: bool) { LEGACY.with(|c| c.set(v)); crate::pg::surface::set_step_corners(!v); }
 pub fn legacy() -> bool { LEGACY.with(|c| c.get()) }
 /// Laufende Zeit in Sekunden für Animationen in Texturen (jedes Bild gesetzt)
 pub fn set_anim_time(t: f64) { ANIM_T.with(|c| c.set(t)); }

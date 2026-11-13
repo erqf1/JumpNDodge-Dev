@@ -255,6 +255,13 @@ impl G {
     }
 
     pub fn open_online_hub(&mut self) {
+        if self.modded() {
+            // Mit aktiven Mods kein Online (Ranglisten und Multiplayer bleiben fair)
+            self.play_sound(Snd::ClickBack);
+            let t = self.tde("Mit aktiven Mods ist Online gesperrt - Mods unter Mehr > Mods ausschalten.", "Online is locked while mods are active - turn them off under More > Mods.");
+            self.push_overlay(&t, (230, 170, 90), 3.5, None);
+            return;
+        }
         self.play_sound(Snd::MenuClick);
         self.in_menu = false;
         if self._gate_blocks_online_access() { return; }

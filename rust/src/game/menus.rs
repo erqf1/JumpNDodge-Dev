@@ -239,7 +239,7 @@ impl G {
         if self.sound_enabled && self.menu_music_path.is_some() && !self.mixer.music_get_busy() { self.play_menu_music(); }
         let bx = self.WIDTH / 2 - 180;
         for (i, b) in self.buttons.iter_mut().enumerate() { b.rect.x = bx; b.rect.y = 155 + i as i32 * 56; }
-        let has_mods = true;
+        let has_mods = self.mods_installed();
         let has_online = self.WIDTH >= 500;
         let nb = self.buttons.len();
         let nav_total = nb + has_mods as usize + 2 + has_online as usize;
@@ -287,7 +287,14 @@ impl G {
             let or = Rect::new(w - 235, h - 118, 220, 56);
             let oidx = nb + has_mods as usize + 2;
             let ohov = or.collidepoint(mouse_pos) || self.nav_is_focused("menu", oidx, nav_total);
-            self.draw_ui_button(&bs, or, &self.get_text("online_hub_title"), BtnOpts { font: Some(self.menu_font.clone()), hovered: ohov, radius: Some(10), ..Default::default() });
+            if self.modded() {
+                // Mit aktiven Mods kein Online: Knopf ausgegraut mit Hinweis
+                let dark = self.is_dark_mode();
+                let (bg, fg) = if dark { ((48, 46, 62), (130, 126, 150)) } else { ((214, 212, 226), (120, 116, 140)) };
+                self.draw_ui_button(&bs, or, &self.tde("Online (Mods an)", "Online (mods on)"), BtnOpts { font: Some(self.small_font.clone()), hovered: false, base_color: Some(bg), hover_color: Some(bg), text_color: Some(fg), radius: Some(10), ..Default::default() });
+            } else {
+                self.draw_ui_button(&bs, or, &self.get_text("online_hub_title"), BtnOpts { font: Some(self.menu_font.clone()), hovered: ohov, radius: Some(10), ..Default::default() });
+            }
             let total = self._notif_pending_friend_requests + self._notif_pending_clan_requests + self._notif_unread_conversations;
             if total > 0 { self._draw_notification_badge(&bs, or.right(), or.top(), total); }
         }
@@ -343,16 +350,16 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
+        // Hintergrund etwas zurücknehmen (dunkel: abdunkeln, hell: aufhellen - sonst grauer Schleier)
         let dim = Surface::new_alpha(w, h);
-        dim.fill((0, 0, 0, 150));
+        dim.fill(if dark { (0, 0, 0, 150) } else { (244, 246, 255, 150) });
         bs.blit(&dim, (0, 0));
-        let ts = self.menu_font.render(&self.get_text("choose_difficulty_title"), true, self.get_text_color());
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 30));
+        self.draw_screen_title(&bs, &self.get_text("choose_difficulty_title"), 24);
 
         let (sbx, sbw) = (24, 180);
         let main_x = sbx + sbw + 24;
         let main_w = 300.max(w - main_x - 24);
-        let main_y0 = 118;
+        let main_y0 = 92;
         let klassik_accent = (180, 140, 0);
         let tp_accent = (140, 60, 200);
         let custom_accent = (0, 160, 170);
@@ -423,7 +430,7 @@ impl G {
             }
         }
 
-        let (card_w, card_x, cards_y0, card_h, gap) = (main_w, main_x, main_y0, 50, 56);
+        let (card_w, card_x, cards_y0, card_h, gap) = (main_w, main_x, main_y0, 48, 54);
         if mode == "custom" {
             let speed = self.settings.gf("custom_speed", 10.0);
             let mind = self.settings.gf("custom_min_delay", 900.0);
@@ -512,13 +519,10 @@ impl G {
                     draw::rect(&bs, if dark { (130, 130, 130) } else { (180, 180, 180) }, crr, 1, 12);
                 }
                 draw::rect(&bs, col, Rect::new(card_x, cy, 7, card_h), 0, 4);
-                let sel_tc = if !bright { (210, 210, 210) } else { col };
+                let sel_tc = if !bright { (210, 210, 210) } else { super::ui_c::readable(col, dark) };
                 let nc = if sel { sel_tc } else { self.get_text_color() };
                 let ns = mf.render(&self.get_difficulty_name(diff), true, nc);
                 bs.blit(&ns, (card_x + 18, cy + card_h / 2 - ns.get_height() / 2));
-                let dc = if hov || sel { self.get_text_color() } else if dark { (150, 150, 150) } else { (110, 110, 110) };
-                let ds = sf.render(&self.get_diff_short(diff), true, dc);
-                bs.blit(&ds, (card_x + 175, cy + card_h / 2 - ds.get_height() / 2));
                 let badge = if sel {
                     sf.render(&self.get_text("selected_badge"), true, if dark { sel_tc } else { (0, 110, 190) })
                 } else if self.klassik_mode {
@@ -528,6 +532,11 @@ impl G {
                 } else {
                     sf.render(&self.get_text("no_coins_badge"), true, (120, 120, 120))
                 };
+                let dc = if hov || sel { self.get_text_color() } else if dark { (150, 150, 150) } else { (110, 110, 110) };
+                let desc_x = card_x + 175;
+                let desc_w = (crr.right() - badge.get_width() - 26) - desc_x;
+                let ds = sf.render_fit(&self.get_diff_short(diff), desc_w, dc);
+                bs.blit(&ds, (desc_x, cy + card_h / 2 - ds.get_height() / 2));
                 bs.blit(&badge, (crr.right() - badge.get_width() - 14, cy + card_h / 2 - badge.get_height() / 2));
             }
             if let Some((hd, anchor)) = hovered {
@@ -541,16 +550,10 @@ impl G {
         let back_r = Rect::new(w / 2 - 208, btn_y, 200, btn_h);
         let sfoc = self.nav_is_focused("difficulty_select", start_idx, total);
         let shov = start_r.collidepoint(mouse_pos) || sfoc;
-        draw::rect(&bs, if shov { (0, 140, 60) } else { (0, 110, 50) }, start_r, 0, 10);
-        draw::rect(&bs, if sfoc { (255, 255, 255) } else { ui_glow_pulse((0, 200, 80), 3.0, 0.65, None) }, start_r, 2, 10);
-        let sl = mf.render(&self.get_text("start"), true, (255, 255, 255));
-        bs.blit(&sl, (start_r.centerx() - sl.get_width() / 2, start_r.centery() - sl.get_height() / 2));
+        self.draw_ui_button(&bs, start_r, &self.get_text("start"), BtnOpts { font: Some(mf.clone()), hovered: shov, base_color: Some((0, 120, 60)), hover_color: Some((0, 150, 75)), text_color: Some((255, 255, 255)), border_color: Some((60, 220, 120)), hover_border_color: Some((120, 255, 170)), ..Default::default() });
         let bfoc = self.nav_is_focused("difficulty_select", back_idx, total);
         let bhov = back_r.collidepoint(mouse_pos) || bfoc;
-        draw::rect(&bs, if bhov { self.get_button_hover_color() } else { self.get_button_color() }, back_r, 0, 10);
-        draw::rect(&bs, if bfoc { (255, 255, 255) } else { (160, 160, 160) }, back_r, 2, 10);
-        let bl = mf.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bl, (back_r.centerx() - bl.get_width() / 2, back_r.centery() - bl.get_height() / 2));
+        self.draw_ui_button(&bs, back_r, &self.get_text("back"), BtnOpts { font: Some(mf.clone()), hovered: bhov, ..Default::default() });
         self.flip();
     }
 }

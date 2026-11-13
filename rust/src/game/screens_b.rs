@@ -267,15 +267,12 @@ impl G {
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
         let ov = Surface::new_alpha(w, h);
-        ov.fill((0, 0, 0, 120));
+        ov.fill(if dark { (0, 0, 0, 120) } else { (244, 246, 255, 150) });
         bs.blit(&ov, (0, 0));
-        let tt = self.get_text("controls_title");
-        let ts = self.font.render(&tt, true, (255, 255, 255));
-        bs.blit(&self.font.render(&tt, true, (80, 80, 80)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &self.get_text("controls_title"), 18);
         let sf = self.small_font.clone();
         let mf = self.menu_font.clone();
-        let hint = sf.render(&self.get_text("controls_hint_legend"), true, (180, 180, 200));
+        let hint = sf.render_fit(&self.get_text("controls_hint_legend"), w - 40, if dark { (180, 180, 200) } else { (90, 88, 120) });
         bs.blit(&hint, (w / 2 - hint.get_width() / 2, 72));
         let tab_labels = [self.get_text("controls_tab_standard"), self.get_text("controls_tab_2p"), self.get_text("controls_tab_menu")];
         let (tw, th, tg) = (160, 34, 8);
@@ -413,12 +410,8 @@ impl G {
         let back = Rect::new(w / 2 + 8, by, 214, 44);
         for (bi, (r, label, accent, small)) in [(reset, self.get_text("reset_defaults"), (180, 120, 0), true), (back, self.get_text("back"), (70, 120, 200), false)].iter().enumerate() {
             let hv = r.collidepoint(mp) || self.nav_is_focused("controls_menu", actions.len() + bi, actions.len() + 2);
-            let bg = if hv && bi == 0 { (80, 60, 10) } else if hv && bi == 1 { (40, 70, 140) } else if dark { (50, 52, 68) } else { (195, 198, 215) };
-            draw::rect(&bs, bg, *r, 0, 8);
-            draw::rect(&bs, *accent, *r, 2, 8);
-            let f = if *small { &sf } else { &mf };
-            let ls = f.render(label, true, if dark || hv { (255, 255, 255) } else { (20, 20, 30) });
-            bs.blit(&ls, (r.centerx() - ls.get_width() / 2, r.centery() - ls.get_height() / 2));
+            let f = if *small { sf.clone() } else { mf.clone() };
+            self.draw_ui_button(&bs, *r, label, BtnOpts { font: Some(f), hovered: hv, border_color: Some(*accent), hover_border_color: Some(*accent), ..Default::default() });
         }
         self.flip();
         (key_rects, add_rects, reset, back, tab_rects)
@@ -438,118 +431,7 @@ impl G {
         bs.blit(&ft, (w / 2 - ft.get_width() / 2, h - 25));
     }
 
-    pub fn draw_settings_menu(&mut self) {
-        let mp = self.get_mouse_pos_logical();
-        self.fill_bg(true);
-        let bs = self.base_surface.clone();
-        let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("settings"), true, self.get_text_color());
-        bs.blit(&self.font.render(&self.get_text("settings"), true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 2, 62));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
-        self.draw_coin_display(&bs);
-        let sf = self.small_font.clone();
-        let mf = self.menu_font.clone();
-        let gs = self.settings.gf("gui_scale", 1.0).clamp(0.5, 2.0);
-        let (scx, sy, sw) = (w / 2, 125, 220);
-        let track = Rect::new(scx - sw / 2, sy - 4, sw, 8);
-        draw::rect(&bs, self.get_panel_color(), track, 0, 4);
-        draw::rect(&bs, (150, 180, 220), track, 2, 4);
-        let hx = (track.x as f64 + (gs - 0.5) / 1.5 * sw as f64) as i32;
-        let mx = (track.x as f64 + sw as f64 / 3.0) as i32;
-        draw::circle(&bs, (100, 200, 120), (mx, sy), 4, 0);
-        let rt = sf.render(&self.get_text("recommended_label"), true, (100, 200, 120));
-        bs.blit(&rt, (mx - rt.get_width() / 2, sy + 13));
-        draw::circle(&bs, (80, 140, 220), (hx, sy), 10, 0);
-        draw::circle(&bs, (200, 220, 255), (hx, sy), 10, 2);
-        let lbl = mf.render(&self.get_text("gui_size_label"), true, self.get_text_color());
-        bs.blit(&lbl, (scx - sw / 2 - lbl.get_width() - 10, sy - lbl.get_height() / 2));
-        let vt = mf.render(&format!("{}%", (gs * 100.0) as i64), true, self.get_text_color());
-        bs.blit(&vt, (scx + sw / 2 + 10, sy - vt.get_height() / 2));
-        let toggles = self.settings_bg_toggles();
-        let tx0 = w / 2 - (5 * 80 + 4 * 8) / 2;
-        let ty = 158;
-        let nav_total = toggles.len() + 6;
-        let bl = mf.render(&self.get_text("background_label"), true, self.get_text_color());
-        bs.blit(&bl, (tx0 - bl.get_width() - 10, ty - bl.get_height() / 2 + 13));
-        for (ti, (k, l)) in toggles.iter().enumerate() {
-            let active = self.settings.gb(k, *k != "mono_bg");
-            let tr = Rect::new(tx0 + ti as i32 * 88, ty, 80, 26);
-            let mut bc = if active { (100, 200, 120) } else { (160, 160, 160) };
-            if self.nav_is_focused("settings_menu", ti, nav_total) { bc = (255, 255, 255); }
-            draw::rect(&bs, if active { (70, 160, 90) } else { self.get_button_color() }, tr, 0, 8);
-            draw::rect(&bs, bc, tr, 2, 8);
-            let ts = sf.render(l, true, if active { (255, 255, 255) } else { self.get_text_color() });
-            bs.blit(&ts, (tr.centerx() - ts.get_width() / 2, tr.centery() - ts.get_height() / 2));
-        }
-        let dmt = if self.is_dark_mode() { self.get_text("light_mode") } else { self.get_text("dark_mode") };
-        let texts = [self.get_text("language"), dmt, self.get_text("sound"), self.get_text("controls_menu_btn"), self.get_text("more"), self.get_text("back")];
-        let dmc = if self.is_dark_mode() { (0, 150, 0) } else { (150, 100, 200) };
-        let colors = [(100, 200, 100), dmc, (100, 150, 200), (80, 180, 200), (200, 150, 80), (150, 150, 150)];
-        for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(w / 2 - 180, 193 + i as i32 * 60, 360, 48);
-            let hv = r.collidepoint(mp) || self.nav_is_focused("settings_menu", toggles.len() + i, nav_total);
-            self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(mf.clone()), hovered: hv, border_color: Some(*c), hover_border_color: Some(*c), hover_border_width: Some(3), ..Default::default() });
-        }
-        if !self.last_export_message.is_empty() {
-            let eb = Rect::new(50, h - 80, w - 100, 30);
-            draw::rect(&bs, self.get_panel_color(), eb, 0, 8);
-            draw::rect(&bs, (180, 180, 180), eb, 1, 8);
-            bs.blit(&sf.render(&self.last_export_message, true, self.get_text_color()), (eb.x + 10, eb.y + 5));
-        }
-        self.cleanup_overlays();
-        for o in self.overlays.clone() {
-            let t = sf.render(&o.text, true, o.color);
-            bs.blit(&t, ((w - t.get_width()) / 2, 100));
-        }
-        self.draw_achievement_popups(&bs);
-        self.draw_footer(&bs, &self.get_text("back_to_main"));
-        self.flip();
-    }
 
-    pub fn draw_settings_more_menu(&mut self) -> Vec<Rect> {
-        let mp = self.get_mouse_pos_logical();
-        self.fill_bg(true);
-        let bs = self.base_surface.clone();
-        let w = self.WIDTH;
-        let t = self.font.render("Mehr", true, self.get_text_color());
-        bs.blit(&self.font.render("Mehr", true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 2, 62));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
-        let (on, off) = (self.tde("AN", "ON"), self.tde("AUS", "OFF"));
-        let on_off = |b: bool| if b { on.clone() } else { off.clone() };
-        let fs = self.settings.gb("fullscreen", false);
-        let lim = self.settings.gi("fps_limit", 0);
-        let fps_txt = if lim > 0 { format!("{} FPS", lim) } else { format!("Monitor ({} Hz)", self.target_fps()) };
-        let fp = self.settings.gb("pause_on_focus_loss", true);
-        let fxo = self.settings.gb("effects", true);
-        let gho = self.settings.gb("ghost", true);
-        let texts = [
-            format!("{}: {}", self.tde("Vollbild (F11)", "Fullscreen (F11)"), on_off(fs)),
-            format!("FPS: {}", fps_txt),
-            format!("{}: {}", self.tde("Auto-Pause", "Auto pause"), on_off(fp)),
-            format!("{}: {}", self.tde("Effekte", "Effects"), on_off(fxo)),
-            format!("{}: {}", self.tde("Rekord-Geist", "Best-run ghost"), on_off(gho)),
-            format!("{}: {}", self.tde("Legacy-Grafik", "Legacy graphics"), on_off(self.settings.gb("legacy_art", false))),
-            format!("{} (v{})", self.tde("Nach Updates suchen", "Check for updates"), env!("CARGO_PKG_VERSION")),
-            "Experimental".to_string(), self.get_text("export_language"), self.get_text("back")];
-        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (110, 190, 150), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
-        let mut rects = vec![];
-        for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(w / 2 - 180, 112 + i as i32 * 44, 360, 39);
-            rects.push(r);
-            let hv = r.collidepoint(mp) || self.nav_is_focused("settings_more_menu", i, texts.len());
-            self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, border_color: Some(*c), hover_border_color: Some((200, 220, 255)), hover_border_width: Some(3), ..Default::default() });
-        }
-        // Meldungen (z.B. Ergebnis der Update-Suche)
-        self.cleanup_overlays();
-        let mut y = 8;
-        for o in self.overlays.clone() {
-            let t = self.small_font.render(&o.text, true, o.color);
-            bs.blit(&t, ((w - t.get_width()) / 2, y));
-            y += t.get_height() + 4;
-        }
-        self.flip();
-        rects
-    }
 
     pub fn draw_experimental_menu(&mut self) {
         let mp = self.get_mouse_pos_logical();
@@ -577,61 +459,72 @@ impl G {
         let mp = self.get_mouse_pos_logical();
         self.fill_bg(true);
         let bs = self.base_surface.clone();
-        let w = self.WIDTH;
-        let t = self.font.render(&self.get_text("sound"), true, self.get_text_color());
-        bs.blit(&self.font.render(&self.get_text("sound"), true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 2, 62));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
-        let (sx, sy, gap) = (w / 2 - 180, 180, 64);
-        let et = format!("{}: {}", self.get_text("sound_enabled"), if self.sound_enabled { self.get_text("on") } else { self.get_text("off") });
-        let toggle = Rect::new(sx, sy, 360, 48);
-        let back = Rect::new(sx, sy + gap, 360, 48);
+        let (w, h) = (self.WIDTH, self.HEIGHT);
+        let dark = self.is_dark_mode();
+        self.draw_screen_title(&bs, &self.get_text("sound"), 26);
         let nav_total = 2 + 7 + 7 + self.INGAME_MUSIC_TRACKS.len();
         let mf = self.menu_font.clone();
         let sf = self.small_font.clone();
+        let rw = 520.min(w - 40);
+        let rx = w / 2 - rw / 2;
+        // Ton an/aus als erste Zeile
+        let et = format!("{}: {}", self.get_text("sound_enabled"), if self.sound_enabled { self.get_text("on") } else { self.get_text("off") });
+        let toggle = Rect::new(rx, 82, rw, 42);
         let hv = toggle.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 0, nav_total);
-        self.draw_ui_button(&bs, toggle, &et, BtnOpts { font: Some(mf.clone()), hovered: hv, ..Default::default() });
+        self.draw_ui_button(&bs, toggle, &et, BtnOpts { font: Some(mf.clone()), hovered: hv, border_color: Some(if self.sound_enabled { (90, 190, 140) } else { (160, 160, 170) }), ..Default::default() });
+        let back = Rect::new(w / 2 - 120, h - 58, 240, 46);
         let hv = back.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 1, nav_total);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(mf.clone()), hovered: hv, ..Default::default() });
         let mut minus = vec![];
         let mut plus = vec![];
         let mut tracks = vec![];
-        let mut y = sy + 2 * gap;
+        let mut y = 136;
         for (vi, (label, key)) in self.sound_volume_rows().into_iter().enumerate() {
-            bs.blit(&sf.render(&format!("{}:", label), true, self.get_text_color()), (sx, y));
-            let mr = Rect::new(sx + 150, y, 40, 30);
-            let hv = mr.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 2 + vi, nav_total);
-            draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, mr, 0, 8);
-            let m = mf.render("-", true, self.get_text_color());
-            bs.blit(&m, (mr.centerx() - m.get_width() / 2, mr.centery() - m.get_height() / 2));
-            minus.push((mr, key, -0.1));
-            bs.blit(&sf.render(&format!("{:.1}", self.settings.gf(key, 0.8)), true, self.get_text_color()), (sx + 200, y + 5));
-            let pr = Rect::new(sx + 250, y, 40, 30);
-            let hv = pr.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 9 + vi, nav_total);
-            draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, pr, 0, 8);
-            let p = mf.render("+", true, self.get_text_color());
-            bs.blit(&p, (pr.centerx() - p.get_width() / 2, pr.centery() - p.get_height() / 2));
-            plus.push((pr, key, 0.1));
-            if key == "ingame_music_volume" {
-                let chosen = self.settings.gs("ingame_music_track", "standard");
-                let mut tx = sx + 300;
-                for (ti, (tk, tl, _)) in self.INGAME_MUSIC_TRACKS.clone().iter().enumerate() {
-                    let tr = Rect::new(tx, y, 72, 30);
-                    let sel = *tk == chosen;
-                    let prev = self.is_previewing_track(tk);
-                    let hv = tr.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 16 + ti, nav_total);
-                    let (bg, bd) = if prev { ((220, 160, 60), (255, 200, 100)) } else if sel { ((70, 160, 90), (100, 200, 120)) }
-                        else { (if hv { self.get_button_hover_color() } else { self.get_button_color() }, (180, 180, 180)) };
-                    draw::rect(&bs, bg, tr, 0, 8);
-                    draw::rect(&bs, bd, tr, 2, 8);
-                    let ts = sf.render(tl, true, if sel || prev { (255, 255, 255) } else { self.get_text_color() });
-                    bs.blit(&ts, (tr.centerx() - ts.get_width() / 2, tr.centery() - ts.get_height() / 2));
-                    tracks.push((tr, tk.clone()));
-                    tx += 72 + 6;
-                }
+            let row = Rect::new(rx, y, rw, 34);
+            draw::rect(&bs, self.get_panel_color(), row, 0, 8);
+            draw::rect(&bs, if dark { (70, 66, 96) } else { (200, 196, 225) }, row, 2, 8);
+            let lt = sf.render_fit(&label, 200, self.get_text_color());
+            bs.blit(&lt, (row.x + 14, row.centery() - lt.get_height() / 2));
+            let mr = Rect::new(row.right() - 230, y + 4, 30, 26);
+            let pr = Rect::new(row.right() - 40, y + 4, 30, 26);
+            for (r, sym, idx) in [(mr, "-", 2 + vi), (pr, "+", 9 + vi)] {
+                let hv = r.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", idx, nav_total);
+                draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, r, 0, 6);
+                let t = mf.render(sym, true, self.get_text_color());
+                bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
             }
+            minus.push((mr, key, -0.1));
+            plus.push((pr, key, 0.1));
+            // Balken statt nackter Zahl
+            let v = self.settings.gf(key, 0.8).clamp(0.0, 1.0);
+            let bar = Rect::new(mr.right() + 10, y + 12, pr.x - mr.right() - 20, 10);
+            draw::rect(&bs, if dark { (30, 28, 44) } else { (220, 218, 236) }, bar, 0, 4);
+            if v > 0.0 { draw::rect(&bs, (130, 110, 230), Rect::new(bar.x, bar.y, ((bar.w as f64) * v) as i32, bar.h), 0, 4); }
+            let vt = sf.render(&format!("{}%", (v * 100.0).round() as i64), true, self.get_text_color());
+            bs.blit(&vt, (mr.x - vt.get_width() - 10, row.centery() - vt.get_height() / 2));
             y += 40;
         }
-        self.draw_footer(&bs, "ESC/M: Back to Settings");
+        // Musik im Spiel: eigene Reihe
+        let chosen = self.settings.gs("ingame_music_track", "standard");
+        let lt = sf.render_fit(&self.get_text("ingame_music_label"), rw, self.get_text_color());
+        bs.blit(&lt, (rx, y + 4));
+        let list = self.INGAME_MUSIC_TRACKS.clone();
+        let n = list.len().max(1) as i32;
+        let tw = ((rw - (n - 1) * 6) / n).min(120);
+        let mut tx = rx;
+        for (ti, (tk, tl, _)) in list.iter().enumerate() {
+            let tr = Rect::new(tx, y + 26, tw, 32);
+            let sel = *tk == chosen;
+            let prev = self.is_previewing_track(tk);
+            let hv = tr.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 16 + ti, nav_total);
+            let base = if prev { (200, 140, 40) } else if sel { (60, 150, 90) } else if hv { self.get_button_hover_color() } else { self.get_button_color() };
+            draw::rect(&bs, base, tr, 0, 6);
+            let tc = if sel || prev { (255, 255, 255) } else { self.get_text_color() };
+            let ts = sf.render_fit(tl, tw - 10, tc);
+            bs.blit(&ts, (tr.centerx() - ts.get_width() / 2, tr.centery() - ts.get_height() / 2));
+            tracks.push((tr, tk.clone()));
+            tx += tw + 6;
+        }
         self.flip();
         (toggle, back, minus, plus, tracks)
     }

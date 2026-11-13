@@ -240,7 +240,7 @@ impl G {
     }
 
     pub fn switch_stat_tab(&mut self) {
-        let vis = if self._MODDED_DATA_FILE.is_file() { 4 } else { 3 };
+        let vis = if self.mods_installed() { 4 } else { 3 };
         self.current_stat_tab = (self.current_stat_tab + 1) % vis;
     }
     pub fn adjust_stat_scroll(&mut self, delta: i32) { self.stat_scroll = 0.max(self.stat_scroll + delta); }

@@ -61,6 +61,9 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("unlock_all_powers", "Alle Powers freischalten"),
     ("unlock_all_cosmetics", "Alle Kosmetik-Items freischalten"),
     ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
+    ("theme", "Hell/Dunkel setzen, z.B.: run theme light / run theme dark"),
+    ("settings_more", "Einstellungen > Mehr öffnen"),
+    ("settings_sound", "Einstellungen > Sound öffnen"),
     ("legacy_art", "Legacy-Grafik (Python-Original) an/aus, z.B.: run legacy_art / run legacy_art off"),
     ("give_power", "Eine bestimmte Power geben, z.B.: run give_power Double Jump"),
     ("set_difficulty", "Schwierigkeit setzen, z.B.: run set_difficulty Hardcore"),
@@ -88,6 +91,7 @@ const NAV_CMDS: &[(&str, &str)] = &[
     ("daily_rewards", "in_daily_rewards"), ("admin_login", "in_admin_login"), ("admin_panel", "in_admin_panel"),
     ("mods", "in_mods_menu"), ("tutorial", "in_tutorial"), ("achievements", "in_achievements_screen"),
     ("language_select", "in_language_select"), ("multiplayer", "in_multiplayer"),
+    ("settings_more", "in_settings_more_menu"), ("settings_sound", "in_settings_sound_menu"),
 ];
 
 pub fn now_hms_ms() -> String { chrono::Local::now().format("%H:%M:%S%.3f").to_string() }
@@ -230,6 +234,12 @@ impl G {
                 self.powers_state.insert("owned".into(), json!(owned));
                 self.save_section("powers", None);
                 println!("[DEV] unlock_all_powers: {} neu freigeschaltet ({} gesamt)", added.len(), owned.len());
+            }
+            "theme" => {
+                let dark = args.first().map(|a| *a != "light").unwrap_or(true);
+                self.settings.insert("dark_mode".into(), json!(dark));
+                self.save_section("settings", None);
+                println!("[DEV] theme {}", if dark { "dark" } else { "light" });
             }
             "legacy_art" => {
                 let v = args.first().map(|a| *a != "off").unwrap_or(true);

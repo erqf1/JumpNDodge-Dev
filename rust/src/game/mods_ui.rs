@@ -8,6 +8,10 @@ use serde_json::{json, Value};
 
 impl G {
     pub fn mods_dir(&self) -> std::path::PathBuf { self.BASE_DIR.join("mods") }
+    /// Liegt mindestens ein Mod im Mods-Ordner? (Knopf im Hauptmenü, Modded-Statistik)
+    pub fn mods_installed(&self) -> bool { !self.mods.list.is_empty() }
+    /// Ist mindestens ein Mod aktiv? Dann ist Online gesperrt.
+    pub fn modded(&self) -> bool { self.mods.any_active() }
 
     pub fn reload_mods(&mut self) {
         let enabled = self.settings.gobj("lua_mods_enabled");

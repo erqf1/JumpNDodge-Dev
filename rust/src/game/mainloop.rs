@@ -401,7 +401,7 @@ impl G {
                 continue;
             } else if self.in_menu {
                 if self.current_game_mode == "mod" { self.current_game_mode = "standard".into(); self._mod_mode = None; }
-                let has_mods = true; // Rust Edition: Lua-Mods (Knopf unten links)
+                let has_mods = self.mods_installed(); // Knopf unten links nur mit installierten Mods (sonst unter Mehr)
                 let has_online = self.WIDTH >= 500;
                 let daily = Rect::new(self.WIDTH - 200, 15, 180, 40);
                 let mods_btn = Rect::new(20, self.HEIGHT - 56, 130, 36);
@@ -471,8 +471,8 @@ impl G {
                 }
                 { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_more_menu {
-                let (sx, sy, gap) = (self.WIDTH / 2 - 180, 140, 58);
-                let actions: Vec<&str> = if self._check_admin_keyfile() { vec!["admin", "classic", "help", "redeem_code", "replays", "back"] } else { vec!["classic", "help", "redeem_code", "replays", "back"] };
+                let (sx, sy, gap) = (self.WIDTH / 2 - 180, 128, 54);
+                let actions: Vec<&str> = if self._check_admin_keyfile() { vec!["admin", "classic", "help", "redeem_code", "replays", "mods", "back"] } else { vec!["classic", "help", "redeem_code", "replays", "mods", "back"] };
                 let rects: Vec<Rect> = (0..actions.len()).map(|i| Rect::new(sx, sy + i as i32 * gap, 360, 48)).collect();
                 for ev in self.event_get() {
                     let mut act: Option<&str> = None;
@@ -499,6 +499,7 @@ impl G {
                             "help" => { self.in_more_menu = false; self.in_tutorial = true; self.tutorial_step = 0; }
                             "redeem_code" => self.open_redeem_code_from_more(),
                             "replays" => self.run_replays_menu(),
+                            "mods" => { self.in_more_menu = false; self.in_mods_menu = true; }
                             _ => self.back_to_main_from_more(),
                         }
                     }
@@ -523,70 +524,7 @@ impl G {
                 { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_settings_more_menu {
                 if self.update_dialog_if_due() { continue; }
-                let rects = self.draw_settings_more_menu();
-                let acts = ["fullscreen", "fps", "focus_pause", "effects", "ghost", "legacy_art", "update", "experimental", "export_lang", "back"];
-                for ev in self.event_get() {
-                    let mut a: Option<&str> = None;
-                    match ev {
-                        Event::Quit => self.quit(),
-                        Event::KeyDown { key, .. } => {
-                            if key == K_m || self.is_back_key(key) { a = Some("back"); }
-                            else if let Some(dd) = self.nav_direction(key) {
-                                let cur = self.nav_get_focus("settings_more_menu", rects.len());
-                                self.nav_set_focus("settings_more_menu", nav_move(&rects, cur, dd));
-                            } else if self.is_nav_confirm(key) {
-                                if let Some(i) = self.nav_get_focus("settings_more_menu", rects.len()).filter(|i| *i < acts.len()) { a = Some(acts[i]); }
-                            }
-                        }
-                        Event::MouseButtonDown { button: 1, .. } => {
-                            let mp = self.get_mouse_pos_logical();
-                            for i in 0..acts.len() { if rects.len() > i && rects[i].collidepoint(mp) { a = Some(acts[i]); break; } }
-                        }
-                        _ => {}
-                    }
-                    match a {
-                        Some("fullscreen") => self.toggle_fullscreen(),
-                        Some("update") => { self.play_sound(Snd::Click); self.start_update_check(true); }
-                        Some("fps") => {
-                            // Monitor -> 60 -> 120 -> 144 -> 165 -> 240 -> unbegrenzt -> Monitor
-                            const STEPS: [i64; 7] = [0, 60, 120, 144, 165, 240, 1000];
-                            let cur = self.settings.gi("fps_limit", 0);
-                            let i = STEPS.iter().position(|v| *v == cur).unwrap_or(0);
-                            self.settings.insert("fps_limit".into(), json!(STEPS[(i + 1) % STEPS.len()]));
-                            self.save_section("settings", None);
-                            self.play_sound(Snd::Click);
-                        }
-                        Some("ghost") => {
-                            let v = !self.settings.gb("ghost", true);
-                            self.settings.insert("ghost".into(), json!(v));
-                            self.save_section("settings", None);
-                            self.play_sound(Snd::Click);
-                        }
-                        Some("legacy_art") => {
-                            let v = !self.settings.gb("legacy_art", false);
-                            self.settings.insert("legacy_art".into(), json!(v));
-                            self.save_section("settings", None);
-                            super::art::set_legacy(v);
-                            self.play_sound(Snd::Click);
-                        }
-                        Some("effects") => {
-                            let v = !self.settings.gb("effects", true);
-                            self.settings.insert("effects".into(), json!(v));
-                            self.save_section("settings", None);
-                            self.play_sound(Snd::Click);
-                        }
-                        Some("focus_pause") => {
-                            let v = !self.settings.gb("pause_on_focus_loss", true);
-                            self.settings.insert("pause_on_focus_loss".into(), json!(v));
-                            self.save_section("settings", None);
-                            self.play_sound(Snd::Click);
-                        }
-                        Some("experimental") => { self.play_sound(Snd::MenuClick); self.in_settings_more_menu = false; self.in_experimental_menu = true; }
-                        Some("export_lang") => { self.play_sound(Snd::Click); self.export_current_language(); }
-                        Some("back") => { self.play_sound(Snd::ClickBack); self.in_settings_more_menu = false; self.in_settings_menu = true; }
-                        _ => {}
-                    }
-                }
+                self.settings_page_loop();
                 { let fps = self.target_fps(); clock.tick(fps); }
             } else if self.in_experimental_menu {
                 for ev in self.event_get() {
@@ -711,7 +649,7 @@ impl G {
         let (sbx, sbw) = (24, 180);
         let main_x = sbx + sbw + 24;
         let main_w = 300.max(self.WIDTH - main_x - 24);
-        let y0 = 118;
+        let y0 = 92; // wie draw_difficulty_select
         let custom_btn = Rect::new(sbx, y0, sbw, 56);
         let preset_y = custom_btn.bottom() + 20 + 22;
         let standard_btn = Rect::new(sbx, preset_y, sbw, 42);
@@ -729,7 +667,7 @@ impl G {
             for ti in 0..DS_TOGGLE_DEFS.len() as i32 { v.push(Rect::new(main_x + (ti % 2) * (220 + 12), ty + (ti / 2) * (34 + 10), 220, 34)); }
             v
         } else {
-            (0..DIFFICULTIES.len() as i32).map(|i| Rect::new(main_x, y0 + i * 56, main_w, 50)).collect()
+            (0..DIFFICULTIES.len() as i32).map(|i| Rect::new(main_x, y0 + i * 54, main_w, 48)).collect()
         };
         let by = self.HEIGHT - 54;
         let start_rect = Rect::new(self.WIDTH / 2 + 8, by, 200, 44);
@@ -901,67 +839,6 @@ impl G {
         }
     }
 
-    fn _settings_events(&mut self) {
-        let tw = 5 * 80 + 4 * 8;
-        let tx0 = self.WIDTH / 2 - tw / 2;
-        let mut rects: Vec<Rect> = (0..BG_TOGGLE_DEFS.len() as i32).map(|ti| Rect::new(tx0 + ti * 88, 155, 80, 26)).collect();
-        let n_toggles = rects.len();
-        let (sx, sy, gap) = (self.WIDTH / 2 - 180, 193, 60);
-        rects.extend((0..6).map(|i| Rect::new(sx, sy + i * gap, 360, 48)));
-        for ev in self.event_get() {
-            let mut idx: Option<usize> = None;
-            match &ev {
-                Event::Quit => self.quit(),
-                Event::KeyDown { key, .. } => {
-                    let key = *key;
-                    if key == K_m || self.is_back_key(key) { self.back_to_main_from_settings(); }
-                    else if let Some(dd) = self.nav_direction(key) {
-                        let cur = self.nav_get_focus("settings_menu", rects.len());
-                        self.nav_set_focus("settings_menu", nav_move(&rects, cur, dd));
-                    } else if self.is_nav_confirm(key) { idx = self.nav_get_focus("settings_menu", rects.len()); }
-                }
-                Event::MouseButtonDown { .. } => {
-                    let (mx, my) = self.get_mouse_pos_logical();
-                    let track_x = self.WIDTH / 2 - 110;
-                    let gs = self.settings.gf("gui_scale", 1.0).clamp(0.5, 2.0);
-                    let hx = (track_x as f64 + (gs - 0.5) / 1.5 * 220.0) as i32;
-                    if (mx - hx).abs() <= 14 && (my - 125).abs() <= 14 { self._gui_scale_dragging = true; }
-                    else { idx = rects.iter().position(|r| r.collidepoint((mx, my))); }
-                }
-                Event::MouseButtonUp { .. } => self._gui_scale_dragging = false,
-                Event::MouseMotion { .. } if self._gui_scale_dragging => {
-                    let (mx, _) = self.get_mouse_pos_logical();
-                    let track_x = self.WIDTH / 2 - 110;
-                    let frac = ((mx - track_x) as f64 / 220.0).clamp(0.0, 1.0);
-                    let ns: f64 = format!("{:.2}", 0.5 + frac * 1.5).parse().unwrap_or(1.0);
-                    self.settings.insert("gui_scale".into(), json!(ns));
-                    self.save_section("settings", None);
-                }
-                _ => {}
-            }
-            if let Some(i) = idx {
-                if i < n_toggles {
-                    let (k, dflt) = BG_TOGGLE_DEFS[i];
-                    let nv = !self.settings.gb(k, dflt);
-                    self.settings.insert(k.into(), json!(nv));
-                    self.save_section("settings", None);
-                    self.play_sound(Snd::Click);
-                } else {
-                    let b = i - n_toggles;
-                    self.play_sound(if b == 5 { Snd::ClickBack } else if b == 3 || b == 4 { Snd::MenuClick } else { Snd::Click });
-                    match b {
-                        0 => self.open_language_select_from_settings(),
-                        1 => self.toggle_dark_mode(),
-                        2 => self.open_settings_sound_menu(),
-                        3 => { self.in_settings_menu = false; self.in_controls_menu = true; }
-                        4 => { self.in_settings_menu = false; self.in_settings_more_menu = true; }
-                        5 => self.back_to_main_from_settings(),
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
 
     fn _controls_events(&mut self) {
         let (key_rects, add_rects, reset, back, tab_rects) = self.draw_controls_menu();
