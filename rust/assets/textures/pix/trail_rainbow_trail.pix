@@ -1,0 +1,14 @@
+# Regenbogenspur - {{hue}} setzt das Spiel
+zelle 14
+ursprung 1 1
+farbe H {{hue}}
+farbe W #ffffff
+raster
+..HHH..
+.HWWHH.
+HWHHHHH
+HHHHHHH
+HHHHHHH
+.HHHHH.
+..HHH..
+

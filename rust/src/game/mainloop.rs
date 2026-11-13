@@ -62,6 +62,8 @@ impl G {
         g.modded_best_times = obj_of(&g.load_modded_section("modded_best_times", default_highscores()));
         g.modded_stats = obj_of(&g.load_modded_section("modded_stats", json!({"total_time_played": 0, "total_rounds": 0, "total_1ups": 0, "coins": 0})));
         g.settings = obj_of(&g.load_section("settings", default_settings()));
+        super::art::init_texture_dir(&g.BASE_DIR);
+        super::art::set_legacy(g.settings.gb("legacy_art", false));
         g.powers_state = obj_of(&g.load_section("powers", json!({"owned": [], "equipped": []})));
         g.cosmetics_state = obj_of(&g.load_section("cosmetics", default_cosmetics()));
         g.sale_state = obj_of(&g.load_section("sale", json!({"date": "", "items": {}})));
@@ -522,7 +524,7 @@ impl G {
             } else if self.in_settings_more_menu {
                 if self.update_dialog_if_due() { continue; }
                 let rects = self.draw_settings_more_menu();
-                let acts = ["fullscreen", "fps", "focus_pause", "effects", "ghost", "update", "experimental", "export_lang", "back"];
+                let acts = ["fullscreen", "fps", "focus_pause", "effects", "ghost", "legacy_art", "update", "experimental", "export_lang", "back"];
                 for ev in self.event_get() {
                     let mut a: Option<&str> = None;
                     match ev {
@@ -558,6 +560,13 @@ impl G {
                             let v = !self.settings.gb("ghost", true);
                             self.settings.insert("ghost".into(), json!(v));
                             self.save_section("settings", None);
+                            self.play_sound(Snd::Click);
+                        }
+                        Some("legacy_art") => {
+                            let v = !self.settings.gb("legacy_art", false);
+                            self.settings.insert("legacy_art".into(), json!(v));
+                            self.save_section("settings", None);
+                            super::art::set_legacy(v);
                             self.play_sound(Snd::Click);
                         }
                         Some("effects") => {

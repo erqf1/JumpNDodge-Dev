@@ -12,6 +12,7 @@ pub mod mainloop;
 pub mod icon;
 pub mod loadout;
 pub mod art;
+pub mod ui_c;
 pub mod menus;
 pub mod mods;
 pub mod mods_ui;

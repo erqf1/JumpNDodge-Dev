@@ -1,0 +1,17 @@
+# Ninja-Stirnband, Bänder wehen nach links (Fahrtwind)
+zelle 4
+ursprung -32 12
+schatten 3 3 #120a1e 0.45
+farbe R #d42a44
+farbe r #ff7a8c
+farbe D #8a0f24
+farbe M #c9cdda
+farbe m #f2f4fa
+farbe K #3a3f52
+raster
+rr.......rrrrrrrrrrrrrrmmmmmmrrrrr
+RRRR....RRRRRRRRRRRRRRRMKMMKMRRRRR
+.RRRRRRRRRRRRRRRRRRRRRRMMKKMMRRRRR
+..RRR..RDDDDDDDDDDDDDDDMKMMKMDDDDD
+....RRR..........................D
+

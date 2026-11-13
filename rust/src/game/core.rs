@@ -510,6 +510,9 @@ impl G {
         }
         self.display.present(&shown);
         self._frame_counter += 1;
+        // Grafik-Stil und Animationszeit fürs nächste Bild
+        super::art::set_legacy(self.settings.gb("legacy_art", false));
+        super::art::set_anim_time(self.get_ticks() as f64 / 1000.0);
         self._screenshot_hook(&shown);
     }
 
@@ -541,9 +544,15 @@ impl G {
 
     pub fn is_dark_mode(&self) -> bool { self.settings.gb("dark_mode", true) }
     pub fn get_bg_color(&self) -> (i32, i32, i32) { if self.is_dark_mode() { DARK_BG } else { (240, 245, 255) } }
-    pub fn get_panel_color(&self) -> (i32, i32, i32) { if self.is_dark_mode() { DARK_PANEL } else { (255, 255, 255) } }
+    pub fn get_panel_color(&self) -> (i32, i32, i32) {
+        let new = !super::art::legacy();
+        if self.is_dark_mode() { if new { (42, 39, 62) } else { DARK_PANEL } } else if new { (246, 244, 255) } else { (255, 255, 255) }
+    }
     pub fn get_text_color(&self) -> (i32, i32, i32) { if self.is_dark_mode() { DARK_TEXT } else { (30, 30, 60) } }
-    pub fn get_button_color(&self) -> (i32, i32, i32) { if self.is_dark_mode() { DARK_BUTTON } else { (255, 255, 255) } }
+    pub fn get_button_color(&self) -> (i32, i32, i32) {
+        let new = !super::art::legacy();
+        if self.is_dark_mode() { if new { (60, 56, 86) } else { DARK_BUTTON } } else if new { (238, 236, 252) } else { (255, 255, 255) }
+    }
     pub fn get_button_hover_color(&self) -> (i32, i32, i32) { if self.is_dark_mode() { DARK_BUTTON_HOVER } else { (200, 220, 255) } }
 
     pub fn toggle_dark_mode(&mut self) {
@@ -577,6 +586,11 @@ impl G {
     // ---------------- UI-Helfer ----------------
     pub fn draw_card(&self, surface: &Surface, rect: Rect, radius: i32, shadow: bool, border_color: Option<(i32, i32, i32)>, border_width: i32, glow: bool, glow_color: Option<(i32, i32, i32)>) {
         let dark = self.is_dark_mode();
+        if !super::art::legacy() {
+            let bc = if glow { ui_glow_pulse(glow_color.unwrap_or((255, 195, 50)), 5.0, 0.7, None) } else { border_color.unwrap_or(if dark { (70, 90, 110) } else { (60, 80, 140) }) };
+            super::ui_c::panel(surface, rect, self.get_panel_color(), bc, border_width.max(if glow { 3 } else { 0 }), shadow, dark);
+            return;
+        }
         if shadow {
             let sr = Rect::new(rect.x + 5, rect.y + 5, rect.w, rect.h);
             let c: Color = if dark { (0, 0, 0, 80).into() } else { (170, 170, 190).into() };
@@ -598,7 +612,16 @@ impl G {
     /// draw_ui_button(surface, rect, text, font=None, hovered=False, ...)
     pub fn draw_ui_button(&self, surface: &Surface, rect: Rect, text: &str, o: BtnOpts) {
         let font = o.font.clone().unwrap_or_else(|| self.menu_font.clone());
-        let bg = if o.hovered { o.hover_color.unwrap_or(self.get_button_hover_color()) } else { o.base_color.unwrap_or(self.get_button_color()) };
+        if !super::art::legacy() {
+            let dark = self.is_dark_mode();
+            let base = o.base_color.unwrap_or(self.get_button_color());
+            let hover = o.hover_color.unwrap_or(if dark { (78, 76, 104) } else { (214, 222, 255) });
+            let accent = if o.hovered { o.hover_border_color.or(o.border_color) } else { o.border_color }.unwrap_or(if dark { (150, 130, 230) } else { (110, 90, 200) });
+            let tc = o.text_color.unwrap_or(self.get_text_color());
+            super::ui_c::button(surface, rect, text, &font, base, hover, accent, tc, o.hovered, dark);
+            return;
+        }
+        let bg =if o.hovered { o.hover_color.unwrap_or(self.get_button_hover_color()) } else { o.base_color.unwrap_or(self.get_button_color()) };
         let radius = o.radius.unwrap_or(12);
         draw::rect(surface, bg, rect, 0, radius);
         let bc = if o.hovered { o.hover_border_color.unwrap_or((150, 180, 220)) } else { o.border_color.unwrap_or((180, 180, 180)) };
@@ -951,6 +974,7 @@ pub fn py_format(fmt: &str, args: &[&str]) -> String {
 
 /// draw_cosmetic_icon(surface, key, icx, icy, big)
 pub fn draw_cosmetic_icon(surface: &Surface, key: &str, icx: i32, icy: i32, big: bool) {
+    if super::art::draw_icon_tex(surface, key, icx, icy, big) { return; }
     let (shape, ic) = match d("ITEM_ICONS").gv(key).and_then(|v| v.as_array()) {
         Some(a) => {
             let c = a[1].as_array().unwrap();

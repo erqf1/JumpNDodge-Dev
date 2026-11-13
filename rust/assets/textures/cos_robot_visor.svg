@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="104" height="24" viewBox="-1 25 104 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_robot_visor.pix - dort bearbeiten, nicht hier. -->
+  <!-- Roboter-Visier -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.4" d="M4 26h92v4h-92zM0 30h100v4h-100zM0 34h100v4h-100zM0 38h100v4h-100zM4 42h92v4h-92z"/>
+  <path fill="#3fe0ff" d="M12 34h20v4h-20zM44 34h44v4h-44z"/>
+  <path fill="#3a3f52" d="M0 30h8v4h-8zM92 30h8v4h-8zM0 34h8v4h-8zM92 34h8v4h-8zM0 38h8v4h-8zM92 38h8v4h-8z"/>
+  <path fill="#d4faff" d="M32 34h12v4h-12z"/>
+  <path fill="#14161f" d="M8 30h84v4h-84zM8 34h4v4h-4zM88 34h4v4h-4zM8 38h84v4h-84zM4 42h92v4h-92z"/>
+  <path fill="#6a7088" d="M4 26h92v4h-92z"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="104" height="24" viewBox="-1 25 104 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_sunglasses.pix - dort bearbeiten, nicht hier. -->
+  <!-- Sonnenbrille -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.4" d="M0 26h100v4h-100zM12 30h36v4h-36zM52 30h36v4h-36zM12 34h36v4h-36zM52 34h36v4h-36zM16 38h28v4h-28zM56 38h28v4h-28zM20 42h20v4h-20zM60 42h20v4h-20z"/>
+  <path fill="#3a2f6a" d="M16 30h4v4h-4zM28 30h16v4h-16zM56 30h4v4h-4zM68 30h16v4h-16zM16 34h8v4h-8zM32 34h12v4h-12zM56 34h8v4h-8zM72 34h12v4h-12zM20 38h20v4h-20zM60 38h20v4h-20z"/>
+  <path fill="#15121c" d="M0 26h100v4h-100zM12 30h4v4h-4zM44 30h4v4h-4zM52 30h4v4h-4zM84 30h4v4h-4zM12 34h4v4h-4zM44 34h4v4h-4zM52 34h4v4h-4zM84 34h4v4h-4zM16 38h4v4h-4zM40 38h4v4h-4zM56 38h4v4h-4zM80 38h4v4h-4zM20 42h20v4h-20zM60 42h20v4h-20z"/>
+  <path fill="#9a8cff" d="M20 30h8v4h-8zM60 30h8v4h-8zM24 34h8v4h-8zM64 34h8v4h-8z"/>
+</svg>

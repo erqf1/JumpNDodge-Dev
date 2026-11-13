@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="141" height="25" viewBox="-33 11 141 25" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_ninja_headband.pix - dort bearbeiten, nicht hier. -->
+  <!-- Ninja-Stirnband, Bänder wehen nach links (Fahrtwind) -->
+  <path transform="translate(3 3)" fill="#120a1e" opacity="0.45" d="M-32 12h8v4h-8zM4 12h100v4h-100zM-32 16h16v4h-16zM0 16h104v4h-104zM-28 20h132v4h-132zM-24 24h12v4h-12zM-4 24h108v4h-108zM-16 28h12v4h-12zM100 28h4v4h-4z"/>
+  <path fill="#8a0f24" d="M0 24h60v4h-60zM84 24h20v4h-20zM100 28h4v4h-4z"/>
+  <path fill="#3a3f52" d="M64 16h4v4h-4zM76 16h4v4h-4zM68 20h8v4h-8zM64 24h4v4h-4zM76 24h4v4h-4z"/>
+  <path fill="#c9cdda" d="M60 16h4v4h-4zM68 16h8v4h-8zM80 16h4v4h-4zM60 20h8v4h-8zM76 20h8v4h-8zM60 24h4v4h-4zM68 24h8v4h-8zM80 24h4v4h-4z"/>
+  <path fill="#d42a44" d="M-32 16h16v4h-16zM0 16h60v4h-60zM84 16h20v4h-20zM-28 20h88v4h-88zM84 20h20v4h-20zM-24 24h12v4h-12zM-4 24h4v4h-4zM-16 28h12v4h-12z"/>
+  <path fill="#f2f4fa" d="M60 12h24v4h-24z"/>
+  <path fill="#ff7a8c" d="M-32 12h8v4h-8zM4 12h56v4h-56zM84 12h20v4h-20z"/>
+</svg>

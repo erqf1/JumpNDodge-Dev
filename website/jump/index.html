@@ -1,124 +1,698 @@
 <!doctype html>
-<html lang="de">
+<html lang="en" data-theme="dark" data-acryl="rose">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JumpNDodge – Rust Edition</title>
-<meta name="description" content="JumpNDodge: springen, ausweichen, überleben. Allein, zu zweit an einer Tastatur oder online. Für Windows, Linux und macOS.">
-<link rel="icon" href="img/icon.png">
-<link rel="stylesheet" href="style.css">
+<title>JumpNDodge – jump, dodge, survive</title>
+<meta name="description" content="JumpNDodge: jump over blocks, dodge falling crystals, survive. Solo, two players on one keyboard or online. Free for Windows, Linux and macOS.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="img/tex/player.png">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('theme'); } catch (e) {}
+    if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<!-- Aufbau und Look wie die anderen Line-Seiten (gleiche Vorlage); nur Systemschriften, keine fremden Server außer GitHub -->
+<style>
+  :root {
+    --a1:#e2384c; --a2:#6a4fd0; --a3:#ff8a9a; --grad:linear-gradient(135deg,var(--a1),var(--a2));
+    --radius:20px; --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;
+  }
+  [data-theme="dark"] {
+    --bg:#07070d; --bg2:#0c0c15; --card:rgba(18,18,30,.72); --card-solid:#11111c; --card2:#1a1a29; --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15);
+    --text:#eef0f7; --muted:#9a9cb3; --label:#ff8a9a; --shadow:0 40px 100px -30px rgba(0,0,0,.85);
+    --orb1:rgba(226,56,76,.20); --orb2:rgba(106,79,208,.28); --orb3:rgba(63,111,224,.14); --grid:rgba(255,255,255,.085);
+  }
+  [data-theme="light"] {
+    --bg:#f7f7fb; --bg2:#ffffff; --card:rgba(255,255,255,.8); --card-solid:#ffffff; --card2:#efeff7; --line:rgba(30,30,70,.09); --line2:rgba(30,30,70,.17);
+    --text:#14142a; --muted:#5d5f78; --label:#c0243a; --shadow:0 40px 90px -35px rgba(70,40,120,.3);
+    --orb1:rgba(226,56,76,.14); --orb2:rgba(106,79,208,.16); --orb3:rgba(63,111,224,.14); --grid:rgba(30,30,70,.10);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; scroll-padding-top:80px; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 var(--sans); -webkit-font-smoothing:antialiased; overflow-x:hidden; transition:background .3s,color .3s; }
+  a { color:inherit; text-decoration:none; }
+  img { max-width:100%; display:block; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .wrap { max-width:1180px; margin:0 auto; padding:0 24px; }
+  svg.i { width:1em; height:1em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .label { display:inline-flex; align-items:center; gap:8px; font:600 12.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--label); margin:0 0 18px; }
+  .label::before { content:""; width:18px; height:2px; background:var(--grad); border-radius:2px; }
+  .grad-text { background:linear-gradient(100deg,var(--a3),var(--a1) 45%,var(--a2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+  .aurora { position:fixed; inset:0; z-index:-2; pointer-events:none; overflow:hidden; }
+  .aurora i { position:absolute; width:62vw; height:62vw; border-radius:50%; filter:blur(90px); opacity:.9; animation:drift 26s ease-in-out infinite alternate; }
+  .aurora i:nth-child(1) { background:var(--orb1); left:-18vw; top:-26vw; }
+  .aurora i:nth-child(2) { background:var(--orb2); right:-20vw; top:-12vw; animation-duration:32s; animation-delay:-8s; }
+  .aurora i:nth-child(3) { background:var(--orb3); left:25vw; top:40vh; width:40vw; height:40vw; animation-duration:38s; }
+  @keyframes drift { 0% { transform:translate(0,0) scale(1); } 50% { transform:translate(6vw,4vh) scale(1.08); } 100% { transform:translate(-4vw,8vh) scale(.95); } }
+  .gridbg { position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px); background-size:56px 56px;
+    -webkit-mask:radial-gradient(85% 75% at 50% 30%,#000 35%,transparent 85%); mask:radial-gradient(85% 75% at 50% 30%,#000 35%,transparent 85%); }
+
+  nav { position:sticky; top:0; z-index:50; backdrop-filter:blur(18px) saturate(1.5); -webkit-backdrop-filter:blur(18px) saturate(1.5); background:color-mix(in srgb,var(--bg) 70%,transparent); border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; align-items:center; gap:22px; height:68px; }
+  .brand { display:flex; align-items:center; gap:11px; font-weight:780; font-size:19px; letter-spacing:-.01em; }
+  .brand img { width:34px; height:34px; border-radius:9px; }
+  .links { margin-left:auto; display:flex; align-items:center; gap:4px; }
+  .links a.l { padding:8px 13px; border-radius:10px; color:var(--muted); font-size:15px; font-weight:500; transition:.15s; }
+  .links a.l:hover { color:var(--text); background:var(--card2); }
+  .ib, .sel { height:38px; border-radius:11px; border:1px solid var(--line2); background:var(--card-solid); color:var(--text); display:inline-grid; place-items:center; transition:.15s; }
+  .ib { width:38px; font-size:18px; } .ib:hover, .sel:hover { border-color:var(--a1); }
+  .sel { padding:0 30px 0 12px; font-size:14px; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9cb3' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
+  .theme-ic .sun { display:none; } [data-theme="light"] .theme-ic .sun { display:block; } [data-theme="light"] .theme-ic .moon { display:none; }
+
+  .hero { position:relative; padding:78px 0 40px; isolation:isolate; }
+  .hero .cols { display:grid; grid-template-columns:1fr 1.1fr; gap:54px; align-items:center; }
+  .badge { display:inline-flex; align-items:center; gap:9px; padding:6px 14px 6px 7px; border-radius:999px; border:1px solid var(--line2); background:var(--card); backdrop-filter:blur(8px); font-size:14px; color:var(--muted); }
+  .badge b { background:var(--grad); color:#fff; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:650; }
+  .badge a { color:var(--text); text-decoration:underline; text-underline-offset:3px; }
+  h1 { font-size:clamp(42px,6vw,78px); line-height:.98; letter-spacing:-.045em; margin:24px 0 22px; font-weight:850; }
+  .lead { max-width:560px; margin:0 0 34px; color:var(--muted); font-size:clamp(17px,1.7vw,20px); }
+
+  .stage { position:relative; }
+  .window { border-radius:18px; padding:8px; background:linear-gradient(160deg,var(--line2),transparent 40%),var(--card-solid); border:1px solid var(--line2);
+    box-shadow:var(--shadow),0 0 140px -40px var(--a2); transform:perspective(1400px) rotateY(-9deg) rotateX(3deg); transition:transform .6s; }
+  .window:hover { transform:perspective(1400px) rotateY(-3deg) rotateX(1deg); }
+  .window img { border-radius:11px; width:100%; }
+  .float { position:absolute; display:flex; align-items:center; gap:9px; padding:10px 14px; border-radius:14px; background:var(--card-solid); border:1px solid var(--line2);
+    box-shadow:var(--shadow); font-weight:650; font-size:14px; animation:bob 5s ease-in-out infinite; white-space:nowrap; }
+  .float .dot { width:28px; height:28px; border-radius:9px; display:grid; place-items:center; color:#fff; background:var(--grad); font:700 11px var(--mono); }
+  .float small { display:block; color:var(--muted); font-weight:500; font-size:12px; }
+  .f1 { left:-26px; top:12%; } .f2 { right:-18px; top:42%; animation-delay:-1.6s; } .f3 { left:14%; bottom:-22px; animation-delay:-3.2s; }
+  @keyframes bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-10px); } }
+
+  .dlui { display:flex; gap:12px; flex-wrap:wrap; position:relative; }
+  .dd { position:relative; }
+  .btn { display:inline-flex; align-items:center; gap:11px; height:56px; padding:0 24px; border-radius:16px; font-weight:680; font-size:17px; border:1px solid var(--line2); background:var(--card-solid); transition:transform .15s,box-shadow .2s,border-color .15s; }
+  .btn:hover { transform:translateY(-2px); border-color:var(--a1); }
+  .btn.pri { position:relative; background:var(--grad); border-color:transparent; color:#fff; box-shadow:0 14px 38px -10px var(--a1); overflow:hidden; }
+  .btn.pri::after { content:""; position:absolute; top:0; left:-60%; width:40%; height:100%; background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent); transform:skewX(-20deg); animation:shine 4.5s infinite; }
+  @keyframes shine { 0%,70% { left:-60%; } 100% { left:130%; } }
+  .btn .i { font-size:19px; } .btn .chev { font-size:15px; opacity:.85; transition:transform .2s; }
+  .btn[aria-expanded="true"] .chev { transform:rotate(180deg); }
+  .menu { position:absolute; top:calc(100% + 10px); left:0; z-index:40; min-width:300px; text-align:left; background:var(--card-solid); border:1px solid var(--line2); border-radius:18px; box-shadow:var(--shadow); padding:8px; opacity:0; transform:translateY(-6px) scale(.98); pointer-events:none; transition:.16s; }
+  .menu.open { opacity:1; transform:none; pointer-events:auto; }
+  .menu.wide { width:min(440px,92vw); }
+  .tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:4px; margin-bottom:6px; background:var(--bg2); border-radius:12px; border:1px solid var(--line); }
+  .tabs button { border:0; background:transparent; padding:9px 6px; border-radius:9px; font-weight:600; font-size:15px; color:var(--muted); transition:.15s; }
+  .tabs button:hover { color:var(--text); }
+  .tabs button.on { background:var(--card2); color:var(--text); box-shadow:0 0 0 1px var(--line2) inset; }
+  .item { display:flex; align-items:center; gap:14px; padding:12px 14px; border-radius:11px; transition:background .12s; }
+  .item:hover { background:var(--card2); }
+  .item .t { flex:1; min-width:0; }
+  .item .t b { display:block; font-size:16px; font-weight:650; line-height:1.3; }
+  .item .t small { display:block; color:var(--muted); font-size:13.5px; line-height:1.4; }
+  .item .sz { font:13px var(--mono); color:var(--muted); white-space:nowrap; }
+  .vline { margin-top:20px; color:var(--muted); font-size:15px; }
+  .vline a { color:var(--label); text-decoration:underline; text-underline-offset:3px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  .chip { font:13px var(--mono); padding:6px 13px; border-radius:999px; border:1px solid var(--line2); background:var(--card); color:var(--text); transition:.15s; }
+  .chip:hover { border-color:var(--a1); }
+
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin:90px 0 0; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line2); background:var(--line2); }
+  .stat { padding:26px 24px; background:var(--card-solid); }
+  .stat b { display:block; font-size:clamp(26px,3.2vw,38px); font-weight:820; letter-spacing:-.03em; line-height:1.1; }
+  .stat span { color:var(--muted); font-size:14.5px; }
+
+  section { padding:110px 0; position:relative; }
+  h2 { font-size:clamp(34px,4.9vw,58px); letter-spacing:-.035em; line-height:1.04; margin:0 0 16px; font-weight:840; max-width:800px; }
+  .sub { color:var(--muted); font-size:19px; max-width:640px; margin:0 0 54px; }
+  .center { text-align:center; } .center h2, .center .sub { margin-left:auto; margin-right:auto; }
+
+  .gcard { position:relative; border-radius:var(--radius); background:var(--card); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); padding:30px; overflow:hidden; transition:transform .25s; }
+  .gcard::before { content:""; position:absolute; inset:0; border-radius:inherit; padding:1px; pointer-events:none;
+    background:linear-gradient(150deg,var(--line2),transparent 40%,transparent 60%,var(--line2));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
+  .gcard:hover { transform:translateY(-3px); }
+  .gcard:hover::before { background:linear-gradient(150deg,var(--a1),transparent 45%,transparent 55%,var(--a2)); }
+  .gcard h3 { margin:0 0 6px; font-size:21px; letter-spacing:-.01em; }
+  .gcard p { margin:0; color:var(--muted); font-size:15.5px; }
+  .ic { width:46px; height:46px; border-radius:13px; display:grid; place-items:center; margin-bottom:18px; font-size:22px; color:#fff; background:var(--grad); box-shadow:0 10px 26px -10px var(--a1); }
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .steps .n { font:800 14px var(--mono); color:var(--label); letter-spacing:.1em; }
+  .steps h3 { margin:10px 0 8px; font-size:23px; }
+
+  .bento { display:grid; grid-template-columns:repeat(6,1fr); gap:16px; }
+  .c2 { grid-column:span 2; } .c3 { grid-column:span 3; } .c4 { grid-column:span 4; } .c6 { grid-column:span 6; }
+  .demo { margin-top:22px; }
+  .pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .pill { padding:6px 13px; border-radius:999px; border:1px solid var(--line2); font-size:14px; background:var(--bg2); }
+  .pill.on { background:var(--grad); color:#fff; border-color:transparent; }
+  .kbd { display:inline-grid; place-items:center; min-width:38px; height:38px; padding:0 10px; border-radius:10px; border:1px solid var(--line2); border-bottom-width:4px; background:var(--bg2); font:700 14px var(--mono); }
+  .kbds { display:flex; gap:7px; flex-wrap:wrap; }
+  .tiles { display:flex; gap:10px; flex-wrap:wrap; }
+  .tile { width:54px; height:54px; border-radius:14px; display:grid; place-items:center; color:#fff; font:700 14px var(--mono); }
+  .rows { display:grid; gap:8px; }
+  .rows div { display:flex; justify-content:space-between; gap:10px; padding:10px 14px; border-radius:11px; background:var(--bg2); border:1px solid var(--line); font-size:14.5px; }
+  .rows span { color:var(--muted); } .rows b { font-family:var(--mono); font-weight:600; }
+  .bar { height:6px; border-radius:4px; background:var(--card2); overflow:hidden; margin-top:6px; }
+  .bar i { display:block; height:100%; width:62%; background:var(--grad); animation:prog 4s ease-in-out infinite; }
+  @keyframes prog { 0% { width:0; } 80%,100% { width:100%; } }
+
+  .gallery { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-bottom:30px; }
+  .gallery button { display:inline-flex; align-items:center; gap:9px; padding:10px 17px; border-radius:999px; border:1px solid var(--line2); background:var(--card-solid); font-size:14.5px; font-weight:600; transition:.15s; }
+  .gallery button:hover { border-color:var(--a1); }
+  .gallery button.on { background:var(--grad); color:#fff; border-color:transparent; }
+  .frame { position:relative; margin:0 auto; max-width:1100px; border-radius:20px; background:var(--card-solid); border:1px solid var(--line2); box-shadow:var(--shadow),0 0 120px -40px var(--a2); overflow:hidden; }
+  .frame .tb { display:flex; gap:7px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--bg2); }
+  .frame .tb i { width:11px; height:11px; border-radius:50%; }
+  .frame .tb i:nth-child(1) { background:#ff5f57 } .frame .tb i:nth-child(2) { background:#febc2e } .frame .tb i:nth-child(3) { background:#28c840 }
+  .frame img { width:100%; height:auto; transition:opacity .25s; }
+  .caption { text-align:center; color:var(--muted); margin-top:18px; font-size:15px; }
+
+  .dlpanel { max-width:660px; margin:0 auto; padding:12px; border-radius:24px; background:var(--card-solid); border:1px solid var(--line2); box-shadow:var(--shadow); }
+  .dlpanel .item { padding:16px 18px; }
+  .dlpanel .item .dlic { width:44px; height:44px; border-radius:13px; display:grid; place-items:center; background:var(--card2); border:1px solid var(--line); font-size:20px; }
+  .cmd { display:flex; align-items:center; gap:10px; margin:0 18px 12px; padding:9px 12px; border-radius:10px; background:var(--bg2); border:1px solid var(--line); font:13px var(--mono); }
+  .cmd code { flex:1; overflow-x:auto; white-space:nowrap; }
+  .cmd button { border:0; background:transparent; color:var(--muted); padding:2px 6px; border-radius:6px; }
+  .cmd button:hover { color:var(--text); background:var(--card2); }
+  .note { text-align:center; color:var(--muted); font-size:15px; margin:26px auto 0; max-width:660px; }
+
+  details { background:var(--card); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:16px; padding:20px 24px; margin-bottom:12px; transition:border-color .2s; }
+  details[open] { border-color:var(--line2); }
+  summary { cursor:pointer; font-weight:650; font-size:17px; list-style:none; display:flex; justify-content:space-between; gap:12px; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:"+"; font:400 24px/1 var(--mono); color:var(--label); transition:transform .2s; }
+  details[open] summary::after { transform:rotate(45deg); }
+  details p { color:var(--muted); margin:12px 0 0; }
+
+  .cta { text-align:center; padding:70px 30px; border-radius:30px; position:relative; overflow:hidden; border:1px solid var(--line2);
+    background:radial-gradient(600px 300px at 20% 0%,var(--orb1),transparent 70%),radial-gradient(600px 300px at 80% 100%,var(--orb2),transparent 70%),var(--card-solid); }
+  .cta h2 { margin:0 auto 14px; }
+  .cta .dlui { justify-content:center; }
+
+  footer { border-top:1px solid var(--line); padding:40px 0 64px; color:var(--muted); font-size:15px; }
+  footer .wrap { display:flex; gap:20px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  footer a:hover { color:var(--text); }
+
+  .reveal { opacity:0; transform:translateY(22px); transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1); }
+  .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion:reduce) {
+    .reveal { opacity:1; transform:none; transition:none; } .aurora i, .float, .bar i, .btn.pri::after { animation:none; }
+    html { scroll-behavior:auto; }
+  }
+  @media (max-width:960px) {
+    .hero .cols { grid-template-columns:1fr; gap:60px; }
+    .window { transform:none; } .f1 { left:6px; } .f2 { right:6px; }
+    .stats { grid-template-columns:repeat(2,1fr); }
+    .steps { grid-template-columns:1fr; }
+    .bento { grid-template-columns:repeat(2,1fr); } .c2,.c3,.c4,.c6 { grid-column:span 2; }
+    .links a.l { display:none; }
+  }
+  @media (max-width:520px) { .wrap { padding:0 16px; } .btn { width:100%; justify-content:center; } .dd { width:100%; } .menu { left:0; right:0; min-width:0; width:100% !important; } section { padding:80px 0; } .float { display:none; } }
+  .btn.pri, .badge b, .ic, .pill.on, .gallery button.on, .float .dot, .tile { color:#fff; }
+  .btn.pri { box-shadow:0 14px 38px -12px var(--a2); }
+
+  /* JumpNDodge: Galerie mit vielen Bildern (Kategorien + Vorschaureihe) */
+  .thumbs { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; max-width:1100px; margin:22px auto 0; }
+  .thumbs button { padding:0; border:2px solid var(--line2); border-radius:12px; overflow:hidden; background:var(--card-solid); transition:transform .15s,border-color .15s; }
+  .thumbs button:hover { transform:translateY(-3px); border-color:var(--a1); }
+  .thumbs button.on { border-color:var(--a1); box-shadow:0 0 0 2px var(--a1); }
+  .thumbs img { width:100%; height:auto; aspect-ratio:4/3; object-fit:cover; }
+  .window img, .frame img { height:auto; }
+  .ic.tex { background:var(--card2); box-shadow:none; }
+  .ic.tex img { width:34px; height:34px; }
+  .figs { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:16px; }
+  .figs img { width:100%; transition:transform .2s; }
+  .figs img:hover { transform:translateY(-6px); }
+  .frame img.pix { image-rendering:auto; }
+  @media (max-width:520px) { .figs { grid-template-columns:repeat(4,1fr); } }
+</style>
+<link rel="stylesheet" href="/app-icons/acryl.css">
+<link rel="stylesheet" href="/app-icons/mobile.css">
 </head>
 <body>
-<header class="top">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<nav>
   <div class="wrap">
-    <a class="brand" href="./"><img src="img/icon.png" alt="">JumpNDodge <small>Rust Edition</small></a>
-    <nav>
-      <a href="#features"><span data-lang-de>Features</span><span data-lang-en>Features</span></a>
-      <a href="#online"><span data-lang-de>Online</span><span data-lang-en>Online</span></a>
-      <a href="#download"><span data-lang-de>Download</span><span data-lang-en>Download</span></a>
-      <a href="server/"><span data-lang-de>Server hosten</span><span data-lang-en>Host a server</span></a>
-      <a href="#faq">FAQ</a>
-    </nav>
-    <button class="lang" type="button">English</button>
+    <a class="brand" href="#top"><img src="img/tex/player.png" alt="">JumpNDodge</a>
+    <div class="links">
+      <a class="l" href="#how" data-i18n="nav_how">How to play</a>
+      <a class="l" href="#features" data-i18n="nav_features">Features</a>
+      <a class="l" href="#look" data-i18n="nav_look">Screenshots</a>
+      <a class="l" href="#download" data-i18n="nav_download">Download</a>
+      <a class="l" href="server/" data-i18n="nav_server">Host a server</a>
+      <select class="sel" id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="de">Deutsch</option>
+      </select>
+      <button class="ib theme-ic" id="theme-btn" aria-label="Toggle dark / light mode" title="Dark / Light">
+        <svg class="i moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        <svg class="i sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="gridbg"></div>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <span class="badge reveal"><b data-i18n="badge_new">Free</b><span id="news" data-i18n="badge_t">Windows · Linux · macOS</span></span>
+        <h1 class="reveal"><span data-i18n="h1a">Jump. Dodge.</span><br><span class="grad-text" data-i18n="h1b">Survive.</span></h1>
+        <p class="lead reveal" data-i18n="lead">Blocks race towards you, crystals drop from above, and all you have is one jump button. How long can you last? Solo, two players on one keyboard, or online.</p>
+        <div class="dlui reveal">
+          <div class="dd">
+            <a class="btn pri" id="main-btn" href="#download" aria-haspopup="true" aria-expanded="false">
+              <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+              <span id="main-label">Download</span>
+              <svg class="i chev" viewBox="0 0 24 24" id="main-chev"><path d="M6 9l6 6 6-6"/></svg>
+            </a>
+            <div class="menu" id="main-menu" role="menu"></div>
+          </div>
+          <div class="dd">
+            <button class="btn" id="other-btn" aria-haspopup="true" aria-expanded="false">
+              <span data-i18n="other">Other systems</span>
+              <svg class="i chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="menu wide" id="other-menu" role="menu">
+              <div class="tabs" id="other-tabs"></div>
+              <div id="other-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="vline reveal"><span data-i18n="version">Version</span> <b id="ver">…</b> · <a href="https://github.com/erqf1/JumpNDodge/releases/latest" data-i18n="whatsnew">what's new</a> · <a href="/hub/"><span data-i18n="viahub">or get it with W Hub</span></a></div>
+        <div class="chips reveal">
+          <button class="chip" data-tab="windows">Windows</button>
+          <button class="chip" data-tab="macos">macOS</button>
+          <button class="chip" data-tab="linux">.deb</button>
+          <button class="chip" data-tab="linux">pacman</button>
+          <button class="chip" data-tab="linux">tar.gz</button>
+        </div>
+      </div>
+
+      <div class="stage reveal">
+        <div class="window"><img id="hero-img" src="img/shots/hoelle.webp" alt="JumpNDodge on Hell difficulty" width="800" height="600"></div>
+      </div>
+    </div>
+
+    <div class="stats reveal">
+      <div class="stat"><b class="grad-text">8</b><span data-i18n="s1">difficulties, up to Hell</span></div>
+      <div class="stat"><b class="grad-text">27</b><span data-i18n="s2">cosmetics to mix and match</span></div>
+      <div class="stat"><b class="grad-text">12</b><span data-i18n="s3">powers like double jump or shield</span></div>
+      <div class="stat"><b class="grad-text">2</b><span data-i18n="s4">players, local or online</span></div>
+    </div>
   </div>
 </header>
 
-<main>
-  <div class="wrap hero">
-    <div>
-      <span class="eyebrow"><span data-lang-de>Neu: Rust Edition mit Online-Multiplayer</span><span data-lang-en>New: Rust Edition with online multiplayer</span></span>
-      <h1><span data-lang-de>Springen. Ausweichen. Überleben.</span><span data-lang-en>Jump. Dodge. Survive.</span></h1>
-      <p class="lead">
-        <span data-lang-de>Spring über Hindernisse, weich aus, was von oben kommt, und halte so lange durch wie möglich – allein, zu zweit an einer Tastatur oder online gegen und mit deinen Freunden.</span>
-        <span data-lang-en>Jump over obstacles, dodge what falls from above and survive as long as you can – alone, with two players on one keyboard, or online against and with your friends.</span>
-      </p>
-      <div class="btns">
-        <a class="btn primary" id="dl-main" href="#download"><b>Download</b> <small></small></a>
-        <a class="btn" href="#download"><span data-lang-de>Alle Systeme</span><span data-lang-en>All systems</span></a>
-      </div>
-      <p class="hint" data-version-row hidden><span data-lang-de>Version</span><span data-lang-en>Version</span> <span data-version></span> · Windows · Linux · macOS · <span data-lang-de>kostenlos</span><span data-lang-en>free</span></p>
+<section id="how">
+  <div class="wrap">
+    <p class="label reveal" data-i18n="how_l">How to play</p>
+    <h2 class="reveal" data-i18n="how_h">Learned in ten seconds.</h2>
+    <p class="sub reveal" data-i18n="how_s">Still not mastered after a hundred rounds. Every block you clear scores, coins buy powers and cosmetics.</p>
+    <div class="steps">
+      <div class="gcard reveal"><div class="ic tex"><img src="img/tex/hazard.png" alt=""></div><span class="n">01</span><h3 data-i18n="st1_h">Jump over</h3><p data-i18n="st1_p">Red blocks race towards you, faster and faster. The speed lines show they're coming on their own.</p></div>
+      <div class="gcard reveal"><div class="ic tex"><img src="img/tex/faller.png" alt=""></div><span class="n">02</span><h3 data-i18n="st2_h">Dodge</h3><p data-i18n="st2_p">On harder levels crystals drop from above. A small arrow shows where they'll land.</p></div>
+      <div class="gcard reveal"><div class="ic tex"><img src="img/tex/oneup.png" alt=""></div><span class="n">03</span><h3 data-i18n="st3_h">Grab 1-UPs</h3><p data-i18n="st3_p">You have three lives. A 1-UP gives one back, so go for it when you can.</p></div>
     </div>
-    <div class="shot"><img src="img/game.webp" alt="JumpNDodge" width="1600" height="1200"></div>
   </div>
+</section>
 
-  <section id="features">
-    <div class="wrap">
-      <h2><span data-lang-de>Alles drin</span><span data-lang-en>Everything included</span></h2>
-      <p class="sub"><span data-lang-de>Schnell gestartet, einfach zu lernen, schwer zu meistern.</span><span data-lang-en>Quick to start, easy to learn, hard to master.</span></p>
-      <div class="grid">
-        <div class="card"><div class="ic">8</div><h3><span data-lang-de>Acht Schwierigkeiten</span><span data-lang-en>Eight difficulties</span></h3><p><span data-lang-de>Von Leicht bis Hölle – und Dynamisch, das immer schneller wird, je länger du durchhältst.</span><span data-lang-en>From Easy to Hell – and Dynamic, which gets faster the longer you survive.</span></p></div>
-        <div class="card"><div class="ic">★</div><h3><span data-lang-de>Powers und Kosmetik</span><span data-lang-en>Powers and cosmetics</span></h3><p><span data-lang-de>Powers erdrehen, Spuren, Hüte und Gesichter ausrüsten und in der Runde zeigen.</span><span data-lang-en>Spin for powers, equip trails, hats and faces and show them off.</span></p></div>
-        <div class="card"><div class="ic">2</div><h3><span data-lang-de>Zu zweit</span><span data-lang-en>Two players</span></h3><p><span data-lang-de>Koop und Versus an einer Tastatur – oder online über das Internet.</span><span data-lang-en>Co-op and versus on one keyboard – or online over the internet.</span></p></div>
-        <div class="card"><div class="ic">↑</div><h3><span data-lang-de>Online-Rangliste</span><span data-lang-en>Online leaderboard</span></h3><p><span data-lang-de>Highscores vergleichen, Freunde, Squads und Nachrichten.</span><span data-lang-en>Compare high scores, friends, squads and messages.</span></p></div>
-        <div class="card"><div class="ic">Hz</div><h3><span data-lang-de>Flüssig auf jedem Bildschirm</span><span data-lang-en>Smooth on every screen</span></h3><p><span data-lang-de>So viele Bilder, wie dein Monitor kann (144/165 Hz …), scharf bei jeder Skalierung und im Vollbild.</span><span data-lang-en>As many frames as your monitor can show (144/165 Hz …), sharp at any scaling and in fullscreen.</span></p></div>
-        <div class="card"><div class="ic">⟳</div><h3><span data-lang-de>Aktualisiert sich selbst</span><span data-lang-en>Updates itself</span></h3><p><span data-lang-de>Neue Versionen werden beim Start gefunden und mit einem Klick installiert. Oder über W Hub.</span><span data-lang-en>New versions are found on start and installed with one click. Or use W Hub.</span></p></div>
-        <div class="card"><div class="ic">▶</div><h3><span data-lang-de>Replays und Rekord-Geist</span><span data-lang-en>Replays and best-run ghost</span></h3><p><span data-lang-de>Jede Runde nochmal ansehen – und gegen deinen eigenen Rekordlauf antreten, der halbtransparent mitläuft.</span><span data-lang-en>Watch every round again – and race your own best run, shown as a ghost.</span></p></div>
-        <div class="card"><div class="ic">A</div><h3>Controller</h3><p><span data-lang-de>Xbox, PlayStation und andere Gamepads – auch zwei für den 2-Spieler-Modus.</span><span data-lang-en>Xbox, PlayStation and other gamepads – two for the 2-player mode, too.</span></p></div>
-        <div class="card"><div class="ic">{ }</div><h3><span data-lang-de>Lua-Mods</span><span data-lang-en>Lua mods</span></h3><p><span data-lang-de>Eigene Hindernisse, Spielwerte und Modi als kleine .lua-Datei – sicher in einer Sandbox.</span><span data-lang-en>Your own obstacles, game values and modes as a small .lua file – safely sandboxed.</span></p></div>
+<section id="features" style="padding-top:20px">
+  <div class="wrap">
+    <p class="label reveal" data-i18n="f_l">Features</p>
+    <h2 class="reveal" data-i18n="f_h">Small game, lots inside.</h2>
+    <p class="sub reveal" data-i18n="f_s">Starts instantly, runs smooth on any monitor and keeps your progress across updates.</p>
+    <div class="bento">
+      <div class="gcard c4 reveal">
+        <h3 data-i18n="b1_h">Online with a friend</h3>
+        <p data-i18n="b1_p">Create a room, send the code, both press ready. Versus: last one standing wins. Co-op: score together, and a 1-UP brings your partner back. Your player reacts instantly, even with ping.</p>
+        <div class="demo rows"><div><span data-i18n="r1">Mode</span><b data-i18n="r1v">Versus · Co-op</b></div><div><span data-i18n="r2">Server</span><b data-i18n="r2v">official or your own</b></div><div><span data-i18n="r3">After a round</span><b data-i18n="r3v">rematch with one click</b></div></div>
+      </div>
+      <div class="gcard c2 reveal">
+        <h3 data-i18n="b2_h">Leaderboard and friends</h3>
+        <p data-i18n="b2_p">Compare high scores, add friends, found clans and send messages, all inside the game.</p>
+      </div>
+      <div class="gcard c2 reveal">
+        <h3 data-i18n="b3_h">Powers</h3>
+        <p data-i18n="b3_p">Roll them in the shop and equip them before a round.</p>
+        <div class="demo pills"><span class="pill on">Double Jump</span><span class="pill">Shield</span><span class="pill">Slow Motion</span><span class="pill">Phoenix</span></div>
+      </div>
+      <div class="gcard c2 reveal">
+        <h3 data-i18n="b4_h">Make it yours</h3>
+        <p data-i18n="b4_p">Head, eyes, nose and mouth each have their own slot. Plus eleven trails.</p>
+        <div class="figs"><img src="img/figur/krone.png" alt=""><img src="img/figur/propeller.png" alt=""><img src="img/figur/teufel.png" alt=""><img src="img/figur/zylinder.png" alt=""></div>
+      </div>
+      <div class="gcard c2 reveal">
+        <h3 data-i18n="b5_h">Replays and ghost</h3>
+        <p data-i18n="b5_p">Rewatch every round and race against a ghost of your own best run.</p>
+      </div>
+      <div class="gcard c3 reveal">
+        <h3 data-i18n="b6_h">Keyboard or controller</h3>
+        <p data-i18n="b6_p">Xbox, PlayStation and other gamepads work out of the box, two of them for the 2-player mode. Every key can be remapped.</p>
+        <div class="demo kbds"><span class="kbd">Space</span><span class="kbd">↑</span><span class="kbd">W</span><span class="kbd">A</span><span class="kbd">D</span><span class="kbd">Esc</span></div>
+      </div>
+      <div class="gcard c3 reveal">
+        <h3 data-i18n="b7_h">Lua mods</h3>
+        <p data-i18n="b7_p">Your own obstacles, values and modes as a small .lua file. Mods run in a sandbox and count separately.</p>
+        <div class="demo pills"><span class="pill on">mods/</span><span class="pill">example.lua</span></div>
+      </div>
+      <div class="gcard c3 reveal" style="background:linear-gradient(135deg,color-mix(in srgb,var(--a1) 14%,var(--card-solid)),var(--card-solid) 60%)">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></svg></div>
+        <h3 data-i18n="b8_h">Your own textures</h3>
+        <p data-i18n="b8_p">Put a PNG or SVG into a folder called textures next to the game and your block, the obstacles or any cosmetic look different. Prefer the old look? Settings → More → Legacy graphics.</p>
+      </div>
+      <div class="gcard c3 reveal">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+        <h3 data-i18n="b9_h">Updates itself</h3>
+        <p data-i18n="b9_p">The game finds new versions at startup and installs them with one click. Your save stays where it is.</p>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section id="online">
-    <div class="wrap split">
-      <div class="shot"><img src="img/online.webp" alt="Online-Multiplayer" width="1600" height="1200" loading="lazy"></div>
-      <div>
-        <h2><span data-lang-de>Online zu zweit</span><span data-lang-en>Online with a friend</span></h2>
-        <p class="sub" style="color:var(--muted)">
-          <span data-lang-de>Online → Multiplayer: Raum erstellen, Code an deinen Freund schicken, beide auf „Bereit“ – los geht's. VS (wer länger überlebt, gewinnt) oder Koop (gemeinsam punkten, mit einem 1-UP holst du deinen Partner zurück).</span>
-          <span data-lang-en>Online → Multiplayer: create a room, send the code to your friend, both press “Ready” – go. Versus (last one standing wins) or co-op (score together, a 1-UP brings your partner back).</span>
-        </p>
-        <ul style="color:var(--muted);padding-left:20px">
-          <li><span data-lang-de>Offizieller Server oder Verbinden per IP/Hostname</span><span data-lang-en>Official server or connect by IP/hostname</span></li>
-          <li><span data-lang-de>Deine Figur reagiert sofort, auch bei Ping</span><span data-lang-en>Your player reacts instantly, even with ping</span></li>
-          <li><span data-lang-de>Rematch mit einem Klick</span><span data-lang-en>Rematch with one click</span></li>
-        </ul>
-        <div class="btns"><a class="btn" href="server/"><span data-lang-de>Eigenen Server hosten →</span><span data-lang-en>Host your own server →</span></a></div>
-      </div>
+<section id="look" style="padding-top:30px">
+  <div class="wrap center">
+    <p class="label reveal" data-i18n="l_l">Screenshots</p>
+    <h2 class="reveal" data-i18n="l_h">See it in action.</h2>
+    <p class="sub reveal" data-i18n="l_s">24 real screenshots straight from the game. Click any picture to see it big.</p>
+    <div class="gallery reveal" id="gallery">
+      <button type="button" data-cat="all" class="on" data-i18n="g0">All</button>
+      <button type="button" data-cat="game" data-i18n="g1">In game</button>
+      <button type="button" data-cat="menus" data-i18n="g2">Menus</button>
+      <button type="button" data-cat="shop" data-i18n="g3">Shop &amp; inventory</button>
+      <button type="button" data-cat="profile" data-i18n="g4">Profile &amp; more</button>
     </div>
-  </section>
+    <div class="frame reveal"><div class="tb"><i></i><i></i><i></i></div><img class="pix" id="gal-img" src="img/shots/hoelle.webp" alt="JumpNDodge screenshot" width="800" height="600" loading="lazy"></div>
+    <p class="caption" id="gal-cap"></p>
+    <div class="thumbs reveal" id="thumbs"></div>
+  </div>
+</section>
 
-  <section id="download">
-    <div class="wrap">
-      <h2>Download</h2>
-      <p class="sub"><span data-lang-de>Immer die neueste Version direkt von GitHub. Am einfachsten installierst und aktualisierst du alles mit <a href="/hub/">W Hub</a>.</span><span data-lang-en>Always the latest version straight from GitHub. The easiest way to install and update is <a href="/hub/">W Hub</a>.</span></p>
-      <table class="dl">
-        <tr><th><span data-lang-de>System</span><span data-lang-en>System</span></th><th><span data-lang-de>Datei</span><span data-lang-en>File</span></th><th></th></tr>
-        <tr><td><b>Windows</b> <span class="ver"><span data-lang-de>Installer</span><span data-lang-en>installer</span></span></td><td><code>JumpNDodge-windows-x64-setup.exe</code></td><td><a class="btn" data-file="JumpNDodge-windows-x64-setup.exe" href="#">Download</a></td></tr>
-        <tr><td><b>Windows</b> <span class="ver"><span data-lang-de>portabel</span><span data-lang-en>portable</span></span></td><td><code>JumpNDodge-windows-x64.zip</code></td><td><a class="btn" data-file="JumpNDodge-windows-x64.zip" href="#">Download</a></td></tr>
-        <tr><td><b>Linux</b> <span class="ver">Debian, Ubuntu, Mint</span></td><td><code>jumpndodge_amd64.deb</code></td><td><a class="btn" data-file="jumpndodge_amd64.deb" href="#">Download</a></td></tr>
-        <tr><td><b>Linux</b> <span class="ver">Arch, Manjaro</span></td><td><code>jumpndodge-x86_64.pkg.tar.zst</code></td><td><a class="btn" data-file="jumpndodge-x86_64.pkg.tar.zst" href="#">Download</a></td></tr>
-        <tr><td><b>Linux</b> <span class="ver"><span data-lang-de>portabel</span><span data-lang-en>portable</span></span></td><td><code>jumpndodge-linux-x86_64.tar.gz</code></td><td><a class="btn" data-file="jumpndodge-linux-x86_64.tar.gz" href="#">Download</a></td></tr>
-        <tr><td><b>macOS</b> <span class="ver">Apple Silicon (M1–M4)</span></td><td><code>JumpNDodge-macos-apple-silicon.dmg</code></td><td><a class="btn" data-file="JumpNDodge-macos-apple-silicon.dmg" href="#">Download</a></td></tr>
-        <tr><td><b>macOS</b> <span class="ver">Intel</span></td><td><code>JumpNDodge-macos-intel.dmg</code></td><td><a class="btn" data-file="JumpNDodge-macos-intel.dmg" href="#">Download</a></td></tr>
-      </table>
-      <p class="hint"><span data-lang-de>Ältere Versionen (auch die Python-Version) gibt es im <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">Archiv</a>.</span><span data-lang-en>Older versions (including the Python version) are in the <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">archive</a>.</span></p>
+<section id="download">
+  <div class="wrap">
+    <div class="center">
+      <p class="label reveal" data-i18n="d_l">Download</p>
+      <h2 class="reveal" data-i18n="d_h">Get JumpNDodge.</h2>
+      <p class="sub reveal" data-i18n="d_s">Free for everyone. Pick your system. Every file comes straight from the newest GitHub release.</p>
     </div>
-  </section>
+    <div class="dlpanel reveal">
+      <div class="tabs" id="panel-tabs"></div>
+      <div id="panel-list"></div>
+    </div>
+    <p class="note" data-i18n="d_note">The macOS app is not notarized by Apple: right-click → Open the first time. Older versions, including the Python version, are in the <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">archive</a>.</p>
+  </div>
+</section>
 
-  <section id="faq">
-    <div class="wrap">
-      <h2>FAQ</h2>
-      <details><summary><span data-lang-de>Ich habe schon die alte Version – geht mein Spielstand verloren?</span><span data-lang-en>I already have the old version – will I lose my progress?</span></summary>
-        <p><span data-lang-de>Nein. Die Rust Edition liest denselben Spielstand. Der Installer aktualisiert deine bestehende Installation an Ort und Stelle, der Ordner <code>data</code> bleibt. Der alte Updater holt sich die neue Version sogar von selbst.</span><span data-lang-en>No. The Rust Edition reads the same save file. The installer updates your existing installation in place and keeps the <code>data</code> folder. The old updater even fetches the new version by itself.</span></p></details>
-      <details><summary><span data-lang-de>Was ist die „Rust Edition“?</span><span data-lang-en>What is the “Rust Edition”?</span></summary>
-        <p><span data-lang-de>JumpNDodge wurde komplett von Python nach Rust übertragen: startet sofort, eine einzige Datei, flüssiger, schärfer, mit Online-Multiplayer und eingebautem Updater. Ab Version 5.0 ist das die Hauptversion.</span><span data-lang-en>JumpNDodge was fully rewritten from Python in Rust: starts instantly, a single file, smoother, sharper, with online multiplayer and a built-in updater. From version 5.0 it's the main version.</span></p></details>
-      <details><summary><span data-lang-de>macOS sagt, die App kann nicht geöffnet werden</span><span data-lang-en>macOS says the app can't be opened</span></summary>
-        <p><span data-lang-de>Die App ist nicht von Apple beglaubigt. Beim ersten Start Rechtsklick auf JumpNDodge → Öffnen → Öffnen. Danach startet sie normal.</span><span data-lang-en>The app isn't notarized by Apple. On first start right-click JumpNDodge → Open → Open. After that it starts normally.</span></p></details>
-      <details><summary><span data-lang-de>Wo liegt mein Spielstand?</span><span data-lang-en>Where is my save?</span></summary>
-        <p><span data-lang-de>Windows und portabel: im Ordner <code>data</code> neben dem Spiel. Linux-Paket: <code>~/.local/share/JumpNDodge/data</code>. macOS: <code>~/Library/Application Support/JumpNDodge/data</code>.</span><span data-lang-en>Windows and portable: in the <code>data</code> folder next to the game. Linux package: <code>~/.local/share/JumpNDodge/data</code>. macOS: <code>~/Library/Application Support/JumpNDodge/data</code>.</span></p></details>
-      <details><summary><span data-lang-de>Gibt es Mods?</span><span data-lang-en>Are there mods?</span></summary>
-        <p><span data-lang-de>Ja – Lua-Mods: Hauptmenü → Mods → „Beispiel-Mod anlegen“. Mods laufen in einer Sandbox ohne Zugriff auf Dateien oder Netzwerk; Runden mit Mods zählen getrennt und nicht online. Die alten Python-Mods (.py) laufen nur in der Python-Version im Archiv.</span><span data-lang-en>Yes – Lua mods: main menu → Mods → “Create example mod”. Mods run in a sandbox without access to files or the network; rounds with mods are counted separately and not online. The old Python mods (.py) only run in the Python version in the archive.</span></p></details>
+<section id="faq" style="padding-top:40px">
+  <div class="wrap" style="max-width:820px">
+    <div class="center"><p class="label reveal">FAQ</p><h2 class="reveal" data-i18n="q_h">Questions</h2></div>
+    <details class="reveal"><summary data-i18n="q1">Is it really free?</summary><p data-i18n="q1a">Yes. JumpNDodge is open source under the Apache 2.0 license, without ads or in-app purchases. Coins are only earned by playing.</p></details>
+    <details class="reveal"><summary data-i18n="q2">Will I lose my progress when updating?</summary><p data-i18n="q2a">No. The installer updates in place and the data folder stays. Even the old Python version fetches the new one by itself.</p></details>
+    <details class="reveal"><summary data-i18n="q3">I want the old look back.</summary><p data-i18n="q3a">Settings → More → Legacy graphics: on. The game then draws everything like in version 5.2.</p></details>
+    <details class="reveal"><summary data-i18n="q4">Can I use my own textures?</summary><p data-i18n="q4a">Yes. Create a folder called textures next to the game and put e.g. player.png, hazard.png, faller.png or oneup.png in it. Cosmetics are called cos_&lt;name&gt;, trails trail_&lt;name&gt;.</p></details>
+    <details class="reveal"><summary data-i18n="q5">Where is my save?</summary><p data-i18n="q5a">Windows and portable: in the data folder next to the game. Linux package: ~/.local/share/JumpNDodge/data. macOS: ~/Library/Application Support/JumpNDodge/data.</p></details>
+    <details class="reveal"><summary data-i18n="q6">How do I play online with a friend?</summary><p data-i18n="q6a">Online → Multiplayer, create a room and send your friend the code. Both of you need the same version. Want your own server? See <a href="server/">Host a server</a>.</p></details>
+  </div>
+</section>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="cta reveal">
+      <h2 data-i18n="cta_h">How long can you last?</h2>
+      <p class="sub" style="margin:0 auto 30px" data-i18n="cta_s">Download it, beat your own high score, then beat your friends'.</p>
+      <div class="dlui"><a class="btn pri" href="#download"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg><span data-i18n="cta_b">Download JumpNDodge</span></a></div>
     </div>
-  </section>
-</main>
+  </div>
+</section>
 
 <footer>
   <div class="wrap">
-    <span>JumpNDodge · W Software · Apache-2.0</span>
-    <span><a href="server/"><span data-lang-de>Server hosten</span><span data-lang-en>Host a server</span></a> · <a href="https://github.com/erqf1/JumpNDodge/releases">GitHub</a> · <a href="/hub/">W Hub</a></span>
+    <span>© 2026 JumpNDodge · Apache License 2.0</span>
+    <span><a href="server/" data-i18n="f_server">Host a server</a> · <a href="https://github.com/erqf1/JumpNDodge">GitHub</a> · <a href="/hub/">W Hub</a></span>
   </div>
 </footer>
-<script src="site.js"></script>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var OWNER = 'erqf1', REPO = 'JumpNDodge';
+  var RELEASES = 'https://github.com/' + OWNER + '/' + REPO + '/releases/latest';
+
+  var ICON = {
+    windows: '<svg class="i" viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M3 5.5l8-1.1v7.1H3zM12 4.3l9-1.3v8.5h-9zM3 12.5h8v7.1l-8-1.1zM12 12.5h9V21l-9-1.3z"/></svg>',
+    macos: '<svg class="i" viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M16.4 12.6c0-2.4 2-3.5 2.1-3.6-1.2-1.7-3-1.9-3.6-1.9-1.5-.2-3 .9-3.8.9s-2-.9-3.3-.9C6 7.2 4.4 8.2 3.5 9.7c-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.5 1.3-.1 1.8-.8 3.3-.8s2 .8 3.3.8 2.2-1.2 3.1-2.4c1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4.5zM14 5.3c.7-.8 1.2-2 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>',
+    linux: '<svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l3 2-3 2M13 14h3"/></svg>'
+  };
+  // Download-Dateien haben feste Namen; Größe kommt aus dem neuesten Release (GitHub-API)
+  var DL = {
+    windows: [
+      { re: /^JumpNDodge-windows-x64-setup\.exe$/, t: { en: 'Installer', de: 'Installer' }, d: { en: 'recommended · updates itself', de: 'empfohlen · aktualisiert sich selbst' } },
+      { re: /^JumpNDodge-windows-x64\.zip$/, t: { en: 'Portable', de: 'Portabel' }, d: { en: 'no installation · Windows 10+', de: 'keine Installation · ab Windows 10' } }
+    ],
+    linux: [
+      { re: /^jumpndodge_amd64\.deb$/, t: { en: 'Debian / Ubuntu (.deb)', de: 'Debian / Ubuntu (.deb)' }, d: { en: 'also Mint, Pop!_OS, elementary', de: 'auch Mint, Pop!_OS, elementary' }, cmd: 'cd ~/Downloads && sudo apt install ./FILE' },
+      { re: /^jumpndodge-x86_64\.pkg\.tar\.zst$/, t: { en: 'Arch (pacman)', de: 'Arch (pacman)' }, d: { en: 'also Manjaro, EndeavourOS', de: 'auch Manjaro, EndeavourOS' }, cmd: 'cd ~/Downloads && sudo pacman -U ./FILE' },
+      { re: /^jumpndodge-linux-x86_64\.tar\.gz$/, t: { en: 'tar.gz', de: 'tar.gz' }, d: { en: 'any distribution · no installation needed', de: 'jede Distribution · ohne Installation' }, cmd: 'mkdir -p ~/.local/opt/jumpndodge && tar xzf ~/Downloads/FILE -C ~/.local/opt/jumpndodge && ~/.local/opt/jumpndodge/JumpNDodge' }
+    ],
+    macos: [
+      { re: /^JumpNDodge-macos-apple-silicon\.dmg$/, t: { en: 'Apple Silicon', de: 'Apple Silicon' }, d: { en: 'M1, M2, M3, M4 and newer', de: 'M1, M2, M3, M4 und neuer' } },
+      { re: /^JumpNDodge-macos-intel\.dmg$/, t: { en: 'Intel', de: 'Intel' }, d: { en: 'Macs with an Intel processor', de: 'Macs mit Intel-Prozessor' } }
+    ]
+  };
+  var OSNAME = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+  var lang = 'en', assets = [];
+  var ua = navigator.userAgent, myOS = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) && !/iPhone|iPad/.test(ua) ? 'macos' : /Linux|X11/.test(ua) && !/Android/.test(ua) ? 'linux' : 'windows';
+  function find(it) { for (var i = 0; i < assets.length; i++) if (it.re.test(assets[i].name)) return assets[i]; return null; }
+  function href(it) { var a = find(it); if (a) return a.browser_download_url; var n = it.re.source.replace(/^\^|\$$/g, '').replace(/\\/g, ''); return RELEASES + '/download/' + n; }
+  function fmtSize(it) { var a = find(it); if (!a) return ''; var mb = a.size / 1048576; return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + ' MB'; }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+  function itemHTML(it, withIcon, os) {
+    return '<a class="item" role="menuitem" href="' + href(it) + '">' + (withIcon ? '<span class="dlic">' + ICON[os] + '</span>' : '') +
+      '<span class="t"><b>' + it.t[lang] + '</b><small>' + it.d[lang] + '</small></span><span class="sz">' + fmtSize(it) + '</span></a>';
+  }
+  function cmdHTML(it) {
+    if (!it.cmd) return '';
+    var a = find(it), cmd = it.cmd.replace('FILE', a ? a.name : (lang === 'de' ? '<Datei>' : '<file>'));
+    return '<div class="cmd"><code>' + esc(cmd) + '</code><button type="button" data-copy="' + esc(cmd) + '" aria-label="Copy"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button></div>';
+  }
+  function tabsHTML(active, attr) { return Object.keys(OSNAME).map(function (k) { return '<button type="button" ' + attr + '="' + k + '" class="' + (k === active ? 'on' : '') + '">' + OSNAME[k] + '</button>'; }).join(''); }
+  var otherTab = myOS, panelTab = myOS;
+  function render() {
+    var list = DL[myOS], single = list.length === 1;
+    $('#main-label').textContent = { en: 'Download for ' + OSNAME[myOS], de: 'Für ' + OSNAME[myOS] + ' herunterladen' }[lang];
+    $('#main-chev').style.display = single ? 'none' : '';
+    $('#main-btn').href = single ? href(list[0]) : '#download';
+    $('#main-menu').innerHTML = single ? '' : list.map(function (it) { return itemHTML(it, false, myOS); }).join('');
+    $('#other-tabs').innerHTML = tabsHTML(otherTab, 'data-otab');
+    $('#other-list').innerHTML = DL[otherTab].map(function (it) { return itemHTML(it, false, otherTab); }).join('');
+    $('#panel-tabs').innerHTML = tabsHTML(panelTab, 'data-ptab');
+    $('#panel-list').innerHTML = DL[panelTab].map(function (it) { return itemHTML(it, true, panelTab) + cmdHTML(it); }).join('');
+  }
+  function closeAll(except) { $$('.menu.open').forEach(function (m) { if (m !== except) { m.classList.remove('open'); var b = m.parentNode.querySelector('.btn'); if (b) b.setAttribute('aria-expanded', 'false'); } }); }
+  function toggle(btn, menu) { var open = !menu.classList.contains('open'); closeAll(open ? menu : null); menu.classList.toggle('open', open); btn.setAttribute('aria-expanded', open); }
+  $('#main-btn').addEventListener('click', function (e) { if (DL[myOS].length > 1) { e.preventDefault(); toggle(this, $('#main-menu')); } });
+  $('#other-btn').addEventListener('click', function () { toggle(this, $('#other-menu')); });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.closest('.dd')) closeAll();
+    var ot = t.closest('[data-otab]'); if (ot) { otherTab = ot.dataset.otab; render(); $('#other-menu').classList.add('open'); }
+    var pt = t.closest('[data-ptab]'); if (pt) { panelTab = pt.dataset.ptab; render(); }
+    var cp = t.closest('[data-copy]'); if (cp) { try { navigator.clipboard.writeText(cp.dataset.copy); cp.style.color = 'var(--label)'; setTimeout(function () { cp.style.color = ''; }, 1200); } catch (x) {} }
+    var chip = t.closest('.chip'); if (chip) { otherTab = chip.dataset.tab; render(); closeAll(); $('#other-menu').classList.add('open'); $('#other-btn').setAttribute('aria-expanded', 'true'); }
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(); });
+  // Neueste Version live: Nummer, "Neu"-Hinweis, Download-Links und Größen
+  var latestVer = '';
+  fetch('https://api.github.com/repos/' + OWNER + '/' + REPO + '/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (!j) return;
+    latestVer = (j.tag_name || '').replace(/^v/, '');
+    assets = j.assets || [];
+    $('#ver').textContent = latestVer || '–';
+    showNews();
+    render();
+  }).catch(function () { $('#ver').textContent = '–'; });
+  function showNews() {
+    if (!latestVer) return;
+    $('#news').innerHTML = (lang === 'de' ? 'Neu: Version ' : 'New: version ') + latestVer + ' · <a href="https://github.com/erqf1/JumpNDodge/releases/latest">' + (lang === 'de' ? 'was ist neu' : "what's new") + '</a>';
+    $('.badge b').textContent = lang === 'de' ? 'Neu' : 'New';
+  }
+
+  $('#theme-btn').addEventListener('click', function () {
+    var t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem('theme', t); } catch (e) {}
+  });
+
+  // Galerie: viele echte Screenshots, nach Kategorie gefiltert
+  var SHOTS = [{"n": "hoelle", "c": "game", "en": "Hell difficulty: crystals drop from above", "de": "Hölle: Kristalle fallen von oben"}, {"n": "funkelspur", "c": "game", "en": "Jumping with crown, sunglasses and sparkle trail", "de": "Sprung mit Krone, Sonnenbrille und Funkelspur"}, {"n": "ausweichen", "c": "game", "en": "Dodging a crystal right before it lands", "de": "Einem Kristall ausweichen, kurz bevor er landet"}, {"n": "propeller", "c": "game", "en": "Propeller hat, visor and fire trail", "de": "Propellermütze, Visier und Feuerspur"}, {"n": "spaet", "c": "game", "en": "Later in the round, the blocks get faster", "de": "Später in der Runde werden die Blöcke schneller"}, {"n": "zweispieler", "c": "game", "en": "Two players on one keyboard", "de": "Zu zweit an einer Tastatur"}, {"n": "rematch", "c": "game", "en": "Co-op round over: rematch with one click", "de": "Koop-Runde vorbei: Rematch mit einem Klick"}, {"n": "gameover", "c": "game", "en": "Game over with replay button", "de": "Game Over mit Replay-Knopf"}, {"n": "hauptmenue", "c": "menus", "en": "Main menu with your character", "de": "Hauptmenü mit deiner Figur"}, {"n": "schwierigkeit", "c": "menus", "en": "Eight difficulties, Classic and 2 players", "de": "Acht Schwierigkeiten, Klassik und 2 Spieler"}, {"n": "einstellungen", "c": "menus", "en": "Settings", "de": "Einstellungen"}, {"n": "steuerung", "c": "menus", "en": "Every key can be remapped", "de": "Jede Taste lässt sich umbelegen"}, {"n": "sprache", "c": "menus", "en": "Five languages", "de": "Fünf Sprachen"}, {"n": "tutorial", "c": "menus", "en": "Short tutorial for the first start", "de": "Kurzes Tutorial beim ersten Start"}, {"n": "cosmeticshop", "c": "shop", "en": "Cosmetic shop with daily deals", "de": "Cosmetic-Shop mit Tagesangeboten"}, {"n": "powerroll", "c": "shop", "en": "Roll for powers", "de": "Powers erdrehen"}, {"n": "shop", "c": "shop", "en": "Shop", "de": "Shop"}, {"n": "inventar", "c": "shop", "en": "Equip trails, hats and faces", "de": "Spuren, Hüte und Gesichter anlegen"}, {"n": "powers", "c": "shop", "en": "Your powers", "de": "Deine Powers"}, {"n": "dailyrewards", "c": "shop", "en": "Daily rewards", "de": "Tägliche Belohnungen"}, {"n": "profil", "c": "profile", "en": "Profile with colour and avatar", "de": "Profil mit Farbe und Avatar"}, {"n": "statistik", "c": "profile", "en": "Statistics per difficulty", "de": "Statistiken pro Schwierigkeit"}, {"n": "erfolge", "c": "profile", "en": "Achievements", "de": "Erfolge"}, {"n": "mods", "c": "profile", "en": "Lua mods", "de": "Lua-Mods"}];
+  var galCat = 'all', galCur = SHOTS[0].n;
+  function shotOf(n) { for (var i = 0; i < SHOTS.length; i++) if (SHOTS[i].n === n) return SHOTS[i]; return SHOTS[0]; }
+  function showShot(n) {
+    galCur = n;
+    var img = $('#gal-img'), sh = shotOf(n), txt = sh[lang] || sh.en;
+    if (img.getAttribute('src') !== 'img/shots/' + n + '.webp') {
+      img.style.opacity = 0;
+      setTimeout(function () { img.src = 'img/shots/' + n + '.webp'; img.alt = txt; img.style.opacity = 1; }, 140);
+    }
+    $('#gal-cap').textContent = txt;
+    $$('#thumbs button').forEach(function (b) { b.classList.toggle('on', b.dataset.shot === n); });
+  }
+  function renderGallery() {
+    var list = SHOTS.filter(function (x) { return galCat === 'all' || x.c === galCat; });
+    $('#thumbs').innerHTML = list.map(function (x) {
+      var t = esc(x[lang] || x.en);
+      return '<button type="button" data-shot="' + x.n + '" title="' + t + '"><img src="img/shots/' + x.n + '-k.webp" alt="' + t + '" loading="lazy" width="320" height="240"></button>';
+    }).join('');
+    if (!list.some(function (x) { return x.n === galCur; })) galCur = list[0].n;
+    showShot(galCur);
+  }
+  $('#gallery').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-cat]'); if (!b) return;
+    $$('button', $('#gallery')).forEach(function (x) { x.classList.toggle('on', x === b); });
+    galCat = b.dataset.cat; renderGallery();
+  });
+  $('#thumbs').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-shot]'); if (!b) return;
+    showShot(b.dataset.shot);
+    var f = $('#gal-img'); if (f.getBoundingClientRect().top < 60) f.scrollIntoView({ block: 'center' });
+  });
+
+  var T = { de: {
+    nav_how:'So spielst du', nav_features:'Funktionen', nav_look:'Bilder', nav_download:'Download', nav_server:'Server hosten',
+    badge_new:'Kostenlos', badge_t:'Windows · Linux · macOS',
+    h1a:'Springen. Ausweichen.', h1b:'Überleben.',
+    lead:'Blöcke rasen auf dich zu, Kristalle fallen von oben, und du hast nur einen Knopf zum Springen. Wie lange hältst du durch? Allein, zu zweit an einer Tastatur oder online.',
+    other:'Anderes System', version:'Version', whatsnew:'was ist neu', viahub:'oder über W Hub',
+    s1:'Schwierigkeiten, bis Hölle', s2:'Cosmetics zum Kombinieren', s3:'Powers wie Doppelsprung oder Schild', s4:'Spieler, lokal oder online',
+    how_l:'So spielst du', how_h:'In zehn Sekunden gelernt.', how_s:'Nach hundert Runden immer noch nicht gemeistert. Jeder überstandene Block bringt Punkte, Coins gibt’s für Powers und Cosmetics.',
+    st1_h:'Drüberspringen', st1_p:'Rote Blöcke rasen auf dich zu, und zwar immer schneller. Die Fahrtstreifen zeigen, dass sie von selbst kommen.',
+    st2_h:'Ausweichen', st2_p:'Auf höheren Stufen fallen Kristalle von oben. Ein kleiner Pfeil zeigt vorher, wo sie landen.',
+    st3_h:'1-UP schnappen', st3_p:'Du hast drei Leben. Ein 1-UP gibt dir eins zurück, also mitnehmen, wenn’s geht.',
+    f_l:'Funktionen', f_h:'Kleines Spiel, viel drin.', f_s:'Startet sofort, läuft flüssig auf jedem Bildschirm und behält deinen Spielstand über alle Updates.',
+    b1_h:'Online zu zweit', b1_p:'Raum erstellen, Code schicken, beide auf Bereit. VS: Wer länger überlebt, gewinnt. Koop: Ihr punktet zusammen, und mit einem 1-UP holst du deinen Partner zurück. Deine Figur reagiert sofort, auch mit Ping.',
+    r1:'Modus', r1v:'VS · Koop', r2:'Server', r2v:'offiziell oder dein eigener', r3:'Nach der Runde', r3v:'Rematch mit einem Klick',
+    b2_h:'Rangliste und Freunde', b2_p:'Highscores vergleichen, Freunde adden, Clans gründen und Nachrichten schreiben, alles im Spiel.',
+    b3_h:'Powers', b3_p:'Im Shop erdrehen und vor der Runde ausrüsten.',
+    b4_h:'Mach ihn zu deinem', b4_p:'Kopf, Augen, Nase und Mund haben eigene Plätze. Dazu elf Spuren.',
+    b5_h:'Replays und Geist', b5_p:'Jede Runde nochmal ansehen und gegen den Geist deines eigenen Rekordlaufs antreten.',
+    b6_h:'Tastatur oder Controller', b6_p:'Xbox-, PlayStation- und andere Gamepads gehen direkt, zwei davon für den 2-Spieler-Modus. Jede Taste lässt sich umbelegen.',
+    b7_h:'Lua-Mods', b7_p:'Eigene Hindernisse, Spielwerte und Modi als kleine .lua-Datei. Mods laufen in einer Sandbox und zählen getrennt.',
+    b8_h:'Eigene Texturen', b8_p:'Leg ein PNG oder SVG in einen Ordner textures neben dem Spiel, schon sehen dein Block, die Hindernisse oder ein Cosmetic anders aus. Lieber den alten Look? Einstellungen → Mehr → Legacy-Grafik.',
+    b9_h:'Aktualisiert sich selbst', b9_p:'Neue Versionen findet das Spiel beim Start und installiert sie mit einem Klick. Dein Spielstand bleibt, wo er ist.',
+    l_l:'Bilder', l_h:'So sieht’s aus.', l_s:'24 echte Screenshots direkt aus dem Spiel. Klick auf ein Bild, dann siehst du es groß.', g0:'Alle', g1:'Im Spiel', g2:'Menüs', g3:'Shop &amp; Inventar', g4:'Profil &amp; mehr',
+    d_l:'Download', d_h:'Hol dir JumpNDodge.', d_s:'Für alle kostenlos. System wählen, jede Datei kommt direkt aus dem neuesten GitHub-Release.',
+    d_note:'Die macOS-App ist nicht von Apple beglaubigt: beim ersten Mal Rechtsklick → Öffnen. Ältere Versionen, auch die Python-Version, liegen im <a href="https://github.com/erqf1/JumpNDodge-Archive/releases">Archiv</a>.',
+    q_h:'Fragen',
+    q1:'Ist es wirklich kostenlos?', q1a:'Ja. JumpNDodge ist Open Source unter der Apache-2.0-Lizenz, ohne Werbung und ohne In-App-Käufe. Coins gibt’s nur fürs Spielen.',
+    q2:'Geht mein Spielstand beim Update verloren?', q2a:'Nein. Der Installer aktualisiert an Ort und Stelle, der Ordner data bleibt. Auch die alte Python-Version holt sich die neue von selbst.',
+    q3:'Ich will den alten Look zurück.', q3a:'Einstellungen → Mehr → Legacy-Grafik: An. Dann zeichnet das Spiel alles wieder wie in Version 5.2.',
+    q4:'Kann ich eigene Texturen benutzen?', q4a:'Ja. Leg neben dem Spiel einen Ordner textures an und darin z. B. player.png, hazard.png, faller.png oder oneup.png. Cosmetics heißen cos_&lt;name&gt;, Spuren trail_&lt;name&gt;.',
+    q5:'Wo liegt mein Spielstand?', q5a:'Windows und portabel: im Ordner data neben dem Spiel. Linux-Paket: ~/.local/share/JumpNDodge/data. macOS: ~/Library/Application Support/JumpNDodge/data.',
+    q6:'Wie spiele ich online mit einem Freund?', q6a:'Online → Multiplayer, Raum erstellen und deinem Freund den Code schicken. Ihr braucht beide dieselbe Version. Eigener Server? Siehe <a href="server/">Server hosten</a>.',
+    cta_h:'Wie lange hältst du durch?', cta_s:'Runterladen, eigenen Highscore knacken, dann den deiner Freunde.', cta_b:'JumpNDodge herunterladen',
+    f_server:'Server hosten'
+  } };
+  var orig = {};
+  $$('[data-i18n]').forEach(function (el) { orig[el.dataset.i18n] = el.innerHTML; });
+  function applyLang(l) {
+    lang = l; document.documentElement.lang = l;
+    $$('[data-i18n]').forEach(function (el) { var k = el.dataset.i18n, v = l === 'en' ? orig[k] : (T[l] && T[l][k]); if (v != null) el.innerHTML = v; });
+    renderGallery();
+    showNews();
+    render();
+    try { localStorage.setItem('lang', l); } catch (e) {}
+  }
+  var sel = $('#lang'), saved = null;
+  try { saved = localStorage.getItem('lang'); } catch (e) {}
+  var start = saved && (saved === 'en' || T[saved]) ? saved : ((navigator.language || '').indexOf('de') === 0 ? 'de' : 'en');
+  sel.value = start;
+  sel.addEventListener('change', function () { applyLang(sel.value); });
+  applyLang(start);
+
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: .12 });
+    $$('.reveal').forEach(function (el) { io.observe(el); });
+  } else { $$('.reveal').forEach(function (el) { el.classList.add('in'); }); }
+})();
+</script>
+<!-- Linux-Download: Installationsbefehl als Fenster (der Download selbst läuft normal weiter) -->
+<style>
+  .lx-overlay { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 16px;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(3px); opacity: 0; transition: opacity .15s; }
+  .lx-overlay.show { opacity: 1; }
+  .lx-card { width: min(560px, 100%); border-radius: 18px; padding: 22px 22px 18px;
+    background: var(--card-solid, var(--card, #1c1f27)); color: var(--text, #eef0f5);
+    border: 1px solid var(--line2, var(--line, rgba(255,255,255,.14))); box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    font-family: inherit; }
+  .lx-card h3 { margin: 0 0 6px; font-size: 19px; }
+  .lx-card p { margin: 0 0 12px; opacity: .8; font-size: 14.5px; line-height: 1.5; }
+  .lx-cmd { display: flex; gap: 8px; align-items: stretch; margin: 0 0 12px; }
+  .lx-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 11px 13px; border-radius: 10px;
+    background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1); font: 13px ui-monospace, 'Cascadia Mono', Consolas, monospace; color: #e8ffe9; }
+  .lx-btn { border: 0; border-radius: 10px; padding: 0 14px; font-family: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer;
+    background: var(--accent, var(--a1, #4ade9b)); color: var(--accentText, #06150e); }
+  .lx-btn.ghost { background: transparent; color: inherit; border: 1px solid rgba(255,255,255,.18); height: 38px; }
+  .lx-note { font-size: 13px !important; opacity: .7 !important; }
+  .lx-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .lx-cmd code { background: #10131a; } }
+</style>
+<script>
+(function () {
+  var CFG = {
+    tar: function (f) { return 'mkdir -p ~/.local/opt/jumpndodge && tar xzf ~/Downloads/' + f + ' -C ~/.local/opt/jumpndodge && ~/.local/opt/jumpndodge/JumpNDodge'; },
+    extra: function () { return ''; }
+  };
+  var de = function () { return (document.documentElement.lang || navigator.language || '').indexOf('de') === 0; };
+  var T = {
+    title: ['Install on Linux', 'Unter Linux installieren'],
+    text: ['Your download has started. When it is done, open a terminal and run:', 'Der Download läuft. Wenn er fertig ist, öffne ein Terminal und führe aus:'],
+    copy: ['Copy', 'Kopieren'], copied: ['Copied ✓', 'Kopiert ✓'], close: ['Close', 'Schließen'],
+    deb: ['For Debian, Ubuntu, Mint, Pop!_OS …', 'Für Debian, Ubuntu, Mint, Pop!_OS …'],
+    arch: ['For Arch, Manjaro, EndeavourOS …', 'Für Arch, Manjaro, EndeavourOS …'],
+    tar: ['Works on any distribution (installs for your user only).', 'Läuft auf jeder Distribution (installiert nur für deinen Benutzer).']
+  };
+  var tr = function (k) { return T[k][de() ? 1 : 0]; };
+  function commandFor(href) {
+    var f = href.split('?')[0].split('#')[0].split('/').pop();
+    if (/\.deb$/i.test(f)) return { kind: 'deb', cmd: 'cd ~/Downloads && sudo apt install ./' + f };
+    if (/\.pkg\.tar\.zst$|\.pacman$/i.test(f)) return { kind: 'arch', cmd: 'cd ~/Downloads && sudo pacman -U ./' + f };
+    if (/\.tar\.gz$/i.test(f)) return { kind: 'tar', cmd: CFG.tar(f) };
+    return null;
+  }
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function show(c) {
+    var old = document.querySelector('.lx-overlay'); if (old) old.remove();
+    var ov = el('div', 'lx-overlay'), card = el('div', 'lx-card');
+    card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true');
+    card.appendChild(el('h3', '', tr('title')));
+    card.appendChild(el('p', '', tr('text')));
+    var row = el('div', 'lx-cmd'), code = el('code', '', c.cmd), copy = el('button', 'lx-btn', tr('copy'));
+    copy.type = 'button';
+    copy.onclick = function () {
+      var done = function () { copy.textContent = tr('copied'); setTimeout(function () { copy.textContent = tr('copy'); }, 1600); };
+      if (navigator.clipboard) navigator.clipboard.writeText(c.cmd).then(done, done); else done();
+    };
+    row.appendChild(code); row.appendChild(copy); card.appendChild(row);
+    card.appendChild(el('p', 'lx-note', tr(c.kind)));
+    if (CFG.extra) { var x = CFG.extra(c.kind, de()); if (x) card.appendChild(el('p', 'lx-note', x)); }
+    var foot = el('div', 'lx-foot'), close = el('button', 'lx-btn ghost', tr('close'));
+    close.type = 'button'; foot.appendChild(close); card.appendChild(foot);
+    ov.appendChild(card); document.body.appendChild(ov);
+    requestAnimationFrame(function () { ov.classList.add('show'); });
+    var shut = function () { ov.remove(); document.removeEventListener('keydown', onKey); };
+    var onKey = function (e) { if (e.key === 'Escape') shut(); };
+    close.onclick = shut;
+    ov.addEventListener('click', function (e) { if (e.target === ov) shut(); });
+    document.addEventListener('keydown', onKey);
+    copy.focus();
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    var c = commandFor(a.getAttribute('href'));
+    if (c) setTimeout(function () { show(c); }, 60);  // Download startet trotzdem normal
+  });
+})();
+</script>
 </body>
 </html>

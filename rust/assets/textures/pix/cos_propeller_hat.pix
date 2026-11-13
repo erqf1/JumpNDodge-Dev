@@ -1,0 +1,26 @@
+# Propellermütze (Flügel: cos_propeller_blade)
+zelle 4
+ursprung 48 -24
+schatten 2 2 #120a1e 0.45
+farbe G #c9c4d6
+farbe g #8a84a0
+raster
+G
+G
+g
+
+zelle 4
+ursprung 20 -12
+schatten 3 3 #120a1e 0.45
+farbe R #e8384f
+farbe Y #ffd23f
+farbe B #3a7bf0
+farbe b #2a5ac0
+farbe W #ffffff 0.7
+raster
+....RRYYYBB....
+..RWRRYYYBBBB..
+.RWRRRYYYBBBBR.
+RRRRRRYYYBBBBRR
+bbbbbbbbbbbbbbb
+

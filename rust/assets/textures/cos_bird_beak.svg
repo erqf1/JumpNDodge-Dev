@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="24" viewBox="39 57 44 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_bird_beak.pix - dort bearbeiten, nicht hier. -->
+  <!-- Vogelschnabel, zeigt nach rechts -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.35" d="M40 58h16v4h-16zM40 62h28v4h-28zM40 66h40v4h-40zM40 70h32v4h-32zM40 74h20v4h-20z"/>
+  <path fill="#b85c06" d="M40 74h20v4h-20z"/>
+  <path fill="#3a1a02" d="M44 62h4v4h-4z"/>
+  <path fill="#fff3a0" d="M40 66h40v4h-40z"/>
+  <path fill="#f29a1a" d="M40 70h32v4h-32z"/>
+  <path fill="#ffd23f" d="M40 58h16v4h-16zM40 62h4v4h-4zM48 62h20v4h-20z"/>
+</svg>

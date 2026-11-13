@@ -229,7 +229,8 @@ impl G {
         let eyes = c.gos("equipped_eyes").unwrap_or_default();
         let nose = c.gos("equipped_nose").unwrap_or_default();
         let mouth = c.gos("equipped_mouth").unwrap_or_default();
-        let rr = |col: (i32, i32, i32), x: i32, y: i32, w: i32, h: i32, width: i32, rad: i32| { draw::rect(s, col, rect(x, y, w, h), width, rad); };
+        if super::art::draw_cosmetics_tex(s, r, &hw, &eyes, &nose, &mouth, self.get_ticks()) { return; }
+        let rr =|col: (i32, i32, i32), x: i32, y: i32, w: i32, h: i32, width: i32, rad: i32| { draw::rect(s, col, rect(x, y, w, h), width, rad); };
         let (cx, cy, top) = (r.centerx(), r.centery(), r.top());
         match hw.as_str() {
             "yellow_crown" => {

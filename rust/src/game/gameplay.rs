@@ -80,6 +80,17 @@ pub fn draw_trail_particles(bs: &Surface, trail: &str, ps: &[Particle]) {
         let progress = p.life / p.max_life;
         if progress <= 0.0 { continue; }
         let radius = 1.max((p.size * progress * trail_size_mult(trail)) as i32);
+        if !super::art::legacy() {
+            // Texturen: etwas größer als die alten Punkte, blenden mit dem Lebensende aus
+            let size = (p.size * trail_size_mult(trail) * (0.5 + 0.5 * progress) * 2.3).max(3.0);
+            let hue = if trail == "rainbow_trail" {
+                let h = ((p.angle / 30.0).floor() * 30.0 / 360.0).rem_euclid(1.0);
+                let (r, g, b) = hsv_to_rgb(h, 0.8, 1.0);
+                Some(((r * 255.0) as i32, (g * 255.0) as i32, (b * 255.0) as i32))
+            } else { None };
+            let alpha = (progress as f32).clamp(0.0, 1.0);
+            if super::art::draw_trail_tex(bs, trail, p.x, p.y, size, alpha, hue) { continue; }
+        }
         let color: (i32, i32, i32) = match trail {
             "fire_trail" => {
                 let b = cc(200 + (55.0 * progress) as i32);

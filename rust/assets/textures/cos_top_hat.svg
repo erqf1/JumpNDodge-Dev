@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="65" height="57" viewBox="19 -51 65 57" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_top_hat.pix - dort bearbeiten, nicht hier. -->
+  <!-- Zylinder -->
+  <path transform="translate(3 3)" fill="#120a1e" opacity="0.45" d="M32 -50h36v4h-36zM32 -46h36v4h-36zM32 -42h36v4h-36zM32 -38h36v4h-36zM32 -34h36v4h-36zM32 -30h36v4h-36zM32 -26h36v4h-36zM32 -22h36v4h-36zM32 -18h36v4h-36zM32 -14h36v4h-36zM20 -10h60v4h-60zM20 -6h60v4h-60zM24 -2h52v4h-52z"/>
+  <path fill="#2a2534" d="M32 -50h36v4h-36zM36 -46h28v4h-28zM36 -42h28v4h-28zM36 -38h28v4h-28zM36 -34h28v4h-28zM36 -30h28v4h-28zM36 -26h28v4h-28zM36 -14h28v4h-28zM20 -6h60v4h-60z"/>
+  <path fill="#15121c" d="M64 -46h4v4h-4zM64 -42h4v4h-4zM64 -38h4v4h-4zM64 -34h4v4h-4zM64 -30h4v4h-4zM64 -26h4v4h-4zM64 -14h4v4h-4zM24 -2h52v4h-52z"/>
+  <path fill="#4b4560" d="M32 -46h4v4h-4zM32 -42h4v4h-4zM32 -38h4v4h-4zM32 -34h4v4h-4zM32 -30h4v4h-4zM32 -26h4v4h-4zM32 -14h4v4h-4zM20 -10h60v4h-60z"/>
+  <path fill="#c81d38" d="M32 -18h36v4h-36z"/>
+  <path fill="#ff6a7e" d="M32 -22h36v4h-36z"/>
+</svg>

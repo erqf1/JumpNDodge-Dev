@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="39 45 24 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_clown_nose.pix - dort bearbeiten, nicht hier. -->
+  <!-- Clown-Nase -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.35" d="M44 46h12v4h-12zM40 50h20v4h-20zM40 54h20v4h-20zM40 58h20v4h-20zM44 62h12v4h-12z"/>
+  <path fill="#9a0a18" d="M56 58h4v4h-4zM44 62h12v4h-12z"/>
+  <path fill="#ff8a8a" d="M48 50h4v4h-4zM44 54h4v4h-4z"/>
+  <path fill="#e8182c" d="M44 46h12v4h-12zM40 50h4v4h-4zM52 50h8v4h-8zM40 54h4v4h-4zM48 54h12v4h-12zM40 58h16v4h-16z"/>
+  <path fill="#ffffff" d="M44 50h4v4h-4z"/>
+</svg>

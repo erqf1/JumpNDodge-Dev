@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/trail_smoke_trail.pix - dort bearbeiten, nicht hier. -->
+  <!-- Rauchspur -->
+  <path fill="#8f89a3" d="M29 71h42v14h-42z"/>
+  <path fill="#b8b2c8" d="M57 29h14v14h-14zM29 43h70v14h-70zM1 57h98v14h-98zM15 71h14v14h-14zM71 71h14v14h-14z"/>
+  <path fill="#f0eef6" d="M29 15h28v14h-28zM15 29h42v14h-42zM71 29h14v14h-14zM1 43h28v14h-28z"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="62" height="26" viewBox="19 -37 62 26" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_halo.pix - dort bearbeiten, nicht hier. -->
+  <!-- Heiligenschein -->
+  <path fill="#ffe680" opacity="0.35" d="M32 -36h36v4h-36zM28 -32h4v4h-4zM68 -32h4v4h-4zM24 -28h4v4h-4zM72 -28h4v4h-4zM24 -24h4v4h-4zM72 -24h4v4h-4zM28 -20h4v4h-4zM68 -20h4v4h-4zM32 -16h36v4h-36z"/>
+  <path fill="#fff6c0" d="M32 -32h36v4h-36zM28 -28h4v4h-4zM68 -28h4v4h-4z"/>
+  <path fill="#d49a10" d="M28 -24h4v4h-4zM68 -24h4v4h-4zM32 -20h36v4h-36z"/>
+  <path fill="#ffd84a" d="M32 -28h4v4h-4zM64 -28h4v4h-4zM32 -24h4v4h-4zM64 -24h4v4h-4z"/>
+</svg>

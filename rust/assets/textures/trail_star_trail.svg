@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/trail_star_trail.pix - dort bearbeiten, nicht hier. -->
+  <!-- Sternenspur -->
+  <path fill="#9ec0ff" d="M43 57h14v14h-14zM29 71h14v14h-14zM57 71h14v14h-14zM1 85h14v14h-14zM85 85h14v14h-14z"/>
+  <path fill="#eaf2ff" d="M43 1h14v14h-14zM29 15h42v14h-42zM1 29h98v14h-98zM15 43h70v14h-70zM29 57h14v14h-14zM57 57h14v14h-14zM15 71h14v14h-14zM71 71h14v14h-14z"/>
+</svg>

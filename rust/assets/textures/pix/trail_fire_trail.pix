@@ -1,0 +1,16 @@
+# Feuerspur
+zelle 14
+ursprung 1 1
+farbe Y #ffd23f
+farbe O #ff7a1a
+farbe R #d42a12
+farbe W #fff8d0
+raster
+...Y...
+..YY...
+..YYO..
+.OYWYO.
+.OYWYO.
+.ROOOR.
+..RRR..
+

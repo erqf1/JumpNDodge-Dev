@@ -2,10 +2,60 @@
 //! Alles wird prozedural gezeichnet (Verläufe, Kanten, Glanz) und als Sprite je Größe/Farbe/
 //! Auflösung zwischengespeichert - die Hitboxen bleiben exakt wie im Original.
 //! Farbregel: nie Orange und Grün zusammen (1-UP ist türkis statt grün).
+//!
+//! Seit 5.3: Standard sind die Texturen aus `assets/textures` (Pixel-Raster im Stil der Python-Version:
+//! flach, harte Schatten, Treppen-Ecken). Die bisherige Zeichnung im Code bleibt als "Legacy-Grafik"
+//! (Einstellung `legacy_art`).
 
 use crate::pg::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+
+thread_local! {
+    static LEGACY: Cell<bool> = const { Cell::new(false) };
+    static ANIM_T: Cell<f64> = const { Cell::new(0.0) };
+    static TEX: RefCell<HashMap<String, Option<(Surface, f64, f64)>>> = RefCell::new(HashMap::new());
+}
+/// Legacy-Grafik an/aus (wird jedes Bild aus den Einstellungen gesetzt)
+pub fn set_legacy(v: bool) { LEGACY.with(|c| c.set(v)); }
+pub fn legacy() -> bool { LEGACY.with(|c| c.get()) }
+/// Laufende Zeit in Sekunden für Animationen in Texturen (jedes Bild gesetzt)
+pub fn set_anim_time(t: f64) { ANIM_T.with(|c| c.set(t)); }
+pub fn anim_time() -> f64 { ANIM_T.with(|c| c.get()) }
+
+fn rgb8(c: Col) -> jnd_tex::Rgb { (c.0.clamp(0, 255) as u8, c.1.clamp(0, 255) as u8, c.2.clamp(0, 255) as u8) }
+pub fn pal(c: Col) -> Vec<(&'static str, String)> { jnd_tex::palette(rgb8(c)) }
+
+/// Textur so gerendert, dass ihr Body genau w x h logische Pixel groß ist. Liefert Fläche und Versatz
+/// zur linken oberen Ecke des Spiel-Rechtecks. Zwischengespeichert pro Größe, Farbe und Render-Faktor.
+pub fn tex(name: &str, vars: &[(&str, String)], w: f64, h: f64) -> Option<(Surface, f64, f64)> {
+    if w <= 0.5 || h <= 0.5 { return None; }
+    let k = surface::render_scale();
+    let mut key = format!("{name}|{:.2}x{:.2}@{:.3}", w, h, k);
+    for (a, b) in vars { key.push('|'); key.push_str(a); key.push('='); key.push_str(b); }
+    TEX.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 1500 { c.clear(); }
+        c.entry(key).or_insert_with(|| {
+            jnd_tex::render_fit(name, vars, w as f32, h as f32, k)
+                .map(|r| (Surface::from_pixmap_k(r.pixmap, k), r.off_x as f64, r.off_y as f64))
+        }).clone()
+    })
+}
+
+/// Textur auf das Spiel-Rechteck legen. false = Textur fehlt (dann zeichnet der Aufrufer Legacy).
+pub fn put(bs: &Surface, name: &str, vars: &[(&str, String)], r: Rect, opacity: f32) -> bool {
+    match tex(name, vars, r.w as f64, r.h as f64) {
+        Some((s, ox, oy)) => { bs.blit_f(&s, r.x as f64 + ox, r.y as f64 + oy, opacity); true }
+        None => false,
+    }
+}
+
+/// Eigene Texturen aus <Spielordner>/textures (überschreiben die eingebauten)
+pub fn init_texture_dir(base: &std::path::Path) {
+    let d = base.join("textures");
+    jnd_tex::set_override_dir(if d.is_dir() { Some(d) } else { None });
+}
 
 type Col = (i32, i32, i32);
 
@@ -46,6 +96,7 @@ const PAD: i32 = 6;
 /// Spielfigur: Verlauf, dunkler Rand, Glanzkante, weicher Schatten. `r` = gezeichnetes Rechteck.
 pub fn draw_player(bs: &Surface, r: Rect, color: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if !legacy() && put(bs, "player", &pal(color), r, 1.0) { return; }
     let rad = (r.w.min(r.h) / 5).max(4);
     let spr = cached(format!("p{}x{}:{:?}", r.w, r.h, color), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
@@ -67,6 +118,7 @@ pub fn draw_player(bs: &Surface, r: Rect, color: Col) {
 /// Geist (Rekordlauf): halbtransparente Spielfigur
 pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if !legacy() && put(bs, "player", &pal(lighten(color, 0.25)), r, 0.4) { return; }
     let spr = cached(format!("g{}x{}:{:?}", r.w, r.h, color), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
@@ -83,6 +135,10 @@ pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
 pub fn draw_hazard(bs: &Surface, r: Rect) { draw_hazard_c(bs, r, HAZARD) }
 pub fn draw_hazard_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if !legacy() {
+        draw_speed_streaks(bs, r, base);
+        if put(bs, "hazard", &pal(base), r, 1.0) { return; }
+    }
     let spr = cached(format!("h{}x{}:{:?}", r.w, r.h, base), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
@@ -112,6 +168,7 @@ pub fn draw_hazard_c(bs: &Surface, r: Rect, base: Col) {
 pub fn draw_faller(bs: &Surface, r: Rect) { draw_faller_c(bs, r, FALLER) }
 pub fn draw_faller_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if !legacy() && put(bs, "faller", &pal(base), r, 1.0) { return; }
     let spr = cached(format!("f{}x{}:{:?}", r.w, r.h, base), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
@@ -150,6 +207,11 @@ pub fn draw_oneup(bs: &Surface, r: Rect, t: f64, label_font: &Font) {
     if r.w <= 0 || r.h <= 0 { return; }
     let pulse = 0.5 + 0.5 * (t * 4.0).sin();
     draw::glow(bs, with_a(ONEUP, (60.0 + 50.0 * pulse) as i32), (r.centerx(), r.centery()), r.w as f32 * (0.85 + 0.12 * pulse as f32));
+    if !legacy() {
+        // kleines Wippen in ganzen Pixeln statt weichem Schweben (passt zum Pixel-Stil)
+        let bob = if (t * 3.0).sin() > 0.0 { -2 } else { 0 };
+        if put(bs, "oneup", &pal(ONEUP), Rect::new(r.x, r.y + bob, r.w, r.h), 1.0) { return; }
+    }
     let spr = cached(format!("o{}x{}", r.w, r.h), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
         let b = Rect::new(PAD, PAD, r.w, r.h);
@@ -168,8 +230,19 @@ pub fn draw_oneup(bs: &Surface, r: Rect, t: f64, label_font: &Font) {
     bs.blit(&spr, (r.x - PAD, r.y - PAD));
 }
 
-/// Boden: Linie mit Verlauf darunter und Markierungen, die mit dem Tempo vorbeiziehen
-pub fn draw_floor(bs: &Surface, w: i32, h: i32, floor_y: i32, scroll: f64, dark: bool) {
+/// Boden. Steht still - die Hindernisse bewegen sich selbst (Nutzerwunsch), `_scroll` wird ignoriert.
+pub fn draw_floor(bs: &Surface, w: i32, h: i32, floor_y: i32, _scroll: f64, dark: bool) {
+    if !legacy() {
+        let name = if dark { "floor" } else { "floor_light" };
+        if let Some((tile, ox, oy)) = tex(name, &[], 96.0, 48.0) {
+            let band = if dark { (36, 34, 58) } else { (211, 201, 246) };
+            if floor_y + 48 < h { draw::rect(bs, band, Rect::new(0, floor_y + 48, w, h - floor_y - 48), 0, 0); }
+            let mut x = 0;
+            while x < w { bs.blit_f(&tile, x as f64 + ox, floor_y as f64 + oy, 1.0); x += 96; }
+            return;
+        }
+    }
+    let scroll = 0.0f64;
     let (line_c, glow_c, band_top, band_bot, tick) = if dark {
         ((150, 100, 235), (120, 80, 220, 70), (44, 34, 74), (24, 22, 34), (90, 70, 150))
     } else {
@@ -204,6 +277,76 @@ pub fn background(w: i32, h: i32, dark: bool) -> Surface {
         }
         s
     })
+}
+
+/// Fahrtstreifen rechts neben einem Bodenhindernis: zeigt, dass es selbst fährt (Boden steht still).
+/// Drei Balken im Pixel-Stil, flackern leicht.
+pub fn draw_speed_streaks(bs: &Surface, r: Rect, base: Col) {
+    let frame = ((anim_time() * 14.0) as i64 + (r.x as i64 / 7)).rem_euclid(3) as i32;
+    let spr = cached(format!("streak{}x{}:{:?}:{}", r.w, r.h, base, frame), || {
+        let (w, h) = (r.w * 3 / 4 + 8, r.h);
+        let s = Surface::new_alpha(w, h);
+        let c = lighten(base, 0.35);
+        let u = (r.h / 12).max(2);
+        let lens = [[0.55, 0.85, 0.4], [0.7, 0.75, 0.5], [0.5, 1.0, 0.35]][frame as usize];
+        for (i, (yf, a)) in [(0.22, 150), (0.5, 110), (0.76, 70)].iter().enumerate() {
+            let len = ((w - 4) as f64 * lens[i]) as i32;
+            draw::rect(&s, with_a(c, *a), Rect::new(4, (h as f64 * yf) as i32 - u / 2, len, u), 0, 0);
+        }
+        // Staubkrümel
+        draw::rect(&s, with_a((170, 160, 210), 120), Rect::new(2 + frame * 3, h - u * 2, u, u), 0, 0);
+        draw::rect(&s, with_a((170, 160, 210), 80), Rect::new(8 + frame * 4, h - u * 3, u, u), 0, 0);
+        s
+    });
+    bs.blit(&spr, (r.right() + 2, r.y));
+}
+
+/// Cosmetics der Spielfigur als Texturen. Reihenfolge: Kopf, dann Gesicht (Brille liegt über dem Stirnband).
+pub fn draw_cosmetics_tex(bs: &Surface, r: Rect, head: &str, eyes: &str, nose: &str, mouth: &str, ticks: i64) -> bool {
+    if legacy() { return false; }
+    let none: Vec<(&str, String)> = vec![];
+    if !head.is_empty() {
+        put(bs, &format!("cos_{head}"), &none, r, 1.0);
+        if head == "propeller_hat" {
+            // Flügel drehen: Breite folgt |cos|, in 12 Stufen (sonst zu viele Zwischenbilder)
+            let a = (ticks as f64 / 60.0).to_radians() * 6.0;
+            let spin = ((a.cos().abs() * 12.0).round() / 12.0).max(0.08);
+            put(bs, "cos_propeller_blade", &[("spin", format!("{spin:.3}"))], r, 1.0);
+        }
+    }
+    for c in [eyes, nose, mouth] { if !c.is_empty() { put(bs, &format!("cos_{c}"), &none, r, 1.0); } }
+    true
+}
+
+/// Symbol eines Cosmetics/einer Spur (Shop, Inventar). false = keine Textur.
+pub fn draw_icon_tex(bs: &Surface, key: &str, cx: i32, cy: i32, big: bool) -> bool {
+    if legacy() { return false; }
+    let name = if key.ends_with("_trail") { format!("trail_{key}") } else { format!("cos_{key}") };
+    let size = if big { 40.0 } else { 24.0 };
+    let k = surface::render_scale();
+    let ck = format!("icon:{name}:{size}@{k:.3}");
+    let spr = TEX.with(|c| {
+        let mut c = c.borrow_mut();
+        c.entry(ck).or_insert_with(|| {
+            let vars = vec![("hue", "#ff5ac8".to_string()), ("spin", "1".to_string())];
+            jnd_tex::render_icon(&name, &vars, size as f32, k).map(|pm| (Surface::from_pixmap_k(pm, k), 0.0, 0.0))
+        }).clone()
+    });
+    match spr {
+        Some((s, _, _)) => { bs.blit_f(&s, cx as f64 - size / 2.0, cy as f64 - size / 2.0, 1.0); true }
+        None => false,
+    }
+}
+
+/// Ein Spur-Partikel als Textur. `size` = Kantenlänge, `alpha` 0..1, `hue` nur für die Regenbogenspur.
+pub fn draw_trail_tex(bs: &Surface, trail: &str, x: f64, y: f64, size: f64, alpha: f32, hue: Option<Col>) -> bool {
+    if legacy() { return false; }
+    let sz = size.round().max(3.0);
+    let vars = match hue { Some(c) => vec![("hue", jnd_tex::hex(rgb8(c)))], None => vec![] };
+    match tex(&format!("trail_{trail}"), &vars, sz, sz) {
+        Some((s, ox, oy)) => { bs.blit_f(&s, (x - sz / 2.0).round() + ox, (y - sz / 2.0).round() + oy, alpha); true }
+        None => false,
+    }
 }
 
 /// Squash & Stretch beim Springen/Landen - nur Optik, die Hitbox bleibt

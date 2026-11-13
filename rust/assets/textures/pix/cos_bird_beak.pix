@@ -1,0 +1,16 @@
+# Vogelschnabel, zeigt nach rechts
+zelle 4
+ursprung 40 58
+schatten 2 2 #120a1e 0.35
+farbe Y #ffd23f
+farbe L #fff3a0
+farbe O #f29a1a
+farbe D #b85c06
+farbe K #3a1a02
+raster
+YYYY......
+YKYYYYY...
+LLLLLLLLLL
+OOOOOOOO..
+DDDDD.....
+

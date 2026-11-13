@@ -1,0 +1,10 @@
+[package]
+name = "jnd_tex"
+version.workspace = true
+edition = "2021"
+description = "JumpNDodge-Texturen: SVG-Dateien laden, einfärben und scharf rendern (geteilt von Spiel und Texturwerk)"
+license = "Apache-2.0"
+
+[dependencies]
+resvg = { version = "=0.45.1", default-features = false }
+tiny-skia = "0.11"

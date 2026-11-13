@@ -1,6 +1,6 @@
 # Stand der Rust Edition
 
-Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg013f` (enthält auch `main`)
+Letzte Aktualisierung: 2026-11-13 · Branch: `main`
 
 ## Fertig und veröffentlicht
 - **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
@@ -20,11 +20,20 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
   Hintergrund-Verlauf; nie Orange und Grün zusammen.
 - **F – Extras:** Effekte (Partikel, Wackeln), Replays + Rekord-Geist, Controller (Xbox/PlayStation, 2 Controller für 2P),
   sichere Lua-Mods (Hindernisse, Spielwerte, Modi, Ereignisse; Anleitung `LUA_MODS.md`).
+- **5.3.0 – neue Grafik (Stil C):** Alle Texturen sind jetzt Dateien in `assets/textures/` statt Code: flach wie die
+  Python-Version, harte Schatten, Treppen-Ecken, scharf in jeder Auflösung (gerendert mit resvg, Crate `tex/` = jnd_tex).
+  Quellen sind Pixel-Raster in `assets/textures/pix/*.pix` (Zeichen-Raster + Farbtabelle, siehe `tools/texturwerk/src/pix.rs`).
+  Werkzeug **Texturwerk** (`cargo run -p texturwerk --release -- <befehl>`): `pix` (Raster → SVG), `check`, `bogen` (Vorschau aller
+  Texturen), `szene` (Probe-Szene), `export`, `figur` (Spielfigur mit Cosmetics als PNG). Boden steht still, Bodenhindernisse
+  haben Fahrtstreifen, Cosmetics/Spuren/Shop-Symbole als Texturen, Menüknöpfe und Panels im selben Stil mit Reinfahr- und
+  Hover-Animation (`src/game/ui_c.rs`). **Einstellungen → Mehr → Legacy-Grafik** schaltet den alten Look zurück.
+  Eigene Texturen: Ordner `textures/` neben dem Spiel (`player.png`, `cos_<name>.svg` …). Dev-Konsole: `run equip <cosmetic>`.
+  Außerdem drin (war in 5.2.2 vorbereitet): Rangliste über mert.win, Multiplayer-Server play.mert.win.
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
 1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren
-   (`index.html`, `style.css`, `site.js`, `img/`, `server/index.html`). Für W Hub zusätzlich
+   (`index.html` im Aufbau der Line-Seiten, `img/` mit `shots/`, `tex/`, `figur/`; `style.css` + `site.js` braucht nur noch `server/index.html`). Für W Hub zusätzlich
    `website-update/hub/changelog-1.2.1.html` und `changelog-1.2.2.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
 2. **Offizieller Multiplayer-Server:** Im Spiel ist `play.mert.win` eingetragen (seit 5.2.2; jumpndodge.download gibt es nicht mehr).
    - Bei Cloudflare einen DNS-Eintrag `play` in der Zone mert.win (Typ A, deine öffentliche IPv4) anlegen – **„Nur DNS“ (graue Wolke)**,
@@ -36,9 +45,8 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
      sonst kann CasaOS es nicht ohne Login laden. Alternativ das Server-Zip (Linux) direkt starten.
    - Ohne eigene IPv4 (DS-Lite) bitte beim Anbieter eine IPv4 anfragen – Details auf der Seite „Server hosten“.
 3. **Rangliste über mert.win** (seit 5.2.2): Das Spiel ruft `https://mert.win/jump/api/...` auf. Die neue `nginx.conf` (Latein Trainer/latein-sync) leitet `/jump/api/` an den Ranglisten-Container (192.168.178.188:5000) weiter – hochladen, Container `latein-trainer` neu starten, Ranglisten-Container muss mit Port 5000 laufen. Der alte Tunnel für leaderboard.jumpndodge.download wird nicht mehr gebraucht.
-4. **Nachfolge-Routine „JumpNDodge Rust Edition – weitermachen nach Limit-Reset“** (claude.ai → Routinen):
-   Sie schaut auf `main` und kennt diesen Branch nicht. Entweder abschalten (alles ist erledigt) oder diesen Branch nach
-   `main` übernehmen (Pull Request). Ich durfte sie nicht ändern, weil du sie angelegt hast.
+4. **GitHub Actions:** Seit 11.11. starten keine Jobs mehr („recent account payments have failed or your spending limit needs
+   to be increased“). Unter github.com → Settings → Billing & plans beheben, dann Release 5.3.0 per Run workflow starten.
 5. **Linux-Nutzer der alten Python-Version** wechseln nicht automatisch (der alte Python-Updater verliert unter Linux das
    Ausführungsrecht): einmal `.deb`/Arch-Paket/`tar.gz` installieren – der Spielstand wird übernommen. Windows wechselt automatisch.
    Ab 5.0.1 heißt das Linux-Zip im Archiv `*-linux-portable.zip`, der alte Updater lässt Linux dann in Ruhe (geprüft).
@@ -53,6 +61,7 @@ Letzte Aktualisierung: 2026-11-11 · Arbeits-Branch: `claude/dazzling-hopper-gg0
 - Die Release-Läufe starten per Actions → „Rust Edition – Build & Release“ → Run workflow (Branch wählen, tag = vX.Y.Z).
 
 ## Offen / Ideen für später
-- Lua-Mods: eigene Powers im Shop, eigene Grafiken.
+- Lua-Mods: eigene Powers im Shop.
+- Restliche Bildschirme (Online-Hub, Rangliste, Chat) zeichnen Knöpfe teils noch selbst im alten Stil.
 - Online: Bestenliste für Online-Runden, Zuschauen.
 - GPU-Ausgabe (aktuell CPU über softbuffer – flüssig auch in 4K, aber eine GPU-Ausgabe würde Strom sparen).

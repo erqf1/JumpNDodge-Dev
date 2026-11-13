@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="107" height="107" viewBox="-1 -1 107 107" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/faller.pix - dort bearbeiten, nicht hier. -->
+  <!-- Hindernis von oben: Block mit Pfeil nach unten. Farbe = Hindernisfarbe. -->
+  <path transform="translate(5 5)" fill="{{s}}" d="M10 0h80v5h-80zM5 5h90v5h-90zM0 10h100v5h-100zM0 15h100v5h-100zM0 20h100v5h-100zM0 25h100v5h-100zM0 30h100v5h-100zM0 35h100v5h-100zM0 40h100v5h-100zM0 45h100v5h-100zM0 50h100v5h-100zM0 55h100v5h-100zM0 60h100v5h-100zM0 65h100v5h-100zM0 70h100v5h-100zM0 75h100v5h-100zM0 80h100v5h-100zM0 85h100v5h-100zM5 90h90v5h-90zM10 95h80v5h-80z"/>
+  <path fill="{{c3}}" d="M25 30h50v5h-50zM30 35h40v5h-40zM35 40h30v5h-30zM40 45h20v5h-20zM45 50h10v5h-10z"/>
+  <path fill="{{c}}" d="M10 0h80v5h-80zM5 5h5v5h-5zM35 5h60v5h-60zM0 10h5v5h-5zM10 10h90v5h-90zM0 15h5v5h-5zM10 15h90v5h-90zM0 20h5v5h-5zM10 20h90v5h-90zM0 25h5v5h-5zM10 25h90v5h-90zM0 30h25v5h-25zM75 30h25v5h-25zM0 35h30v5h-30zM70 35h30v5h-30zM0 40h35v5h-35zM65 40h35v5h-35zM0 45h40v5h-40zM60 45h40v5h-40zM0 50h45v5h-45zM55 50h45v5h-45zM0 55h100v5h-100zM0 60h100v5h-100zM0 65h100v5h-100zM0 70h100v5h-100zM0 75h100v5h-100z"/>
+  <path fill="{{d1}}" d="M0 80h100v5h-100zM0 85h100v5h-100zM5 90h90v5h-90zM10 95h80v5h-80z"/>
+  <path fill="{{c2}}" d="M10 5h25v5h-25zM5 10h5v5h-5zM5 15h5v5h-5zM5 20h5v5h-5zM5 25h5v5h-5z"/>
+</svg>

@@ -1,0 +1,20 @@
+# Gelbe Krone
+zelle 4
+ursprung 24 -30
+schatten 3 3 #120a1e 0.45
+farbe Y #ffd23f
+farbe L #fff3a0
+farbe O #c98a12
+farbe R #e8384f
+farbe B #3a7bf0
+raster
+L.....L.....L
+Y....YLY....Y
+YY...YYY...YY
+YYY.YYYYY.YYY
+YYYYYYYYYYYYY
+LLLLLLLLLLLLL
+YRYYYYBYYYYRY
+YYYYYYYYYYYYY
+OOOOOOOOOOOOO
+

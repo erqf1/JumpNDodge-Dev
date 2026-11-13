@@ -1,0 +1,22 @@
+# Propellerflügel - {{spin}} = Breite 0..1, das Spiel dreht damit
+zelle 4
+ursprung 12 -34
+transform translate(50 0) scale({{spin}} 1) translate(-50 0)
+farbe Y #ffd23f
+farbe L #fff3a0
+farbe O #c98a12
+raster
+.LLLLLLLL...LLLLLLLL.
+YYYYYYYYY...YYYYYYYYY
+.OOOOOOOO...OOOOOOOO.
+
+transform aus
+zelle 4
+ursprung 46 -34
+farbe R #e8384f
+farbe W #ffffff
+raster
+WR
+RR
+RR
+

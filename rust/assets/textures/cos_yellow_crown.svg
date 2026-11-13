@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="57" height="41" viewBox="23 -31 57 41" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_yellow_crown.pix - dort bearbeiten, nicht hier. -->
+  <!-- Gelbe Krone -->
+  <path transform="translate(3 3)" fill="#120a1e" opacity="0.45" d="M24 -30h4v4h-4zM48 -30h4v4h-4zM72 -30h4v4h-4zM24 -26h4v4h-4zM44 -26h12v4h-12zM72 -26h4v4h-4zM24 -22h8v4h-8zM44 -22h12v4h-12zM68 -22h8v4h-8zM24 -18h12v4h-12zM40 -18h20v4h-20zM64 -18h12v4h-12zM24 -14h52v4h-52zM24 -10h52v4h-52zM24 -6h52v4h-52zM24 -2h52v4h-52zM24 2h52v4h-52z"/>
+  <path fill="#3a7bf0" d="M48 -6h4v4h-4z"/>
+  <path fill="#fff3a0" d="M24 -30h4v4h-4zM48 -30h4v4h-4zM72 -30h4v4h-4zM48 -26h4v4h-4zM24 -10h52v4h-52z"/>
+  <path fill="#c98a12" d="M24 2h52v4h-52z"/>
+  <path fill="#e8384f" d="M28 -6h4v4h-4zM68 -6h4v4h-4z"/>
+  <path fill="#ffd23f" d="M24 -26h4v4h-4zM44 -26h4v4h-4zM52 -26h4v4h-4zM72 -26h4v4h-4zM24 -22h8v4h-8zM44 -22h12v4h-12zM68 -22h8v4h-8zM24 -18h12v4h-12zM40 -18h20v4h-20zM64 -18h12v4h-12zM24 -14h52v4h-52zM24 -6h4v4h-4zM32 -6h16v4h-16zM52 -6h16v4h-16zM72 -6h4v4h-4zM24 -2h52v4h-52z"/>
+</svg>

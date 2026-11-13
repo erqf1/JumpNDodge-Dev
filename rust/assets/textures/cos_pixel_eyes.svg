@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="32" viewBox="10 20 80 32" data-body="0 0 100 100" shape-rendering="crispEdges">
+  <!-- Pixel-Augen: bewusst kantig, mit Pixel-Glanz. Blicken leicht nach rechts (Laufrichtung). -->
+  <g>
+    <path d="M24 26 h16 v2 h2 v16 h-2 v2 h-16 v-2 h-2 v-16 h2 z" fill="#14101e"/>
+    <path d="M26 28 h12 v2 h2 v12 h-2 v2 h-12 v-2 h-2 v-12 h2 z" fill="#ffffff"/>
+    <rect x="26" y="40" width="14" height="2" fill="#d6d2e6"/>
+    <rect x="31" y="31" width="6" height="8" fill="#14101e"/>
+    <rect x="31" y="31" width="2" height="2" fill="#ffffff"/>
+  </g>
+  <g transform="translate(36 0)">
+    <path d="M24 26 h16 v2 h2 v16 h-2 v2 h-16 v-2 h-2 v-16 h2 z" fill="#14101e"/>
+    <path d="M26 28 h12 v2 h2 v12 h-2 v2 h-12 v-2 h-2 v-12 h2 z" fill="#ffffff"/>
+    <rect x="26" y="40" width="14" height="2" fill="#d6d2e6"/>
+    <rect x="31" y="31" width="6" height="8" fill="#14101e"/>
+    <rect x="31" y="31" width="2" height="2" fill="#ffffff"/>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24" viewBox="35 47 32 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_pig_nose.pix - dort bearbeiten, nicht hier. -->
+  <!-- Schweinenase -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.35" d="M40 48h20v4h-20zM36 52h28v4h-28zM36 56h28v4h-28zM36 60h28v4h-28zM40 64h20v4h-20z"/>
+  <path fill="#c25a7c" d="M40 64h20v4h-20z"/>
+  <path fill="#ffd2dd" d="M40 48h20v4h-20z"/>
+  <path fill="#7a2448" d="M40 56h4v4h-4zM56 56h4v4h-4zM40 60h4v4h-4zM56 60h4v4h-4z"/>
+  <path fill="#f59ab2" d="M36 52h28v4h-28zM36 56h4v4h-4zM44 56h12v4h-12zM60 56h4v4h-4zM36 60h4v4h-4zM44 60h12v4h-12zM60 60h4v4h-4z"/>
+</svg>

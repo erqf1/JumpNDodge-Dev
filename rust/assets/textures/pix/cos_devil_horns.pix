@@ -1,0 +1,18 @@
+# Teufelshörner
+zelle 4
+ursprung 2 -28
+schatten 3 3 #120a1e 0.45
+farbe R #e8384f
+farbe L #ff9a9a
+farbe D #9a1026
+raster
+L......................L
+RL....................LR
+RR....................RR
+DRL..................LRD
+DRRL................LRRD
+.DRRL..............LRRD.
+..DRRR............RRRD..
+...DRRR..........RRRD...
+....DDD..........DDD....
+

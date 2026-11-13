@@ -1,0 +1,34 @@
+{
+ "player": {
+  "ox": -0.5,
+  "oy": -0.5
+ },
+ "hazard": {
+  "ox": -0.5,
+  "oy": -0.5
+ },
+ "faller": {
+  "ox": -0.5,
+  "oy": -0.5
+ },
+ "oneup": {
+  "ox": -0.5,
+  "oy": -0.5
+ },
+ "floor": {
+  "ox": -1.0,
+  "oy": -1.0
+ },
+ "cos_yellow_crown": {
+  "ox": 11.5,
+  "oy": -15.5
+ },
+ "cos_sunglasses": {
+  "ox": -0.5,
+  "oy": 12.5
+ },
+ "cos_big_grin": {
+  "ox": 11.5,
+  "oy": 28.5
+ }
+}

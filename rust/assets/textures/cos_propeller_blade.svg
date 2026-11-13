@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="92" height="20" viewBox="8 -38 92 20" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_propeller_blade.pix - dort bearbeiten, nicht hier. -->
+  <!-- Propellerflügel - {{spin}} = Breite 0..1, das Spiel dreht damit -->
+  <g transform="translate(50 0) scale({{spin}} 1) translate(-50 0)">
+  <path fill="#fff3a0" d="M16 -34h32v4h-32zM60 -34h32v4h-32z"/>
+  <path fill="#c98a12" d="M16 -26h32v4h-32zM60 -26h32v4h-32z"/>
+  <path fill="#ffd23f" d="M12 -30h36v4h-36zM60 -30h36v4h-36z"/>
+  </g>
+  <path fill="#e8384f" d="M50 -34h4v4h-4zM46 -30h8v4h-8zM46 -26h8v4h-8z"/>
+  <path fill="#ffffff" d="M46 -34h4v4h-4z"/>
+</svg>

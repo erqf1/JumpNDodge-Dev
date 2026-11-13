@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="107" height="107" viewBox="-1 -1 107 107" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/oneup.pix - dort bearbeiten, nicht hier. -->
+  <!-- 1-UP: türkise Kapsel mit Pixel-Herz und 1UP. -->
+  <path transform="translate(5 5)" fill="{{s}}" d="M10 0h80v5h-80zM5 5h90v5h-90zM0 10h100v5h-100zM0 15h100v5h-100zM0 20h100v5h-100zM0 25h100v5h-100zM0 30h100v5h-100zM0 35h100v5h-100zM0 40h100v5h-100zM0 45h100v5h-100zM0 50h100v5h-100zM0 55h100v5h-100zM0 60h100v5h-100zM0 65h100v5h-100zM0 70h100v5h-100zM0 75h100v5h-100zM0 80h100v5h-100zM0 85h100v5h-100zM5 90h90v5h-90zM10 95h80v5h-80z"/>
+  <path fill="{{c}}" d="M10 0h80v5h-80zM5 5h5v5h-5zM35 5h60v5h-60zM0 10h5v5h-5zM10 10h90v5h-90zM0 15h5v5h-5zM10 15h25v5h-25zM45 15h10v5h-10zM65 15h35v5h-35zM0 20h5v5h-5zM10 20h20v5h-20zM70 20h30v5h-30zM0 25h5v5h-5zM10 25h20v5h-20zM70 25h30v5h-30zM0 30h35v5h-35zM65 30h35v5h-35zM0 35h40v5h-40zM60 35h40v5h-40zM0 40h45v5h-45zM55 40h45v5h-45zM0 45h100v5h-100zM0 50h100v5h-100zM0 55h30v5h-30zM35 55h5v5h-5zM45 55h5v5h-5zM55 55h5v5h-5zM75 55h25v5h-25zM0 60h25v5h-25zM35 60h5v5h-5zM45 60h5v5h-5zM55 60h5v5h-5zM65 60h5v5h-5zM75 60h25v5h-25zM0 65h30v5h-30zM35 65h5v5h-5zM45 65h5v5h-5zM55 65h5v5h-5zM75 65h25v5h-25zM0 70h30v5h-30zM35 70h5v5h-5zM45 70h5v5h-5zM55 70h5v5h-5zM65 70h35v5h-35zM0 75h30v5h-30zM35 75h5v5h-5zM55 75h5v5h-5zM65 75h35v5h-35z"/>
+  <path fill="{{d1}}" d="M0 80h100v5h-100zM0 85h100v5h-100zM5 90h90v5h-90zM10 95h80v5h-80z"/>
+  <path fill="#ff4d7e" d="M35 15h10v5h-10zM55 15h10v5h-10zM30 20h5v5h-5zM40 20h30v5h-30zM30 25h40v5h-40zM35 30h30v5h-30zM40 35h20v5h-20z"/>
+  <path fill="{{c2}}" d="M10 5h25v5h-25zM5 10h5v5h-5zM5 15h5v5h-5zM5 20h5v5h-5zM5 25h5v5h-5z"/>
+  <path fill="#ffffff" d="M30 55h5v5h-5zM40 55h5v5h-5zM50 55h5v5h-5zM60 55h15v5h-15zM25 60h10v5h-10zM40 60h5v5h-5zM50 60h5v5h-5zM60 60h5v5h-5zM70 60h5v5h-5zM30 65h5v5h-5zM40 65h5v5h-5zM50 65h5v5h-5zM60 65h15v5h-15zM30 70h5v5h-5zM40 70h5v5h-5zM50 70h5v5h-5zM60 70h5v5h-5zM30 75h5v5h-5zM40 75h15v5h-15zM60 75h5v5h-5z"/>
+  <path fill="#c0124a" d="M45 40h10v5h-10z"/>
+  <path fill="#ffc2d4" d="M35 20h5v5h-5z"/>
+</svg>

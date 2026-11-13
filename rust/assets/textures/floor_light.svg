@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="98" height="50" viewBox="-1 -1 98 50" data-body="0 0 96 48">
+  <!-- Erzeugt von "texturwerk pix" aus pix/floor_light.pix - dort bearbeiten, nicht hier. -->
+  <!-- Boden hell. -->
+  <path fill="#d3c9f6" d="M0 8h96v4h-96zM0 12h96v4h-96zM0 16h96v4h-96zM0 20h96v4h-96zM0 24h44v4h-44zM48 24h44v4h-44zM0 28h96v4h-96zM0 32h96v4h-96zM0 36h96v4h-96zM0 40h96v4h-96zM0 44h96v4h-96z"/>
+  <path fill="#6a4fd0" d="M0 0h96v4h-96z"/>
+  <path fill="#9b84e6" d="M0 4h24v4h-24zM48 4h24v4h-24z"/>
+  <path fill="#c2b6ee" d="M44 24h4v4h-4zM92 24h4v4h-4z"/>
+</svg>

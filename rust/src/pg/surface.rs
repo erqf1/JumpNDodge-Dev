@@ -100,6 +100,28 @@ impl Surface {
         Surface(Rc::new(RefCell::new(SurfInner { pm, w, h, srcalpha, alpha: None, clip: None, mask: None, k: 1.0 })))
     }
 
+    /// Fertig gerenderte Pixmap mit Faktor k (echte Pixel pro logischem Pixel), z.B. eine Textur
+    pub fn from_pixmap_k(pm: Pixmap, k: f32) -> Surface {
+        let w = (pm.width() as f32 / k).ceil() as i32;
+        let h = (pm.height() as f32 / k).ceil() as i32;
+        Surface(Rc::new(RefCell::new(SurfInner { pm, w, h, srcalpha: true, alpha: None, clip: None, mask: None, k })))
+    }
+
+    /// Blit an einer Kommaposition (auf echte Pixel gerundet) mit eigener Deckkraft - für Texturen
+    pub fn blit_f(&self, src: &Surface, x: f64, y: f64, opacity: f32) {
+        if opacity <= 0.0 || Rc::ptr_eq(&self.0, &src.0) { return; }
+        let sb = src.0.borrow();
+        let mut d = self.0.borrow_mut();
+        let k = d.k;
+        let r = k / sb.k;
+        let (tx, ty) = ((x as f32 * k).round(), (y as f32 * k).round());
+        let quality = if (r - 1.0).abs() < 1e-4 { FilterQuality::Nearest } else { FilterQuality::Bilinear };
+        let paint = PixmapPaint { opacity: opacity.min(1.0) * sb.alpha.map(|a| a as f32 / 255.0).unwrap_or(1.0), blend_mode: BlendMode::SourceOver, quality };
+        let mask = d.mask.take();
+        d.pm.draw_pixmap(0, 0, sb.pm.as_ref(), &paint, Transform::from_row(r, 0.0, 0.0, r, tx, ty), mask.as_ref());
+        d.mask = mask;
+    }
+
     pub fn get_width(&self) -> i32 { self.0.borrow().w }
     pub fn get_height(&self) -> i32 { self.0.borrow().h }
     pub fn get_size(&self) -> (i32, i32) { let s = self.0.borrow(); (s.w, s.h) }

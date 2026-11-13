@@ -528,12 +528,13 @@ impl G {
             format!("{}: {}", self.tde("Auto-Pause", "Auto pause"), on_off(fp)),
             format!("{}: {}", self.tde("Effekte", "Effects"), on_off(fxo)),
             format!("{}: {}", self.tde("Rekord-Geist", "Best-run ghost"), on_off(gho)),
+            format!("{}: {}", self.tde("Legacy-Grafik", "Legacy graphics"), on_off(self.settings.gb("legacy_art", false))),
             format!("{} (v{})", self.tde("Nach Updates suchen", "Check for updates"), env!("CARGO_PKG_VERSION")),
             "Experimental".to_string(), self.get_text("export_language"), self.get_text("back")];
-        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (110, 190, 150), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
+        let colors = [(100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (100, 160, 220), (110, 190, 150), (200, 150, 100), (150, 100, 200), (150, 150, 150)];
         let mut rects = vec![];
         for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(w / 2 - 180, 118 + i as i32 * 48, 360, 42);
+            let r = Rect::new(w / 2 - 180, 112 + i as i32 * 44, 360, 39);
             rects.push(r);
             let hv = r.collidepoint(mp) || self.nav_is_focused("settings_more_menu", i, texts.len());
             self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, border_color: Some(*c), hover_border_color: Some((200, 220, 255)), hover_border_width: Some(3), ..Default::default() });

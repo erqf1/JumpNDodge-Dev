@@ -60,6 +60,7 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("set_coins", "Coins setzen, z.B.: run set_coins 0"),
     ("unlock_all_powers", "Alle Powers freischalten"),
     ("unlock_all_cosmetics", "Alle Kosmetik-Items freischalten"),
+    ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
     ("give_power", "Eine bestimmte Power geben, z.B.: run give_power Double Jump"),
     ("set_difficulty", "Schwierigkeit setzen, z.B.: run set_difficulty Hardcore"),
     ("set_lang", "Sprache setzen, z.B.: run set_lang English"),
@@ -228,6 +229,15 @@ impl G {
                 self.powers_state.insert("owned".into(), json!(owned));
                 self.save_section("powers", None);
                 println!("[DEV] unlock_all_powers: {} neu freigeschaltet ({} gesamt)", added.len(), owned.len());
+            }
+            "equip" => {
+                let Some(key) = args.first().map(|s| s.to_string()) else { println!("[DEV] equip braucht einen Kosmetik-Schlüssel"); return true; };
+                let cat = super::cosmetics_inv::cosmetic_category(&key);
+                if cat.is_empty() { println!("[DEV] equip: unbekannt: {}", key); return true; }
+                if cat == "trail" { self.cosmetics_state.insert("equipped".into(), json!([key])); }
+                else { self.cosmetics_state.insert(format!("equipped_{}", cat), json!(key)); }
+                self.save_section("cosmetics", None);
+                println!("[DEV] equip {} ({})", key, cat);
             }
             "unlock_all_cosmetics" => {
                 let mut owned = self.cosmetics_state.gstrs("owned");

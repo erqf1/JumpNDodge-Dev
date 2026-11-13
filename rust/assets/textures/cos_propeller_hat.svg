@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="65" height="37" viewBox="19 -25 65 37" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_propeller_hat.pix - dort bearbeiten, nicht hier. -->
+  <!-- Propellermütze (Flügel: cos_propeller_blade) -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.45" d="M48 -24h4v4h-4zM48 -20h4v4h-4zM48 -16h4v4h-4z"/>
+  <path fill="#c9c4d6" d="M48 -24h4v4h-4zM48 -20h4v4h-4z"/>
+  <path fill="#8a84a0" d="M48 -16h4v4h-4z"/>
+  <path transform="translate(3 3)" fill="#120a1e" opacity="0.45" d="M36 -12h28v4h-28zM28 -8h44v4h-44zM24 -4h52v4h-52zM20 0h60v4h-60zM20 4h60v4h-60z"/>
+  <path fill="#3a7bf0" d="M56 -12h8v4h-8zM56 -8h16v4h-16zM56 -4h16v4h-16zM56 0h16v4h-16z"/>
+  <path fill="#e8384f" d="M36 -12h8v4h-8zM28 -8h4v4h-4zM36 -8h8v4h-8zM24 -4h4v4h-4zM32 -4h12v4h-12zM72 -4h4v4h-4zM20 0h24v4h-24zM72 0h8v4h-8z"/>
+  <path fill="#ffffff" opacity="0.7" d="M32 -8h4v4h-4zM28 -4h4v4h-4z"/>
+  <path fill="#ffd23f" d="M44 -12h12v4h-12zM44 -8h12v4h-12zM44 -4h12v4h-12zM44 0h12v4h-12z"/>
+  <path fill="#2a5ac0" d="M20 4h60v4h-60z"/>
+</svg>

@@ -1,0 +1,16 @@
+# 3D-Brille
+zelle 4
+ursprung 0 26
+schatten 2 2 #120a1e 0.4
+farbe W #f3eee2
+farbe D #b8ae9c
+farbe R #e8323c
+farbe C #29b6e8
+farbe L #ffffff 0.75
+raster
+WWWWWWWWWWWWWWWWWWWWWWWWW
+...WRLRRRRRW.WCLCCCCCW...
+...WRRRRRRRW.WCCCCCCCW...
+...WRRRRRRRWWWCCCCCCCW...
+...DDDDDDDDD.DDDDDDDDD...
+

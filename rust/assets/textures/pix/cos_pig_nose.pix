@@ -1,0 +1,15 @@
+# Schweinenase
+zelle 4
+ursprung 36 48
+schatten 2 2 #120a1e 0.35
+farbe P #f59ab2
+farbe L #ffd2dd
+farbe D #c25a7c
+farbe N #7a2448
+raster
+.LLLLL.
+PPPPPPP
+PNPPPNP
+PNPPPNP
+.DDDDD.
+

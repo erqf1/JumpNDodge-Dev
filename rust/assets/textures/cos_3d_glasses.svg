@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="104" height="24" viewBox="-1 25 104 24" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/cos_3d_glasses.pix - dort bearbeiten, nicht hier. -->
+  <!-- 3D-Brille -->
+  <path transform="translate(2 2)" fill="#120a1e" opacity="0.4" d="M0 26h100v4h-100zM12 30h36v4h-36zM52 30h36v4h-36zM12 34h36v4h-36zM52 34h36v4h-36zM12 38h76v4h-76zM12 42h36v4h-36zM52 42h36v4h-36z"/>
+  <path fill="#29b6e8" d="M56 30h4v4h-4zM64 30h20v4h-20zM56 34h28v4h-28zM56 38h28v4h-28z"/>
+  <path fill="#b8ae9c" d="M12 42h36v4h-36zM52 42h36v4h-36z"/>
+  <path fill="#ffffff" opacity="0.75" d="M20 30h4v4h-4zM60 30h4v4h-4z"/>
+  <path fill="#e8323c" d="M16 30h4v4h-4zM24 30h20v4h-20zM16 34h28v4h-28zM16 38h28v4h-28z"/>
+  <path fill="#f3eee2" d="M0 26h100v4h-100zM12 30h4v4h-4zM44 30h4v4h-4zM52 30h4v4h-4zM84 30h4v4h-4zM12 34h4v4h-4zM44 34h4v4h-4zM52 34h4v4h-4zM84 34h4v4h-4zM12 38h4v4h-4zM44 38h12v4h-12zM84 38h4v4h-4z"/>
+</svg>

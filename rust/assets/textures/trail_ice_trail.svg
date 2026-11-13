@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" data-body="0 0 100 100">
+  <!-- Erzeugt von "texturwerk pix" aus pix/trail_ice_trail.pix - dort bearbeiten, nicht hier. -->
+  <!-- Eisspur -->
+  <path fill="#6ab8f2" d="M57 15h14v14h-14zM57 29h28v14h-28zM57 43h28v14h-28zM43 57h28v14h-28zM29 71h28v14h-28z"/>
+  <path fill="#2f7ac0" d="M85 43h14v14h-14zM71 57h14v14h-14zM57 71h14v14h-14zM43 85h14v14h-14z"/>
+  <path fill="#bfe8ff" d="M43 15h14v14h-14zM29 29h28v14h-28zM15 43h42v14h-42zM15 57h28v14h-28z"/>
+  <path fill="#ffffff" d="M43 1h14v14h-14zM29 15h14v14h-14zM15 29h14v14h-14zM1 43h14v14h-14z"/>
+</svg>
