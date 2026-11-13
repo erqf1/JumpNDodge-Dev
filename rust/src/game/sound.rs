@@ -50,6 +50,13 @@ impl G {
             if self.oneup_sound.is_none() { self.oneup_sound = mk(self, super::synth::oneup); }
             if self.gameover_sound.is_none() { self.gameover_sound = mk(self, super::synth::gameover); }
         }
+        {
+            // Spielgefühl-Klänge gibt es nur eingebaut
+            let sr = self.mixer.sample_rate as f64;
+            let ch = self.mixer.channels as usize;
+            self.combo_sound = Some(self.mixer.sound_from_i16(&super::synth::to_i16(&super::synth::combo(sr), ch), ch as u16, sr as u32));
+            self.near_sound = Some(self.mixer.sound_from_i16(&super::synth::to_i16(&super::synth::near_miss(sr), ch), ch as u16, sr as u32));
+        }
         let get_path = |f: &str| -> Option<String> { let p = base_path.join(f); if p.exists() { Some(p.to_string_lossy().to_string()) } else { None } };
         self.menu_music_path = get_path("menu_music.mp3");
         self.INGAME_MUSIC_TRACKS = G::_discover_ingame_music_tracks(&base_path);
@@ -89,6 +96,8 @@ impl G {
             Snd::GameOver => self.gameover_sound.clone(),
             Snd::Heartbeat => self.heartbeat_sound.clone(),
             Snd::OneUp => self.oneup_sound.clone(),
+            Snd::Combo => self.combo_sound.clone(),
+            Snd::NearMiss => self.near_sound.clone(),
             Snd::None => None,
         }
     }

@@ -185,35 +185,9 @@ impl G {
     /// Wird einmal pro Fenstergröße in voller Stärke gezeichnet und dann nur mit der Puls-Deckkraft
     /// drübergelegt - vorher entstanden jedes Bild drei bildschirmgroße Flächen (starker Lag bei 1 Leben).
     pub fn draw_almost_dead_vignette(&self, pulse: f64) {
-        thread_local! { static VIG: std::cell::RefCell<Option<((i32, i32, u32), Surface)>> = const { std::cell::RefCell::new(None) }; }
-        let bs = self.base_surface.clone();
+        // direkt auf die Randpixel (vorher eine bildschirmgroße Alpha-Fläche pro Bild: starker Lag bei 1 Leben)
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let key = (w, h, crate::pg::surface::render_scale().to_bits());
-        let vig = VIG.with(|c| {
-            let mut c = c.borrow_mut();
-            if let Some((k, s)) = c.as_ref() { if *k == key { return s.clone(); } }
-            let s = Surface::new_alpha(w, h);
-            let layers = 30;
-            let (vig_top, vig_side) = (h / 3, w / 5);
-            for li in 0..layers {
-                let frac = (layers - li) as f64 / layers as f64;
-                let a = (90.0 * frac.powf(1.6)) as i32;
-                let sh = 1.max(vig_top / layers + 2);
-                draw::rect(&s, (210, 0, 0, a), Rect::new(0, li * (vig_top / layers), w, sh), 0, 0);
-            }
-            let side = Surface::new_alpha(vig_side, h);
-            for li in 0..layers {
-                let frac = (layers - li) as f64 / layers as f64;
-                let a = (90.0 * frac.powf(1.6)) as i32;
-                let sw = 1.max(vig_side / layers + 2);
-                draw::rect(&side, (210, 0, 0, a), Rect::new(li * (vig_side / layers), 0, sw, h), 0, 0);
-            }
-            s.blit(&side, (0, 0));
-            s.blit(&transform::flip(&side, true, false), (w - vig_side, 0));
-            *c = Some((key, s.clone()));
-            s
-        });
-        bs.blit_f(&vig, 0.0, 0.0, pulse.clamp(0.0, 1.0) as f32);
+        self.base_surface.edge_vignette((210, 0, 0), h / 4, w / 6, 100.0, pulse);
     }
 
     /// Ende einer Runde (in Python zweimal identisch im Kollisionscode)
@@ -366,19 +340,34 @@ impl G {
         // Spielgefühl: kurzer Halt bei Treffern, Punkte-Hüpfer im HUD
         let mut hitstop_ms = 0.0f64;
         let mut score_bump_ms = 0.0f64;
+        // Combo: Hindernisse am Stück ohne Treffer (nur Anzeige, ändert keine Punkte/Coins)
+        let mut combo: u32 = 0;
+        let mut combo_flash_ms = 0.0f64;
+        // kurze Zeitlupe nach "Knapp!"
+        let mut slowmo_ms = 0.0f64;
+        // Spur-Band: letzte Spielerpositionen (wandern mit der Welt nach links)
+        let mut ribbon: std::collections::VecDeque<Option<(f64, f64)>> = std::collections::VecDeque::new();
+        let has_trail = !self.equipped_trails().is_empty();
         // Aufzeichnung (Replay) und Geist des Rekordlaufs
         let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
         let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
         let dark_round = self.is_dark_mode();
+        let perf = super::art::perf_on();
         loop {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
             let fps = self.target_fps();
             let frame_ms = clock.tick_f(fps).min(250.0);
+            let _pf = std::time::Instant::now();
+            super::art::pmark("START");
             // Hit-Stop: die Logik hält ganz kurz an, gezeichnet wird weiter
-            if hitstop_ms > 0.0 { hitstop_ms -= frame_ms; } else { acc_ms += frame_ms; }
+            if hitstop_ms > 0.0 { hitstop_ms -= frame_ms; }
+            else if slowmo_ms > 0.0 { slowmo_ms -= frame_ms; acc_ms += frame_ms * 0.45; }
+            else { acc_ms += frame_ms; }
             score_bump_ms = (score_bump_ms - frame_ms).max(0.0);
+            combo_flash_ms = (combo_flash_ms - frame_ms).max(0.0);
             self.fill_bg(true);
+            super::art::pmark("bg");
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
             if self.settings.gb("show_floor_line", true) && !free_roam {
@@ -386,6 +375,7 @@ impl G {
                 let dark = self.is_dark_mode();
                 super::art::draw_floor(&bs, w, h, h - 48, fs, dark);
             }
+            super::art::pmark("floor");
             for ev in self.event_get() {
                 match ev {
                     Event::Quit => self.quit(),
@@ -499,7 +489,9 @@ impl G {
                         for _ in 0..trail_particle_count(t) {
                             let (sx, vx) = if left_down { (player.right() as f64 + uniform(-5.0, 5.0), uniform(-3.0, -0.5)) }
                                 else if right_down { (player.left() as f64 + uniform(-5.0, 5.0), uniform(0.5, 3.0)) }
-                                else { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) };
+                                else if super::art::legacy() { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) }
+                                // neue Grafik: hinten am Spieler raus und mit der Welt nach links ziehen
+                                else { (player.left() as f64 + uniform(0.0, player.w as f64 * 0.35), uniform(-2.2, -0.4) - speed * 0.45) };
                             list.push(spawn_trail_particle(t, sx, vx, player.centery() as f64));
                         }
                     }
@@ -554,6 +546,13 @@ impl G {
                 }
                 let current_speed = speed * rp.speed_multiplier();
             floor_scroll += current_speed;
+                if has_trail {
+                    for p in ribbon.iter_mut().flatten() { p.0 -= current_speed; }
+                    // nur in der Luft: das Band zeichnet die Sprungbögen nach und zieht dann mit der Welt weg
+                    let air = is_jumping || player.bottom() < h - 50;
+                    ribbon.push_front(if air { Some((player.centerx() as f64 - player.w as f64 * 0.3, player.centery() as f64)) } else { None });
+                    ribbon.truncate(18);
+                }
                 let fall_speed = (current_speed * 0.85).max(2.0);
                 let score_before = score;
                 let mut passed: Vec<Rect> = vec![];
@@ -578,15 +577,31 @@ impl G {
                     if off { obstacles.remove(i); score += 1; continue; }
                     i += 1;
                 }
-                if fx_on {
-                    // Knapp drüber: Spieler war beim Vorbeiziehen nur wenige Pixel über dem Hindernis
-                    for o in &passed {
-                        if hit_invuln == 0 && player.bottom() <= o.top() && player.bottom() >= o.top() - 14 {
-                            let s = self.small_font.render(&self.tde("Knapp!", "Close!"), true, super::ui_c::readable(super::ui_c::ACCENT, dark_round));
-                            fx.pop(player.centerx() as f64, (player.top() - 18) as f64, s, 650.0, 1.4);
-                            fx.sparkle(player.centerx() as f64, player.bottom() as f64, super::ui_c::ACCENT, 8);
-                        }
+                for o in &passed {
+                    let before = combo;
+                    combo += 1;
+                    let close = hit_invuln == 0 && player.bottom() <= o.top() && player.bottom() >= o.top() - 14;
+                    if close { combo += 1; }
+                    if !fx_on { continue; }
+                    if close {
+                        // Knapp drüber: Spieler war beim Vorbeiziehen nur wenige Pixel über dem Hindernis
+                        let s = self.small_font.render(&self.tde("Knapp!", "Close!"), true, super::ui_c::readable(super::ui_c::ACCENT, dark_round));
+                        fx.pop(player.centerx() as f64, (player.top() - 18) as f64, s, 650.0, 1.4);
+                        fx.sparkle(player.centerx() as f64, player.bottom() as f64, super::ui_c::ACCENT, 10);
+                        slowmo_ms = 170.0;
+                        self.play_sound(Snd::NearMiss);
                     }
+                    // Meilensteine: 10, 25, 50, 75, 100 ... (auch wenn "Knapp" zwei auf einmal gibt)
+                    let mark = [10u32].into_iter().chain((1..200).map(|i| i * 25)).find(|m| before < *m && combo >= *m);
+                    if let Some(m) = mark {
+                        let col = super::ui_c::readable((90, 200, 230), dark_round);
+                        fx.pop((w / 2) as f64, 140.0, self.menu_font.render(&format!("Combo x{}!", m), true, col), 1100.0, 0.6);
+                        fx.sparkle((w / 2) as f64, 150.0, (90, 200, 230), 22);
+                        combo_flash_ms = 400.0;
+                        self.play_sound(Snd::Combo);
+                    }
+                }
+                if fx_on {
                     if score > score_before {
                         score_bump_ms = 160.0;
                         let big = score % 25 == 0;
@@ -667,10 +682,15 @@ impl G {
                             lives -= 1;
                             hit_invuln = 750;
                             self.play_sound_v(Snd::Hit, "hit_volume");
+                            if fx_on && combo >= 5 {
+                                let s = self.tab_font.render(&format!("{} x{}", self.tde("Combo weg", "Combo lost"), combo), true, if dark_round { (170, 166, 190) } else { (110, 106, 130) });
+                                fx.pop(player.centerx() as f64, (player.top() - 22) as f64, s, 800.0, 0.8);
+                            }
+                            combo = 0;
                             if fx_on {
                                 fx.burst(player.centerx() as f64, player.centery() as f64, super::art::HAZARD, 22);
                                 hitstop_ms = 70.0;
-                                if self.flash_timer < 300.0 { self.flash_timer = 300.0; }
+                                if self.flash_timer < 220.0 { self.flash_timer = 220.0; }
                             }
                             self.shake(7.0);
                             if modded { self.mods.on_hit(score, lives); }
@@ -735,6 +755,7 @@ impl G {
                     heartbeat_timer = 0;
                 }
             }
+            super::art::pmark("logic");
             let alpha = (acc_ms / LOGIC_TICK_MS).clamp(0.0, 1.0);
             // ---- Zeichnen ----
             let show_player = hit_invuln == 0 || (self.get_ticks() / 80) % 2 == 0;
@@ -762,7 +783,21 @@ impl G {
                     bs.blit(&lbl, (gr.centerx() - lbl.get_width() / 2, gr.top() - lbl.get_height() - 2));
                 }
             }
+            super::art::pmark("objs");
+            if has_trail && !super::art::legacy() && show_player {
+                if let Some(t) = self.equipped_trails().first() {
+                    // aktueller Punkt = gezeichnete (interpolierte) Position
+                    let mut pts: Vec<Option<(f64, f64)>> = ribbon.iter().copied().collect();
+                    if let Some(Some(f)) = pts.first_mut() { *f = (dplayer.centerx() as f64 - dplayer.w as f64 * 0.3, dplayer.centery() as f64); }
+                    super::art::draw_trail_ribbon(&bs, &pts, dplayer.h as f64 * 0.5, t);
+                }
+            }
+            // Spur-Partikel hinter dem Spieler (vorher darüber - verdeckte den Körper)
+            if !super::art::legacy() {
+                for t in self.equipped_trails() { if let Some(l) = trails.get(&t) { draw_trail_particles(&bs, &t, l); } }
+            }
             fx.draw(&bs);
+            super::art::pmark("fx");
             if show_player { super::art::draw_player(&bs, dplayer, self.get_player_color()); }
             if show_player { self.draw_player_cosmetics(&bs, dplayer, None); }
             if wind_h || wind_v {
@@ -778,6 +813,7 @@ impl G {
                     bs.blit(&layer, (0, 0));
                 }
             }
+            super::art::pmark("player+wind");
             let lh = 22;
             let (tx, ty) = (12, 10);
             let elapsed = (now_secs() - round_start) as i64;
@@ -792,6 +828,19 @@ impl G {
             }
             let sw = self.small_font.size(&lines[0]).0;
             self.hud_text(&format!("{}s", elapsed), tx + sw + 14, ty);
+            if combo >= 3 && fx_on {
+                // Combo-Zähler unter dem HUD, färbt sich mit wachsender Combo
+                let cy = ty + if wind_h || wind_v { 5 } else { 4 } * lh + 4;
+                let f = (combo as f64 / 30.0).min(1.0);
+                let dk = self.is_dark_mode();
+                let base = if dk { (230, 235, 255) } else { (20, 20, 50) };
+                let col = super::ui_c::mix(base, super::ui_c::readable((90, 200, 230), dk), 0.35 + 0.65 * f);
+                let col = if combo_flash_ms > 0.0 { super::ui_c::mix(col, (255, 255, 255), combo_flash_ms / 400.0 * 0.6) } else { col };
+                let t = format!("Combo x{}", combo);
+                let sh = if dk { (0, 0, 0) } else { (180, 185, 210) };
+                bs.blit(&self.small_font.render(&t, true, sh), (tx + 1, cy + 1));
+                bs.blit(&self.small_font.render(&t, true, col), (tx, cy));
+            }
             if wind_h || wind_v {
                 let hd = if wh > 0.05 { 1.0 } else if wh < -0.05 { -1.0 } else { 0.0 };
                 let vd = if wv > 0.05 { 1.0 } else if wv < -0.05 { -1.0 } else { 0.0 };
@@ -842,22 +891,30 @@ impl G {
             let binds = rp.active_bindings();
             if !binds.is_empty() { self.hud_text(&format!("Q: {}", binds[0]), w - 220, pys); pys += lh; }
             if binds.len() >= 2 { self.hud_text(&format!("E: {}", binds[1]), w - 220, pys); }
+            super::art::pmark("hud");
             self.draw_overlays_ingame();
             self.draw_ingame_achievement_banner(&bs);
-            for t in self.equipped_trails() { if let Some(l) = trails.get(&t) { draw_trail_particles(&bs, &t, l); } }
+            super::art::pmark("overlays");
+            if super::art::legacy() { for t in self.equipped_trails() { if let Some(l) = trails.get(&t) { draw_trail_particles(&bs, &t, l); } } }
+            super::art::pmark("trails");
             if self.flash_timer > 0.0 {
-                let fs = Surface::new(w, h);
-                fs.set_alpha(Some(255.min((self.flash_timer / 10.0) as i32)));
-                fs.fill((255, 255, 255));
-                bs.blit(&fs, (0, 0));
+                bs.fill_blend((255, 255, 255), 255.min((self.flash_timer / 10.0) as i32));
             }
             if lives == 1 {
                 let pulse = 0.3 + 0.55 * (almost_dead_pulse * std::f64::consts::PI / heartbeat_interval).sin().abs();
                 self.draw_almost_dead_vignette(pulse);
             }
-            last_frame = self.base_surface.copy();
+            super::art::pmark("flash+vignette");
+            // Letztes Bild fürs Pausenmenü: Puffer tauschen statt jedes Bild kopieren (3 ms bei 1440p)
+            let swap_ok = last_frame.same_pixels(&self.base_surface);
+            super::art::pmark("lastframe");
             let _ = oneups_collected;
+            let _pw = _pf.elapsed().as_secs_f64() * 1000.0;
             self.flip();
+            if swap_ok { std::mem::swap(&mut self.base_surface, &mut last_frame); } else { last_frame = self.base_surface.copy(); }
+            super::art::pmark("flip");
+            super::art::pmark("END");
+            if perf { println!("[PERF] {}x{} lives {} draw {:.2} ms flip {:.2} ms", self.WIDTH, self.HEIGHT, lives, _pw, _pf.elapsed().as_secs_f64() * 1000.0 - _pw); }
         }
     }
 

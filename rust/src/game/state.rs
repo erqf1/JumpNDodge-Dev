@@ -14,7 +14,7 @@ pub type Cb = Box<dyn FnOnce(&mut G)>;
 
 /// Sound-Handles (Python übergibt die Sound-Objekte direkt)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Snd { MenuClick, Click, ClickBack, Hit, GameOver, Heartbeat, OneUp, None }
+pub enum Snd { MenuClick, Click, ClickBack, Hit, GameOver, Heartbeat, OneUp, Combo, NearMiss, None }
 
 pub struct Chan<T> { pub tx: mpsc::Sender<T>, pub rx: mpsc::Receiver<T> }
 impl<T> Default for Chan<T> { fn default() -> Self { let (tx, rx) = mpsc::channel(); Chan { tx, rx } } }
@@ -149,6 +149,8 @@ pub struct G {
     pub gameover_sound: Option<Sound>,
     pub heartbeat_sound: Option<Sound>,
     pub oneup_sound: Option<Sound>,
+    pub combo_sound: Option<Sound>,
+    pub near_sound: Option<Sound>,
     pub menu_music_path: Option<String>,
     pub ingame_music_path: Option<String>,
     pub INGAME_MUSIC_TRACKS: Vec<(String, String, String)>,

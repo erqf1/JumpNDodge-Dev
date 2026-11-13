@@ -63,13 +63,15 @@ pub fn mix(a: Col, b: Col, t: f64) -> Col {
 /// Knopf. `base`/`hover_base` = Flächenfarben, `ring` = Rahmenfarbe bei Hover/Fokus.
 pub fn button(s: &Surface, r: Rect, text: &str, font: &Font, base: Col, hover_base: Col, ring: Col, text_col: Col, hovered: bool, dark: bool) {
     let h = hover_amount(r, hovered);
-    let lift = (h * 2.0).round() as i32;
+    let lift = (h * 3.0).round() as i32;
     let n = 3;
     let shadow = if dark { (12, 11, 20) } else { (176, 172, 204) };
     let body_r = Rect::new(r.x, r.y - lift, r.w, r.h);
     // Schatten genau darunter (symmetrisch), wird beim Anheben etwas länger
     step_rect(s, shadow, Rect::new(r.x, r.y + 4 - lift, r.w, r.h), n);
-    let body = mix(base, hover_base, h);
+    // Hover hebt sich deutlich ab: heller (dunkel) bzw. leicht lila getönt (hell)
+    let lifted = if dark { lighten(hover_base, 0.10) } else { mix(hover_base, ACCENT, 0.10) };
+    let body = mix(base, lifted, h);
     let ring_on = h > 0.02;
     if ring_on {
         // Rahmen bei Hover/Fokus: weich vom Knopfton zur Akzentfarbe
@@ -83,6 +85,15 @@ pub fn button(s: &Surface, r: Rect, text: &str, font: &Font, base: Col, hover_ba
     let iw = r.w - 2 * n - 2 * inset;
     draw::rect(s, darken(body, 0.24), Rect::new(body_r.x + n + inset, body_r.bottom() - 4 - inset, iw, 4), 0, 0);
     draw::rect(s, lighten(body, 0.10), Rect::new(body_r.x + n + inset, body_r.y + 1 + inset, iw, 1), 0, 0);
+    // Streifen links (wächst beim Hover von der Mitte aus), nur bei breiten Knöpfen
+    if h > 0.02 && r.w >= 110 && r.h >= 30 {
+        let full = r.h - 18;
+        let sh = ((full as f64) * h).round() as i32;
+        if sh > 0 {
+            let sc = if luma(body) > 150.0 { darken(ring, 0.15) } else { lighten(ring, 0.25) };
+            draw::rect(s, sc, Rect::new(body_r.x + 7, body_r.centery() - 2 - sh / 2, 5, sh), 0, 0);
+        }
+    }
     if !text.is_empty() {
         let max_w = r.w - 22;
         let ts = font.render_fit(text, max_w, text_col);
@@ -108,4 +119,24 @@ pub fn panel(s: &Surface, r: Rect, fill: Col, border: Col, bw: i32, shadow: bool
         step_rect(s, fill, r, n);
     }
     draw::rect(s, lighten(fill, 0.06), Rect::new(r.x + n + bw, r.y + bw + 1, (r.w - 2 * n - 2 * bw).max(0), 1), 0, 0);
+}
+
+/// Zahnrad (Einstellungen): 8 flache Zähne, Loch in der Mitte. `rot` dreht leicht (Hover).
+pub fn gear(s: &Surface, cx: f64, cy: f64, r: f64, col: Col, hole: Col, rot: f64) {
+    let teeth = 8;
+    let (ro, ri) = (r, r * 0.74);
+    let mut pts: Vec<(f64, f64)> = Vec::with_capacity(teeth * 4);
+    for i in 0..teeth {
+        let a0 = rot + i as f64 * std::f64::consts::TAU / teeth as f64;
+        let step = std::f64::consts::TAU / teeth as f64;
+        // Zahn: schmaler oben, Lücke dazwischen
+        for (f, rad) in [(0.0, ri), (0.14, ro), (0.36, ro), (0.5, ri)] {
+            let a = a0 + f * step;
+            pts.push((cx + a.cos() * rad, cy + a.sin() * rad));
+        }
+        let a = a0 + 0.75 * step;
+        pts.push((cx + a.cos() * ri, cy + a.sin() * ri));
+    }
+    draw::polygon(s, col, &pts, 0);
+    draw::aacircle(s, hole, (cx, cy), (r * 0.32) as f32);
 }

@@ -209,7 +209,7 @@ impl G {
     pub fn open_settings_menu(&mut self) { self.play_sound(Snd::MenuClick); self.set_all_menu_flags(false); self.in_settings_menu = true; }
 
     pub fn update_button_texts(&mut self) {
-        let keys = ["start", "shop", "loadout", "settings", "more"];
+        let keys = ["start", "shop", "loadout", "more"];
         for (i, k) in keys.iter().enumerate() {
             if i < self.buttons.len() { self.buttons[i].text = self.get_text(k); }
         }
@@ -217,8 +217,9 @@ impl G {
 
     pub fn create_main_buttons(&mut self) {
         let sx = self.WIDTH / 2 - 180;
-        let (sy, gap) = (155, 56);
-        let defs = [("start", MenuAction::StartGame), ("shop", MenuAction::OpenShop), ("loadout", MenuAction::OpenLoadout), ("settings", MenuAction::OpenSettings), ("more", MenuAction::OpenMore)];
+        let (sy, gap) = (162, 58);
+        // Einstellungen sind das Zahnrad unten links neben dem Profil
+        let defs = [("start", MenuAction::StartGame), ("shop", MenuAction::OpenShop), ("loadout", MenuAction::OpenLoadout), ("more", MenuAction::OpenMore)];
         self.buttons = defs.iter().enumerate().map(|(i, (k, a))| Button { rect: Rect::new(sx, sy + i as i32 * gap, 360, 48), text: self.get_text(k), action: *a }).collect();
     }
 
@@ -233,16 +234,17 @@ impl G {
     }
 
     pub fn _get_profile_hub_btn_rect(&self) -> Rect { Rect::new(15, self.HEIGHT - 118, 220, 56) }
+    pub fn _get_settings_gear_rect(&self) -> Rect { Rect::new(245, self.HEIGHT - 118, 56, 56) }
 
     pub fn draw_menu(&mut self) {
         let mouse_pos = self.get_mouse_pos_logical();
         if self.sound_enabled && self.menu_music_path.is_some() && !self.mixer.music_get_busy() { self.play_menu_music(); }
         let bx = self.WIDTH / 2 - 180;
-        for (i, b) in self.buttons.iter_mut().enumerate() { b.rect.x = bx; b.rect.y = 155 + i as i32 * 56; }
+        for (i, b) in self.buttons.iter_mut().enumerate() { b.rect.x = bx; b.rect.y = 162 + i as i32 * 58; }
         let has_mods = self.mods_installed();
         let has_online = self.WIDTH >= 500;
         let nb = self.buttons.len();
-        let nav_total = nb + has_mods as usize + 2 + has_online as usize;
+        let nav_total = nb + has_mods as usize + 3 + has_online as usize;
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
@@ -281,6 +283,19 @@ impl G {
         let ns = fit_surf(&ns, pr.w - ar.w - 20);
         bs.blit(&ns, (ar.right() + 10, pr.centery() - ns.get_height() / 2));
         self._refresh_notifications_if_due();
+        // Einstellungen: großes Zahnrad direkt neben dem Profil
+        let gr = self._get_settings_gear_rect();
+        let gidx = nb + has_mods as usize + 2 + has_online as usize;
+        let ghov = gr.collidepoint(mouse_pos) || self.nav_is_focused("menu", gidx, nav_total);
+        self.draw_ui_button(&bs, gr, "", BtnOpts { hovered: ghov, radius: Some(10), ..Default::default() });
+        {
+            let dark = self.is_dark_mode();
+            let body = if dark { if ghov { (60, 56, 86) } else { (46, 43, 66) } } else { (236, 234, 248) };
+            let col = if ghov { super::ui_c::readable(super::ui_c::ACCENT, dark) } else { self.get_text_color() };
+            let lift = if ghov { 2.0 } else { 0.0 };
+            let rot = if ghov { super::art::anim_time() * 1.2 } else { 0.0 };
+            super::ui_c::gear(&bs, gr.centerx() as f64, gr.centery() as f64 - 2.0 - lift, 19.0, col, body, rot);
+        }
 
         if has_online {
             let or = Rect::new(w - 235, h - 118, 220, 56);

@@ -193,6 +193,7 @@ impl G {
                 }
             }
         }
+        super::art::pmark("bg_rings");
         if !show_stars { return; }
         let star_cols: Vec<(i32, i32, i32)> = if mono {
             if !dark { vec![(40, 40, 40)] } else { vec![(210, 210, 210)] }
@@ -224,14 +225,21 @@ impl G {
 
     pub fn fill_bg(&mut self, rings: bool) {
         self.sync_window_size();
+        super::art::pmark("sync");
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
+        if self.popup_active() {
+            // Pop-up-Karte: ruhige Fläche, das Menü dahinter liefert die Stimmung
+            bs.fill(if self.is_dark_mode() { (32, 30, 47) } else { (250, 249, 255) });
+            return;
+        }
         if super::art::legacy() || self.settings.gb("mono_bg", false) || !self.settings.gb("bg_gradient", true) {
             bs.fill(self.get_bg_color());
         } else {
             // Rust Edition: sanfter Verlauf statt einfarbig
             bs.blit(&super::art::background(w, h, self.is_dark_mode()), (0, 0));
         }
+        super::art::pmark("bg_grad");
         self.draw_bg_effects(&bs, w, h, rings);
     }
 
@@ -252,6 +260,8 @@ impl G {
             self.HEIGHT = sh;
             self.base_surface = Surface::new(self.WIDTH, self.HEIGHT);
         } else {
+            // Tests: feste Fenstergröße (z.B. JND_WIN_SIZE=2560x1440 für Lastmessungen)
+            if let Some((tw, th)) = std::env::var("JND_WIN_SIZE").ok().and_then(|v| { let (a, b) = v.split_once('x')?; Some((a.parse::<i32>().ok()?, b.parse::<i32>().ok()?)) }) { self.WIDTH = tw; self.HEIGHT = th; }
             self.display.set_mode(self.WIDTH, self.HEIGHT, true, false);
             self.base_surface = Surface::new(self.WIDTH, self.HEIGHT);
             self._window_locked_for_gameplay = false;
@@ -269,7 +279,8 @@ impl G {
             if last != (mx, my) { self._kb_nav_active = false; }
         }
         self._last_mouse_phys_pos = Some((mx, my));
-        (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32)
+        let p = (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32);
+        if self.popup_active() { self.popup_map(p) } else { p }
     }
 
     pub fn get_ticks(&self) -> i64 { self.display.get_ticks() }
@@ -292,7 +303,17 @@ impl G {
     /// pygame.event.get() - plus Hintergrundarbeiten (Online-Antworten)
     pub fn event_get(&mut self) -> Vec<Event> {
         self.poll_online();
-        let ev = self.display.event_get();
+        let mut ev = self.display.event_get();
+        // Pop-up: Klick neben die Karte schließt sie (wie Esc)
+        if ev.iter().any(|e| matches!(e, Event::MouseButtonDown { button: 1, .. })) && self.popup_active() {
+            let (mx, my) = self.display.mouse_pos();
+            let p = (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32);
+            if self.popup_outside(p) {
+                for e in ev.iter_mut() {
+                    if matches!(e, Event::MouseButtonDown { button: 1, .. }) { *e = Event::KeyDown { key: crate::pg::K_ESCAPE, unicode: String::new(), mods: 0 }; }
+                }
+            }
+        }
         // Klick/Taste: Startbild für einen möglichen Bildschirm-Übergang merken
         if ev.iter().any(|e| matches!(e, Event::MouseButtonDown { .. } | Event::KeyDown { .. })) { self.transition_snapshot(); }
         for m in std::mem::take(&mut self.display.pad_messages) { self.push_overlay(&m, (120, 170, 230), 2.5, None); }
@@ -459,6 +480,9 @@ impl G {
             ((pw as f64 / lw as f64).min(ph as f64 / lh as f64)).clamp(0.25, 4.0) as f32
         } else { 1.0 };
         let k = (k * 1000.0).round() / 1000.0;
+        // Pop-ups werden direkt in Kartengröße gezeichnet (schärfer und schneller als jedes Bild zu verkleinern)
+        super::transitions::set_full_k(k);
+        let k = if self.popup_active() { ((k as f64 * super::transitions::POPUP_SCALE * 1000.0).round() / 1000.0) as f32 } else { k };
         crate::pg::surface::set_render_scale(k);
         if lw != self.WIDTH || lh != self.HEIGHT || (self.base_surface.scale_k() - k).abs() > 1e-4 {
             self.WIDTH = lw;
@@ -481,9 +505,15 @@ impl G {
             let (w, h) = self.base_surface.get_size();
             let a = self.get_ticks() as f64 * 0.09;
             let (dx, dy) = ((a * 1.7).sin() * self._shake, (a * 2.3).cos() * self._shake * 0.7);
-            let s = Surface::new(w, h);
+            // Puffer wiederverwenden statt jedes Bild eine bildschirmgroße Fläche anzulegen
+            thread_local! { static SHAKE: std::cell::RefCell<Option<Surface>> = const { std::cell::RefCell::new(None) }; }
+            let src = target.clone().unwrap_or_else(|| self.base_surface.clone());
+            let s = SHAKE.with(|c| {
+                let mut c = c.borrow_mut();
+                match c.as_ref() { Some(s) if s.same_pixels(&src) => s.clone(), _ => { let s = Surface::new(w, h); *c = Some(s.clone()); s } }
+            });
             s.fill(self.get_bg_color());
-            s.blit(target.as_ref().unwrap_or(&self.base_surface), (dx.round() as i32, dy.round() as i32));
+            s.blit(&src, (dx.round() as i32, dy.round() as i32));
             target = Some(s);
         }
         let now = std::time::Instant::now();
@@ -504,15 +534,15 @@ impl G {
             }
         }
         let frame_now = target.clone().unwrap_or_else(|| self.base_surface.clone());
-        if let Some(t) = self.apply_transition(&frame_now) { target = Some(t); }
+        let _pt = std::time::Instant::now();
+        if let Some(t) = self.apply_transition(&frame_now) { target = Some(t); if super::art::perf_on() { println!("[PERF] trans {:.2} ms", _pt.elapsed().as_secs_f64() * 1000.0); } }
         let shown = target.unwrap_or_else(|| self.base_surface.clone());
         if self._fade_alpha > 0 {
-            let (sw, sh) = shown.get_size();
-            let fs = Surface::new_alpha(sw, sh);
-            fs.fill((0, 0, 0, self._fade_alpha.clamp(0, 255)));
-            shown.blit(&fs, (0, 0));
+            shown.fill_blend((0, 0, 0), self._fade_alpha.clamp(0, 255));
         }
+        let _pp = std::time::Instant::now();
         self.display.present(&shown);
+        if super::art::perf_on() { println!("[PERF] present {:.2} ms, frame {:.2} ms, work {:.2} ms", _pp.elapsed().as_secs_f64() * 1000.0, frame_ms, crate::pg::display::Clock::since_last_tick_ms().unwrap_or(0.0)); }
         self._frame_counter += 1;
         // Grafik-Stil und Animationszeit fürs nächste Bild
         super::art::set_legacy(self.settings.gb("legacy_art", false));

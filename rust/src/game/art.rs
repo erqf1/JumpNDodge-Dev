@@ -44,9 +44,65 @@ pub fn tex(name: &str, vars: &[(&str, String)], w: f64, h: f64) -> Option<(Surfa
         if c.len() > 1500 { c.clear(); }
         c.entry(key).or_insert_with(|| {
             jnd_tex::render_fit(name, vars, w as f32, h as f32, k)
-                .map(|r| (Surface::from_pixmap_k(r.pixmap, k), r.off_x as f64, r.off_y as f64))
+                .map(|r| {
+                    let mut pm = r.pixmap;
+                    // leichtestes Shading: Licht von oben (Körper, Hindernisse, Kosmetik - nicht Boden/Spuren)
+                    if !(name.starts_with("floor") || name.starts_with("trail")) { shade_top_light(&mut pm, 0.11); }
+                    (Surface::from_pixmap_k(pm, k), r.off_x as f64, r.off_y as f64)
+                })
         }).clone()
     })
+}
+
+/// Sanfter Lichtverlauf von oben: oberste Zeile * (1 + s), unterste * (1 - s). Einmal beim Zwischenspeichern.
+fn shade_top_light(pm: &mut tiny_skia::Pixmap, s: f32) {
+    let (w, h) = (pm.width() as usize, pm.height() as usize);
+    if h < 2 { return; }
+    let data = pm.data_mut();
+    for y in 0..h {
+        let f = 1.0 + s * (1.0 - 2.0 * y as f32 / (h - 1) as f32);
+        let row = &mut data[y * w * 4..(y + 1) * w * 4];
+        for p in row.chunks_exact_mut(4) {
+            let a = p[3];
+            if a == 0 { continue; }
+            for c in p.iter_mut().take(3) { *c = ((*c as f32 * f).round() as u32).min(a as u32) as u8; }
+        }
+    }
+}
+
+/// Grundfarbe einer Spur (für das Band hinter dem Spieler)
+pub fn trail_color(t: &str) -> Col {
+    match t {
+        "fire_trail" => (255, 150, 60), "ice_trail" => (150, 205, 255), "shadow_trail" => (110, 96, 140),
+        "sparkle_trail" => (255, 228, 120), "toxic_trail" => (150, 220, 100), "electric_trail" => (120, 220, 255),
+        "star_trail" => (255, 215, 100), "smoke_trail" => (175, 175, 190), "blood_trail" => (210, 40, 60),
+        "heart_trail" => (255, 115, 165), _ => (200, 190, 255),
+    }
+}
+
+/// Band hinter dem Spieler: verbindet die letzten Positionen (wandert mit der Welt nach links),
+/// wird zum Ende schmaler und durchsichtiger. Regenbogen läuft durch die Farben.
+pub fn draw_trail_ribbon(bs: &Surface, pts: &[Option<(f64, f64)>], width: f64, trail: &str) {
+    if pts.len() < 2 { return; }
+    let n = pts.len() as f64;
+    let base = trail_color(trail);
+    for i in 0..pts.len() - 1 {
+        let (Some(a), Some(b)) = (pts[i], pts[i + 1]) else { continue; };
+        let f0 = 1.0 - i as f64 / n;
+        let f1 = 1.0 - (i + 1) as f64 / n;
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = (dx * dx + dy * dy).sqrt().max(0.001);
+        let (nx, ny) = (-dy / len, dx / len);
+        let (w0, w1) = (width * 0.5 * f0, width * 0.5 * f1);
+        let col = if trail == "rainbow_trail" {
+            let (r, g, bl) = crate::util::hsv_to_rgb((anim_time() * 0.6 + i as f64 * 0.05).rem_euclid(1.0), 0.75, 1.0);
+            ((r * 255.0) as i32, (g * 255.0) as i32, (bl * 255.0) as i32)
+        } else { base };
+        let al = (120.0 * f0 * f0) as i32;
+        if al <= 2 { continue; }
+        let quad = [(a.0 + nx * w0, a.1 + ny * w0), (b.0 + nx * w1, b.1 + ny * w1), (b.0 - nx * w1, b.1 - ny * w1), (a.0 - nx * w0, a.1 - ny * w0)];
+        draw::polygon(bs, (col.0, col.1, col.2, al), &quad, 0);
+    }
 }
 
 /// Textur auf das Spiel-Rechteck legen. false = Textur fehlt (dann zeichnet der Aufrufer Legacy).
@@ -525,4 +581,25 @@ impl Fx {
         }
     }
     pub fn is_empty(&self) -> bool { self.parts.is_empty() && self.pops.is_empty() }
+}
+
+// ---- Lastmessung (nur mit JND_PERF): pmark("x") misst die Zeit seit der letzten Marke ----
+thread_local! {
+    static PM: RefCell<(Option<std::time::Instant>, Vec<(&'static str, f64)>, u32)> = const { RefCell::new((None, Vec::new(), 0)) };
+    static PERF_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+pub fn perf_on() -> bool { PERF_ON.with(|c| { if c.get().is_none() { c.set(Some(std::env::var("JND_PERF").is_ok())); } c.get().unwrap() }) }
+pub fn pmark(tag: &'static str) {
+    if !perf_on() { return; }
+    PM.with(|p| {
+        let mut p = p.borrow_mut();
+        let now = std::time::Instant::now();
+        if let Some(t) = p.0 { let d = (now - t).as_secs_f64() * 1000.0; if let Some(e) = p.1.iter_mut().find(|e| e.0 == tag) { e.1 += d; } else { p.1.push((tag, d)); } }
+        p.0 = Some(now);
+        if tag == "END" {
+            p.2 += 1;
+            if p.2 % 60 == 0 { let s: Vec<String> = p.1.iter().map(|(t, v)| format!("{} {:.2}", t, v / 60.0)).collect(); println!("[PROF] {}", s.join(" | ")); p.1.clear(); }
+            p.0 = None;
+        }
+    });
 }

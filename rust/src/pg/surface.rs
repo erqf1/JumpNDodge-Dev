@@ -77,6 +77,58 @@ pub struct SurfInner {
 #[derive(Clone)]
 pub struct Surface(pub Rc<RefCell<SurfInner>>);
 
+/// Schneller Weg für das häufigste Blit: gleicher Render-Faktor, ganze Pixel, keine Maske.
+/// tiny-skia nimmt dafür den allgemeinen Muster-Weg (~5 ns/Pixel) - bildschirmgroße Flächen
+/// (Hintergrund, Vignette, Übergänge) kosteten so bei 1440p 20 ms pro Bild. Hier: Zeilen kopieren
+/// bzw. vormultipliziertes "Source Over" direkt auf den Bytes.
+/// `src_rect` = Ausschnitt der Quelle in echten Pixeln.
+fn fast_blit(dst: &mut Pixmap, src: &Pixmap, src_rect: (i32, i32, i32, i32), dx: i32, dy: i32, opacity: f32, src_opaque: bool) {
+    let (dw, dh) = (dst.width() as i32, dst.height() as i32);
+    let sw_total = src.width() as i32;
+    let (mut sx, mut sy, mut w, mut h) = src_rect;
+    let (mut dx, mut dy) = (dx, dy);
+    if dx < 0 { sx -= dx; w += dx; dx = 0; }
+    if dy < 0 { sy -= dy; h += dy; dy = 0; }
+    w = w.min(dw - dx);
+    h = h.min(dh - dy);
+    if w <= 0 || h <= 0 { return; }
+    let op = (opacity.clamp(0.0, 1.0) * 255.0).round() as u32;
+    if op == 0 { return; }
+    let sdata = src.data();
+    let dstride = dw as usize * 4;
+    let sstride = sw_total as usize * 4;
+    let ddata = dst.data_mut();
+    let rowlen = w as usize * 4;
+    for row in 0..h as usize {
+        let so = (sy as usize + row) * sstride + sx as usize * 4;
+        let doff = (dy as usize + row) * dstride + dx as usize * 4;
+        let srow = &sdata[so..so + rowlen];
+        let drow = &mut ddata[doff..doff + rowlen];
+        if src_opaque && op == 255 {
+            drow.copy_from_slice(srow);
+            continue;
+        }
+        // x/255 ohne Division (exakt für 0..=65025)
+        #[inline(always)]
+        fn div255(x: u32) -> u32 { (x + 128 + ((x + 128) >> 8)) >> 8 }
+        for (d, sp) in drow.chunks_exact_mut(4).zip(srow.chunks_exact(4)) {
+            let mut sa = sp[3] as u32;
+            if sa == 0 { continue; }
+            if op == 255 && sa == 255 { d.copy_from_slice(sp); continue; }
+            let (mut r, mut g, mut b) = (sp[0] as u32, sp[1] as u32, sp[2] as u32);
+            if op != 255 {
+                r = div255(r * op); g = div255(g * op); b = div255(b * op); sa = div255(sa * op);
+                if sa == 0 { continue; }
+            }
+            let inv = 255 - sa;
+            d[0] = (r + div255(d[0] as u32 * inv)).min(255) as u8;
+            d[1] = (g + div255(d[1] as u32 * inv)).min(255) as u8;
+            d[2] = (b + div255(d[2] as u32 * inv)).min(255) as u8;
+            d[3] = (sa + div255(d[3] as u32 * inv)).min(255) as u8;
+        }
+    }
+}
+
 impl Surface {
     fn make(w: i32, h: i32, srcalpha: bool) -> Surface { Surface::make_k(w, h, srcalpha, render_scale()) }
     fn make_k(w: i32, h: i32, srcalpha: bool, k: f32) -> Surface {
@@ -115,6 +167,13 @@ impl Surface {
         let k = d.k;
         let r = k / sb.k;
         let (tx, ty) = ((x as f32 * k).round(), (y as f32 * k).round());
+        if (r - 1.0).abs() < 1e-4 && d.mask.is_none() {
+            let op = opacity.min(1.0) * sb.alpha.map(|a| a as f32 / 255.0).unwrap_or(1.0);
+            let full = (0, 0, sb.pm.width() as i32, sb.pm.height() as i32);
+            let opaque = !sb.srcalpha;
+            fast_blit(&mut d.pm, &sb.pm, full, tx as i32, ty as i32, op, opaque);
+            return;
+        }
         let quality = if (r - 1.0).abs() < 1e-4 { FilterQuality::Nearest } else { FilterQuality::Bilinear };
         let paint = PixmapPaint { opacity: opacity.min(1.0) * sb.alpha.map(|a| a as f32 / 255.0).unwrap_or(1.0), blend_mode: BlendMode::SourceOver, quality };
         let mask = d.mask.take();
@@ -175,6 +234,91 @@ impl Surface {
         s.pm.fill(c.skia());
     }
     /// surface.fill(color, rect) - ersetzt die Pixel (kein Mischen), wie pygame.
+    /// Farbe mit Deckkraft über die ganze Fläche legen (Blitz, Abdunkeln) - ohne Zwischenfläche
+    pub fn fill_blend(&self, c: (i32, i32, i32), alpha: i32) {
+        let a = alpha.clamp(0, 255) as u32;
+        if a == 0 { return; }
+        let mut s = self.0.borrow_mut();
+        let inv = 255 - a;
+        let (r, g, b) = ((c.0.clamp(0, 255) as u32) * a, (c.1.clamp(0, 255) as u32) * a, (c.2.clamp(0, 255) as u32) * a);
+        // zwei Kanäle pro Schritt (R+B), dazu G; Alpha bleibt (Flächen hier sind undurchsichtig)
+        let _ = inv;
+        let inv = 256 - a;
+        let crb = (r >> 8) | ((b >> 8) << 16);
+        let cg = g >> 8;
+        for p in s.pm.data_mut().chunks_exact_mut(4) {
+            let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            let rb = ((((v & 0x00FF_00FF) * inv) >> 8) & 0x00FF_00FF) + crb;
+            let gg = ((((v >> 8) & 0xFF) * inv) >> 8) + cg;
+            p.copy_from_slice(&((rb & 0x00FF_00FF) | ((gg & 0xFF) << 8) | (v & 0xFF00_0000)).to_le_bytes());
+        }
+    }
+
+    /// Rand-Vignette (oben + links + rechts) direkt auf die Pixel: Deckkraft = max(Zeile, Spalte) * stärke.
+    /// `top`/`side` in logischen Pixeln, `max_a` = Deckkraft ganz am Rand. Nur die Randstreifen werden angefasst.
+    pub fn edge_vignette(&self, c: (i32, i32, i32), top: i32, side: i32, max_a: f64, strength: f64) {
+        let mut s = self.0.borrow_mut();
+        let k = s.k;
+        let (pw, ph) = (s.pm.width() as usize, s.pm.height() as usize);
+        let (tp, sp) = ((px(top, k).max(1) as usize).min(ph), (px(side, k).max(1) as usize).min(pw / 2));
+        let st = strength.clamp(0.0, 1.0);
+        let curve = |i: usize, n: usize| -> u32 { let f = 1.0 - i as f64 / n as f64; (max_a * f.powf(1.6) * st).round().clamp(0.0, 255.0) as u32 };
+        let row_a: Vec<u32> = (0..tp).map(|y| curve(y, tp)).collect();
+        let col_a: Vec<u32> = (0..sp).map(|x| curve(x, sp)).collect();
+        let (cr, cg, cb) = (c.0.clamp(0, 255) as u32, c.1.clamp(0, 255) as u32, c.2.clamp(0, 255) as u32);
+        // Zwei Kanäle pro Rechenschritt (R+B, G+A) auf dem 32-Bit-Pixel; Farbe vorab mit Deckkraft multipliziert
+        let crb = cr | (cb << 16);
+        let blend = |v: u32, a: u32| -> u32 {
+            let inv = 256 - a;
+            let rb = ((v & 0x00FF_00FF) * inv + crb * a) >> 8 & 0x00FF_00FF;
+            let g = (((v >> 8) & 0xFF) * inv + cg * a) >> 8 & 0xFF;
+            rb | (g << 8) | (v & 0xFF00_0000)
+        };
+        let data = s.pm.data_mut();
+        for y in 0..ph {
+            let ra = if y < tp { row_a[y] } else { 0 };
+            let row = &mut data[y * pw * 4..(y + 1) * pw * 4];
+            let mut put = |x: usize, a: u32| {
+                let o = x * 4;
+                let v = u32::from_le_bytes([row[o], row[o + 1], row[o + 2], row[o + 3]]);
+                row[o..o + 4].copy_from_slice(&blend(v, a).to_le_bytes());
+            };
+            if ra > 0 {
+                // ganze Zeile im oberen Streifen
+                for x in 0..pw {
+                    let ca = if x < sp { col_a[x] } else if x >= pw - sp { col_a[pw - 1 - x] } else { 0 };
+                    put(x, ra.max(ca));
+                }
+            } else {
+                for x in 0..sp {
+                    let a = col_a[x];
+                    if a == 0 { break; }
+                    put(x, a);
+                    put(pw - 1 - x, a);
+                }
+            }
+        }
+    }
+
+    /// Größe in echten Pixeln
+    pub fn pixel_size(&self) -> (u32, u32) { let s = self.0.borrow(); (s.pm.width(), s.pm.height()) }
+
+    /// Pixelgenau an eine Pixelposition kopieren, egal welcher Render-Faktor (Pop-up-Karten)
+    pub fn blit_raw(&self, src: &Surface, px_x: i32, px_y: i32, opacity: f32) {
+        if Rc::ptr_eq(&self.0, &src.0) { return; }
+        let sb = src.0.borrow();
+        let mut d = self.0.borrow_mut();
+        let full = (0, 0, sb.pm.width() as i32, sb.pm.height() as i32);
+        let opaque = !sb.srcalpha;
+        fast_blit(&mut d.pm, &sb.pm, full, px_x, px_y, opacity, opaque);
+    }
+
+    /// Gleiche Pixelgröße wie `other`? (dann kann man Puffer tauschen statt kopieren)
+    pub fn same_pixels(&self, other: &Surface) -> bool {
+        let (a, b) = (self.0.borrow(), other.0.borrow());
+        a.pm.width() == b.pm.width() && a.pm.height() == b.pm.height() && (a.k - b.k).abs() < 1e-4
+    }
+
     pub fn fill_rect<C: Into<Color>>(&self, c: C, r: Rect) {
         let mut c = c.into();
         let mut s = self.0.borrow_mut();
@@ -223,6 +367,22 @@ impl Surface {
         if opacity <= 0.0 { return; }
         let mut d = self.0.borrow_mut();
         let same_k = (d.k - sb.k).abs() < 1e-4;
+        if same_k && d.mask.is_none() {
+            let k = d.k;
+            let full = (0, 0, sb.pm.width() as i32, sb.pm.height() as i32);
+            let sr = match area {
+                Some(a) => {
+                    let a = a.clip(&Rect::new(0, 0, sb.w, sb.h));
+                    if a.w <= 0 || a.h <= 0 { return; }
+                    let pa = prect(a, sb.k);
+                    (pa.x, pa.y, pa.w.min(full.2 - pa.x), pa.h.min(full.3 - pa.y))
+                }
+                None => full,
+            };
+            let opaque = !sb.srcalpha;
+            fast_blit(&mut d.pm, &sb.pm, sr, px(x, k), px(y, k), opacity, opaque);
+            return;
+        }
         let quality = if same_k { FilterQuality::Nearest } else { FilterQuality::Bilinear };
         let paint = PixmapPaint { opacity, blend_mode: BlendMode::SourceOver, quality };
         let src_pm_owned;

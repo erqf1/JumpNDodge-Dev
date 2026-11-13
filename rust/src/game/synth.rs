@@ -72,6 +72,19 @@ pub fn oneup(sr: f64) -> Vec<f32> {
     }).collect();
     render(sr, 0.55, &tones, None)
 }
+pub fn combo(sr: f64) -> Vec<f32> {
+    // zwei helle Töne nach oben (Quinte), kurz und klar
+    let tones = [
+        Tone { start: 0.0, dur: 0.09, f0: note(88), f1: note(88), amp: 0.16, tri: 0.4, attack: 0.003, decay: 0.05 },
+        Tone { start: 0.07, dur: 0.22, f0: note(95), f1: note(95), amp: 0.17, tri: 0.4, attack: 0.003, decay: 0.09 },
+    ];
+    render(sr, 0.32, &tones, None)
+}
+pub fn near_miss(sr: f64) -> Vec<f32> {
+    // kurzes Hochziehen, leise ("swusch")
+    let tones = [Tone { start: 0.0, dur: 0.16, f0: note(72), f1: note(86), amp: 0.11, tri: 0.2, attack: 0.01, decay: 0.07 }];
+    render(sr, 0.2, &tones, Some((0.05, 0.05, 0.12)))
+}
 pub fn gameover(sr: f64) -> Vec<f32> {
     // drei absteigende Töne (G - E - C), ruhig ausklingend
     let ns = [67, 64, 60];

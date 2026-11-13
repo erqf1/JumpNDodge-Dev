@@ -218,7 +218,8 @@ impl Display {
             el,
             app: App {
                 window: None, surface: None, _ctx: None, events: VecDeque::new(), title: title.into(),
-                init_size: (w, h), resizable, visible: !hidden, mouse_phys: (0.0, 0.0),
+                // Tests: Fenstergröße vorgeben, z.B. JND_WIN_SIZE=2560x1440
+                init_size: std::env::var("JND_WIN_SIZE").ok().and_then(|v| { let (a, b) = v.split_once('x')?; Some((a.parse().ok()?, b.parse().ok()?)) }).unwrap_or((w, h)), resizable, visible: !hidden, mouse_phys: (0.0, 0.0),
                 keys_down: HashSet::new(), mods: 0, mouse_buttons: [false; 3], focused: true, icon,
             },
             start: Instant::now(),
@@ -507,6 +508,8 @@ impl Clock {
         *self.frame_times.back().unwrap_or(&0.0)
     }
     /// Begrenzt auf `fps` Bilder pro Sekunde, gibt die vergangenen Millisekunden zurück.
+    /// Zeit seit dem Ende des letzten tick() (= Arbeit dieses Bildes, für Lastmessungen)
+    pub fn since_last_tick_ms() -> Option<f64> { LAST_TICK_END.with(|c| c.get()).map(|t| t.elapsed().as_secs_f64() * 1000.0) }
     pub fn tick(&mut self, fps: i32) -> i64 {
         let now = Instant::now();
         let mut elapsed = match self.last { Some(l) => now - l, None => Duration::ZERO };
@@ -525,6 +528,7 @@ impl Clock {
         }
         let end = Instant::now();
         self.last = Some(end);
+        LAST_TICK_END.with(|c| c.set(Some(end)));
         let ms = elapsed.as_secs_f64() * 1000.0;
         self.frame_times.push_back(ms);
         if self.frame_times.len() > 10 { self.frame_times.pop_front(); }
@@ -541,3 +545,5 @@ impl Clock {
 impl Default for Display {
     fn default() -> Display { Display::new("JumpNDodge", 800, 600, true, crate::game::icon::window_icon()) }
 }
+
+thread_local! { static LAST_TICK_END: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) }; }
