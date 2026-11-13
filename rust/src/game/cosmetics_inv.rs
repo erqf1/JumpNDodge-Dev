@@ -23,17 +23,13 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let w = self.WIDTH;
-        let t = self.font.render(&self.get_text("loadout"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 70));
+        self.draw_screen_title(&bs, &self.get_text("loadout"), 70);
         self.draw_coin_display(&bs);
         let (sx, sy, gap) = (w / 2 - 180, 180, 70);
         let labels = [(Rect::new(sx, sy, 360, 48), "loadout"), (Rect::new(sx, sy + gap, 360, 48), "cosmetic_inventory"), (Rect::new(sx, sy + 2 * gap, 360, 48), "back")];
         for (i, (r, k)) in labels.iter().enumerate() {
             let hv = r.collidepoint(mp) || self.nav_is_focused("loadout_menu", i, labels.len());
-            draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, *r, 0, 12);
-            draw::rect(&bs, (180, 180, 180), *r, if hv { 3 } else { 2 }, 12);
-            let ts = self.menu_font.render(&self.get_text(k), true, self.get_text_color());
-            bs.blit(&ts, (r.centerx() - ts.get_width() / 2, r.centery() - ts.get_height() / 2));
+            self.draw_ui_button(&bs, *r, &self.get_text(k), BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, ..Default::default() });
         }
         self.flip();
     }
@@ -132,8 +128,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("cosmetic_inventory"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &self.get_text("cosmetic_inventory"), 20);
         let (tabs, tw, _) = self.get_cosmetic_tab_layout(false);
         let tlf = if tw < 150 { self.tab_font.clone() } else { self.small_font.clone() };
         for (i, (r, k)) in tabs.iter().zip(COSMETIC_TAB_LABEL_KEYS.iter()).enumerate() {

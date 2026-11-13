@@ -11,10 +11,7 @@ use serde_json::Value;
 impl G {
     /// Titel mit Schatten (Muster aus fast allen Online-Screens)
     pub fn draw_title_shadow(&self, bs: &Surface, text: &str, y: i32) {
-        let w = self.WIDTH;
-        let ts = self.font.render(text, true, self.get_text_color());
-        bs.blit(&self.font.render(text, true, (100, 100, 120)), (w / 2 - ts.get_width() / 2 + 2, y + 2));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, y));
+        self.draw_screen_title(bs, text, y);
     }
 
     /// Zwei Tab-Knöpfe nebeneinander (Alle/Freunde, Roster/Requests ...)

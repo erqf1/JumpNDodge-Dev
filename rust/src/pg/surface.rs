@@ -300,19 +300,6 @@ impl Surface {
         }
     }
 
-    /// Größe in echten Pixeln
-    pub fn pixel_size(&self) -> (u32, u32) { let s = self.0.borrow(); (s.pm.width(), s.pm.height()) }
-
-    /// Pixelgenau an eine Pixelposition kopieren, egal welcher Render-Faktor (Pop-up-Karten)
-    pub fn blit_raw(&self, src: &Surface, px_x: i32, px_y: i32, opacity: f32) {
-        if Rc::ptr_eq(&self.0, &src.0) { return; }
-        let sb = src.0.borrow();
-        let mut d = self.0.borrow_mut();
-        let full = (0, 0, sb.pm.width() as i32, sb.pm.height() as i32);
-        let opaque = !sb.srcalpha;
-        fast_blit(&mut d.pm, &sb.pm, full, px_x, px_y, opacity, opaque);
-    }
-
     /// Gleiche Pixelgröße wie `other`? (dann kann man Puffer tauschen statt kopieren)
     pub fn same_pixels(&self, other: &Surface) -> bool {
         let (a, b) = (self.0.borrow(), other.0.borrow());

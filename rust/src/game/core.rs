@@ -228,11 +228,6 @@ impl G {
         super::art::pmark("sync");
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        if self.popup_active() {
-            // Pop-up-Karte: ruhige Fläche, das Menü dahinter liefert die Stimmung
-            bs.fill(if self.is_dark_mode() { (32, 30, 47) } else { (250, 249, 255) });
-            return;
-        }
         if super::art::legacy() || self.settings.gb("mono_bg", false) || !self.settings.gb("bg_gradient", true) {
             bs.fill(self.get_bg_color());
         } else {
@@ -279,8 +274,7 @@ impl G {
             if last != (mx, my) { self._kb_nav_active = false; }
         }
         self._last_mouse_phys_pos = Some((mx, my));
-        let p = (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32);
-        if self.popup_active() { self.popup_map(p) } else { p }
+        (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32)
     }
 
     pub fn get_ticks(&self) -> i64 { self.display.get_ticks() }
@@ -303,17 +297,7 @@ impl G {
     /// pygame.event.get() - plus Hintergrundarbeiten (Online-Antworten)
     pub fn event_get(&mut self) -> Vec<Event> {
         self.poll_online();
-        let mut ev = self.display.event_get();
-        // Pop-up: Klick neben die Karte schließt sie (wie Esc)
-        if ev.iter().any(|e| matches!(e, Event::MouseButtonDown { button: 1, .. })) && self.popup_active() {
-            let (mx, my) = self.display.mouse_pos();
-            let p = (((mx as f64 - self.offset_x) / self.scale_x) as i32, ((my as f64 - self.offset_y) / self.scale_y) as i32);
-            if self.popup_outside(p) {
-                for e in ev.iter_mut() {
-                    if matches!(e, Event::MouseButtonDown { button: 1, .. }) { *e = Event::KeyDown { key: crate::pg::K_ESCAPE, unicode: String::new(), mods: 0 }; }
-                }
-            }
-        }
+        let ev = self.display.event_get();
         // Klick/Taste: Startbild für einen möglichen Bildschirm-Übergang merken
         if ev.iter().any(|e| matches!(e, Event::MouseButtonDown { .. } | Event::KeyDown { .. })) { self.transition_snapshot(); }
         for m in std::mem::take(&mut self.display.pad_messages) { self.push_overlay(&m, (120, 170, 230), 2.5, None); }
@@ -480,9 +464,6 @@ impl G {
             ((pw as f64 / lw as f64).min(ph as f64 / lh as f64)).clamp(0.25, 4.0) as f32
         } else { 1.0 };
         let k = (k * 1000.0).round() / 1000.0;
-        // Pop-ups werden direkt in Kartengröße gezeichnet (schärfer und schneller als jedes Bild zu verkleinern)
-        super::transitions::set_full_k(k);
-        let k = if self.popup_active() { ((k as f64 * super::transitions::POPUP_SCALE * 1000.0).round() / 1000.0) as f32 } else { k };
         crate::pg::surface::set_render_scale(k);
         if lw != self.WIDTH || lh != self.HEIGHT || (self.base_surface.scale_k() - k).abs() > 1e-4 {
             self.WIDTH = lw;

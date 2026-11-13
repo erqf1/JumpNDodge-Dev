@@ -173,6 +173,7 @@ pub fn launch_installer(file: &Path) -> Result<PathBuf, String> {
     {
         let mut s: Vec<String> = vec![
             "$ErrorActionPreference = 'SilentlyContinue'".into(),
+            format!("\"start $(Get-Date -Format s)\" | Out-File -LiteralPath {} -Encoding utf8", pq(&tmp.join("update.log").to_string_lossy())),
             format!("Wait-Process -Id {} -Timeout 20", pid),
             format!("if (Get-Process -Id {0}) {{ Stop-Process -Id {0} -Force; Start-Sleep -Seconds 1 }}", pid),
         ];
@@ -181,7 +182,7 @@ pub fn launch_installer(file: &Path) -> Result<PathBuf, String> {
             let scope = install_scope(&app_dir);
             s.push(format!("$p = Start-Process -Wait -PassThru -FilePath {} -ArgumentList '/SILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/FORCECLOSEAPPLICATIONS','{}',{}",
                 pq(&f), scope, pq(&format!("/DIR=\"{}\"", app_dir.to_string_lossy()))));
-            s.push(format!("\"setup {} exit=$($p.ExitCode)\" | Out-File -LiteralPath {} -Encoding utf8", scope, log));
+            s.push(format!("\"setup {} exit=$($p.ExitCode)\" | Out-File -LiteralPath {} -Encoding utf8 -Append", scope, log));
         } else {
             let out = pq(&tmp.join("unpacked").to_string_lossy());
             s.push(format!("Remove-Item -LiteralPath {} -Recurse -Force", out));
@@ -189,6 +190,7 @@ pub fn launch_installer(file: &Path) -> Result<PathBuf, String> {
             s.push(format!("$src = Get-ChildItem -LiteralPath {} -Directory | Select-Object -First 1", out));
             s.push(format!("Copy-Item -Path (Join-Path $src.FullName '*') -Destination {} -Recurse -Force", pq(&app_dir.to_string_lossy())));
         }
+        s.push(format!("\"neu starten $(Get-Date -Format s)\" | Out-File -LiteralPath {} -Encoding utf8 -Append", log));
         s.push(format!("Start-Process -FilePath {}", pq(&exe.to_string_lossy())));
         let script = tmp.join("update.ps1");
         let mut body = vec![0xEF, 0xBB, 0xBF];
@@ -198,7 +200,9 @@ pub fn launch_installer(file: &Path) -> Result<PathBuf, String> {
             use std::os::windows::process::CommandExt;
             std::process::Command::new("powershell.exe")
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"]).arg(&script)
-                .creation_flags(0x0000_0008 | 0x0000_0200) // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP. Nicht DETACHED_PROCESS: damit beendet sich
+                // PowerShell sofort, ohne das Skript auszuführen (Spiel ging zu, Update passierte nie).
+                .creation_flags(0x0800_0000 | 0x0000_0200)
                 .spawn().map_err(|e| e.to_string())?;
         }
         return Ok(script);

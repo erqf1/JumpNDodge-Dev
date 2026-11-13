@@ -434,9 +434,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let w = self.WIDTH;
-        let t = self.font.render("Experimental", true, self.get_text_color());
-        bs.blit(&self.font.render("Experimental", true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 2, 62));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
+        self.draw_screen_title(&bs, "Experimental", 60);
         let r = Rect::new(w / 2 - 180, 180, 360, 48);
         let hv = r.collidepoint(mp) || self.nav_is_focused("experimental_menu", 0, 1);
         self.draw_ui_button(&bs, r, &self.get_text("back"), BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, ..Default::default() });

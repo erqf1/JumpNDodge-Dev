@@ -144,9 +144,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("daily_rewards"), true, self.get_text_color());
-        bs.blit(&self.font.render(&self.get_text("daily_rewards"), true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 3, 73));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 70));
+        self.draw_screen_title(&bs, &self.get_text("daily_rewards"), 70);
         self.draw_coin_display(&bs);
         let mp_ = Rect::new(50, 120, w - 100, h - 200);
         self.draw_panel(&bs, mp_, 16, (60, 80, 140), 3);
@@ -220,8 +218,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("help"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &self.get_text("help"), 20);
         let panel = Rect::new(20, 90, w - 40, h - 146);
         self.draw_card(&bs, panel, 14, false, None, 3, false, None);
         let prev = bs.get_clip();

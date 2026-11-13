@@ -98,9 +98,7 @@ impl G {
             bs.blit(&s, (i as i32 * 500 - 100, 40));
         }
         let tt = format!("{} - {}", self.get_text("shop"), self.get_text("rollen"));
-        let ts = self.font.render(&tt, true, self.get_text_color());
-        bs.blit(&self.font.render(&tt, true, (80, 80, 100)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &tt, 20);
         let sf = self.small_font.clone();
         let cb = Rect::new(20, 15, 150, 32);
         self.draw_panel(&bs, cb, 16, (200, 180, 60), 2);
@@ -110,10 +108,7 @@ impl G {
         let back = Rect::new(w - 130, 15, 110, 32);
         let nb = self.shop_btns.len();
         let bh = back.collidepoint(mp) || self.nav_is_focused("shop", nb, nb + 1);
-        draw::rect(&bs, if bh { self.get_button_hover_color() } else { self.get_button_color() }, back, 0, 16);
-        draw::rect(&bs, (160, 160, 160), back, if bh { 3 } else { 2 }, 16);
-        let bl = sf.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bl, (back.centerx() - bl.get_width() / 2, back.centery() - bl.get_height() / 2));
+        self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: bh, ..Default::default() });
         let hint = sf.render(&format!("SPACE: {}  |  X: {}  |  M/ESC: Menü", self.get_text("spin"), self.get_text("spin10")), true, if dark { (150, 150, 150) } else { (110, 110, 110) });
         bs.blit(&hint, (w / 2 - hint.get_width() / 2, h - 30));
         let win = Rect::new(40, RIBBON_Y - TILE_H / 2, w - 80, TILE_H);
@@ -214,10 +209,7 @@ impl G {
         }
         let cr = Rect::new(panel.centerx() - 110, panel.bottom() - 44, 220, 30);
         let ch = cr.collidepoint(self.get_mouse_pos_logical());
-        draw::rect(&bs, if ch { self.get_button_hover_color() } else { self.get_button_color() }, cr, 0, 10);
-        draw::rect(&bs, (150, 150, 150), cr, 2, 10);
-        let hs = sf.render(&self.get_text("enter_click_close_hint"), true, self.get_text_color());
-        bs.blit(&hs, (cr.centerx() - hs.get_width() / 2, cr.centery() - hs.get_height() / 2));
+        self.draw_ui_button(&bs, cr, &self.get_text("enter_click_close_hint"), BtnOpts { font: Some(sf.clone()), hovered: ch, ..Default::default() });
     }
 
     fn powers_vec(&self, k: &str) -> Vec<String> { self.powers_state.gstrs(k) }

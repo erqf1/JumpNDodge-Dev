@@ -17,17 +17,13 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let w = self.WIDTH;
-        let t = self.font.render(&self.get_text("shop"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 70));
+        self.draw_screen_title(&bs, &self.get_text("shop"), 70);
         self.draw_coin_display(&bs);
         let (sx, sy, gap) = (w / 2 - 180, 180, 70);
         let labels = [(Rect::new(sx, sy, 360, 48), "power_roll"), (Rect::new(sx, sy + gap, 360, 48), "cosmetic_shop"), (Rect::new(sx, sy + 2 * gap, 360, 48), "back")];
         for (i, (r, k)) in labels.iter().enumerate() {
             let hv = r.collidepoint(mp) || self.nav_is_focused("shop_menu", i, 3);
-            draw::rect(&bs, if hv { self.get_button_hover_color() } else { self.get_button_color() }, *r, 0, 12);
-            draw::rect(&bs, (180, 180, 180), *r, if hv { 3 } else { 2 }, 12);
-            let ts = self.menu_font.render(&self.get_text(k), true, self.get_text_color());
-            bs.blit(&ts, (r.centerx() - ts.get_width() / 2, r.centery() - ts.get_height() / 2));
+            self.draw_ui_button(&bs, *r, &self.get_text(k), BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, ..Default::default() });
         }
         self.flip();
     }
@@ -115,8 +111,7 @@ impl G {
         let mp = self.get_mouse_pos_logical();
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("loadout"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &self.get_text("loadout"), 20);
         let sf = self.small_font.clone();
         let eq = self.powers_state.gstrs("equipped");
         let owned = self.powers_state.gstrs("owned");
@@ -302,8 +297,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let w = self.WIDTH;
-        let t = self.font.render(&self.get_text("admin"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 40));
+        self.draw_screen_title(&bs, &self.get_text("admin"), 40);
         self.draw_card(&bs, Rect::new(70, 110, 460, 220), 14, true, None, 3, false, None);
         let sf = self.small_font.clone();
         bs.blit(&sf.render(&self.get_text("enter_password"), true, self.get_text_color()), (100, 150));
@@ -347,8 +341,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("admin"), true, self.get_text_color());
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 40));
+        self.draw_screen_title(&bs, &self.get_text("admin"), 40);
         self.draw_card(&bs, Rect::new(60, 95, w - 120, h - 110), 16, true, None, 3, false, None);
         let sf = self.small_font.clone();
         bs.blit(&sf.render(&format!("{}: {}", self.get_text("coins"), self.stats.gi("coins", 0)), true, self.get_text_color()), (100, 120));

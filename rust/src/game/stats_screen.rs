@@ -117,9 +117,7 @@ impl G {
         let (w, h) = (self.WIDTH, self.HEIGHT);
         draw::rect(&bs, self.get_bg_color(), Rect::new(0, 0, w, 108), 0, 0);
         draw::rect(&bs, self.get_bg_color(), Rect::new(0, h - 65, w, 65), 0, 0);
-        let t = self.font.render(&self.get_text("stats"), true, self.get_text_color());
-        bs.blit(&self.font.render(&self.get_text("stats"), true, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 3, 15));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 12));
+        self.draw_screen_title(&bs, &self.get_text("stats"), 12);
         let has_modded = self.mods_installed();
         let vis: Vec<&str> = STAT_CATEGORIES.iter().copied().filter(|c| *c != "stat_modded" || has_modded).collect();
         if self.current_stat_tab >= vis.len() { self.current_stat_tab = 0; }

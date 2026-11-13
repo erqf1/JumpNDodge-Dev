@@ -30,9 +30,7 @@ impl G {
             bs.blit(&s, (i as i32 * 500 - 100, 50));
         }
         let tt = self.get_text("cosmetic_shop");
-        let ts = self.font.render(&tt, true, self.get_text_color());
-        bs.blit(&self.font.render(&tt, true, (80, 80, 100)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &tt, 20);
         let sf = self.small_font.clone();
         let mf = self.menu_font.clone();
         let cb = Rect::new(w - 175, 15, 160, 32);

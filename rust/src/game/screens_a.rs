@@ -411,10 +411,7 @@ impl G {
         let auto = self.get_auto_start_profile();
         let mp = self.get_mouse_pos_logical();
         let w = self.WIDTH;
-        let title = self.font.render(&self.get_text("who_is_playing"), true, self.get_text_color());
-        let sh = self.font.render(&self.get_text("who_is_playing"), true, (100, 100, 120));
-        bs.blit(&sh, (w / 2 - title.get_width() / 2 + 2, 42));
-        bs.blit(&title, (w / 2 - title.get_width() / 2, 40));
+        self.draw_screen_title(&bs, &self.get_text("who_is_playing"), 40);
         let mut items: Vec<String> = all.keys().cloned().collect();
         items.push("+".into());
         let cols = 3.min(items.len()) as i32;
@@ -510,10 +507,7 @@ impl G {
         self.fill_bg(true);
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let t = self.font.render(&self.get_text("more"), true, self.get_text_color());
-        let ts = self.font.render(&self.get_text("more"), true, (100, 100, 120));
-        bs.blit(&ts, (w / 2 - t.get_width() / 2 + 2, 62));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 60));
+        self.draw_screen_title(&bs, &self.get_text("more"), 60);
         self.draw_coin_display(&bs);
         let btns = self.more_menu_buttons();
         let (sx, sy, gap) = (w / 2 - 180, 128, 54);
@@ -535,10 +529,7 @@ impl G {
         let bs = self.base_surface.clone();
         let dark = self.is_dark_mode();
         let w = self.WIDTH;
-        let t = self.font.render(&self.get_text("profile_hub_title"), true, self.get_text_color());
-        let tsh = self.font.render(&self.get_text("profile_hub_title"), true, (100, 100, 120));
-        bs.blit(&tsh, (w / 2 - t.get_width() / 2 + 2, 22));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &self.get_text("profile_hub_title"), 20);
         self.draw_coin_display(&bs);
         if self._server_reachable == Some(false) {
             let o = self.small_font.render(&self.get_text("offline_hint"), true, (210, 150, 70));

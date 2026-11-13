@@ -289,11 +289,30 @@ impl G {
     }
 
     /// Bildschirm-Titel mit hartem Schatten (einheitlich für alle Seiten)
+    /// Überschrift im Startmenü-Stil: etwas kompakter als die alte 64er-Schrift, harter Schatten gerade
+    /// nach unten (wie bei den Knöpfen, im Lila-Ton statt Grau) und ein kurzer Akzent-Balken darunter.
+    /// Legacy-Grafik: wie im Python-Original (große Schrift, grauer Versatz-Schatten).
     pub fn draw_screen_title(&self, bs: &Surface, text: &str, y: i32) {
         let w = self.WIDTH;
-        let t = self.font.render_fit(text, w - 260, self.get_text_color());
-        let sh = self.font.render_fit(text, w - 260, if self.is_dark_mode() { (12, 10, 20) } else { (190, 186, 214) });
-        bs.blit(&sh, (w / 2 - t.get_width() / 2 + 3, y + 3));
-        bs.blit(&t, (w / 2 - t.get_width() / 2, y));
+        let dark = self.is_dark_mode();
+        if super::art::legacy() {
+            let t = self.font.render_fit(text, w - 260, self.get_text_color());
+            bs.blit(&self.font.render_fit(text, w - 260, (100, 100, 120)), (w / 2 - t.get_width() / 2 + 3, y + 3));
+            bs.blit(&t, (w / 2 - t.get_width() / 2, y));
+            return;
+        }
+        thread_local! { static HEAD: Font = Font::new(54); }
+        let f = HEAD.with(|f| f.clone());
+        let col = if dark { (244, 242, 255) } else { (30, 26, 52) };
+        let shc = if dark { (52, 40, 98) } else { (204, 196, 240) };
+        let t = f.render_fit(text, w - 240, col);
+        let sh = f.render_fit(text, w - 240, shc);
+        let (tx, ty) = (w / 2 - t.get_width() / 2, y + 4);
+        bs.blit(&sh, (tx, ty + 4));
+        bs.blit(&t, (tx, ty));
+        // Akzent-Balken (eine Pixel-Stufe an den Enden)
+        let by = ty + t.get_height() + 2;
+        let ac = super::ui_c::readable(super::ui_c::ACCENT, dark);
+        super::ui_c::step_rect(bs, ac, Rect::new(w / 2 - 22, by, 44, 5), 1);
     }
 }

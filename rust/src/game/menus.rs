@@ -294,7 +294,7 @@ impl G {
             let col = if ghov { super::ui_c::readable(super::ui_c::ACCENT, dark) } else { self.get_text_color() };
             let lift = if ghov { 2.0 } else { 0.0 };
             let rot = if ghov { super::art::anim_time() * 1.2 } else { 0.0 };
-            super::ui_c::gear(&bs, gr.centerx() as f64, gr.centery() as f64 - 2.0 - lift, 19.0, col, body, rot);
+            super::ui_c::gear(&bs, gr.centerx() as f64, gr.centery() as f64 - 3.0 - lift, 20.0, col, body, rot);
         }
 
         if has_online {

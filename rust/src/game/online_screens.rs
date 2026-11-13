@@ -127,9 +127,7 @@ impl G {
         let (w, h) = (self.WIDTH, self.HEIGHT);
         let shift = (70.0 * ((w - 500) as f64 / 300.0).clamp(0.0, 1.0)) as i32;
         let tt = self.get_text("online_leaderboard_btn");
-        let ts = self.font.render(&tt, true, self.get_text_color());
-        bs.blit(&self.font.render(&tt, true, (100, 100, 120)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &tt, 20);
         let sf = self.small_font.clone();
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
@@ -302,9 +300,7 @@ impl G {
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
         let tt = self.get_text("player_search_title");
-        let ts = self.font.render(&tt, true, self.get_text_color());
-        bs.blit(&self.font.render(&tt, true, (100, 100, 120)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        self.draw_screen_title(&bs, &tt, 20);
         let sf = self.small_font.clone();
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
@@ -423,10 +419,7 @@ impl G {
         let (w, h) = (self.WIDTH, self.HEIGHT);
         let sf = self.small_font.clone();
         let back = Rect::new(w - 120, 15, 100, 35);
-        draw::rect(&bs, if back.collidepoint(mp) { self.get_button_hover_color() } else { self.get_button_color() }, back, 0, 10);
-        draw::rect(&bs, (180, 180, 180), back, 2, 10);
-        let bl = sf.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bl, (back.centerx() - bl.get_width() / 2, back.centery() - bl.get_height() / 2));
+        self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), ..Default::default() });
         if self._public_profile_loading || self._public_profile_data.is_none() {
             let s = self.font.render(&self.get_text("loading"), true, self.get_text_color());
             bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2));
