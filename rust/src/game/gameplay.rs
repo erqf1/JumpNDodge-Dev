@@ -181,31 +181,39 @@ impl G {
         bs.blit(&self.small_font.render(line, true, tc), (x, y));
     }
 
-    /// Rote Herzschlag-Vignette (oben/links/rechts) wenn nur noch 1 Leben
+    /// Rote Herzschlag-Vignette (oben/links/rechts) wenn nur noch 1 Leben.
+    /// Wird einmal pro Fenstergröße in voller Stärke gezeichnet und dann nur mit der Puls-Deckkraft
+    /// drübergelegt - vorher entstanden jedes Bild drei bildschirmgroße Flächen (starker Lag bei 1 Leben).
     pub fn draw_almost_dead_vignette(&self, pulse: f64) {
+        thread_local! { static VIG: std::cell::RefCell<Option<((i32, i32, u32), Surface)>> = const { std::cell::RefCell::new(None) }; }
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let layers = 30;
-        let vig_top = h / 3;
-        let vig_side = w / 5;
-        let top_s = Surface::new_alpha(w, vig_top);
-        for li in 0..layers {
-            let frac = (layers - li) as f64 / layers as f64;
-            let a = (90.0 * pulse * frac.powf(1.6)) as i32;
-            let sh = 1.max(vig_top / layers + 2);
-            draw::rect(&top_s, (210, 0, 0, a), Rect::new(0, li * (vig_top / layers), w, sh), 0, 0);
-        }
-        bs.blit(&top_s, (0, 0));
-        let left_s = Surface::new_alpha(vig_side, h);
-        for li in 0..layers {
-            let frac = (layers - li) as f64 / layers as f64;
-            let a = (90.0 * pulse * frac.powf(1.6)) as i32;
-            let sw = 1.max(vig_side / layers + 2);
-            draw::rect(&left_s, (210, 0, 0, a), Rect::new(li * (vig_side / layers), 0, sw, h), 0, 0);
-        }
-        bs.blit(&left_s, (0, 0));
-        let right_s = transform::flip(&left_s, true, false);
-        bs.blit(&right_s, (w - vig_side, 0));
+        let key = (w, h, crate::pg::surface::render_scale().to_bits());
+        let vig = VIG.with(|c| {
+            let mut c = c.borrow_mut();
+            if let Some((k, s)) = c.as_ref() { if *k == key { return s.clone(); } }
+            let s = Surface::new_alpha(w, h);
+            let layers = 30;
+            let (vig_top, vig_side) = (h / 3, w / 5);
+            for li in 0..layers {
+                let frac = (layers - li) as f64 / layers as f64;
+                let a = (90.0 * frac.powf(1.6)) as i32;
+                let sh = 1.max(vig_top / layers + 2);
+                draw::rect(&s, (210, 0, 0, a), Rect::new(0, li * (vig_top / layers), w, sh), 0, 0);
+            }
+            let side = Surface::new_alpha(vig_side, h);
+            for li in 0..layers {
+                let frac = (layers - li) as f64 / layers as f64;
+                let a = (90.0 * frac.powf(1.6)) as i32;
+                let sw = 1.max(vig_side / layers + 2);
+                draw::rect(&side, (210, 0, 0, a), Rect::new(li * (vig_side / layers), 0, sw, h), 0, 0);
+            }
+            s.blit(&side, (0, 0));
+            s.blit(&transform::flip(&side, true, false), (w - vig_side, 0));
+            *c = Some((key, s.clone()));
+            s
+        });
+        bs.blit_f(&vig, 0.0, 0.0, pulse.clamp(0.0, 1.0) as f32);
     }
 
     /// Ende einer Runde (in Python zweimal identisch im Kollisionscode)
@@ -355,6 +363,9 @@ impl G {
         let mut land_ms = 1000.0f64;
         let mut fx = super::art::Fx::new();
         let fx_on = self.effects_on();
+        // Spielgefühl: kurzer Halt bei Treffern, Punkte-Hüpfer im HUD
+        let mut hitstop_ms = 0.0f64;
+        let mut score_bump_ms = 0.0f64;
         // Aufzeichnung (Replay) und Geist des Rekordlaufs
         let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
         let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
@@ -363,7 +374,10 @@ impl G {
             self.sync_window_size();
             if !self.game_running { self.stop_music(); return; }
             let fps = self.target_fps();
-            acc_ms += clock.tick_f(fps).min(250.0);
+            let frame_ms = clock.tick_f(fps).min(250.0);
+            // Hit-Stop: die Logik hält ganz kurz an, gezeichnet wird weiter
+            if hitstop_ms > 0.0 { hitstop_ms -= frame_ms; } else { acc_ms += frame_ms; }
+            score_bump_ms = (score_bump_ms - frame_ms).max(0.0);
             self.fill_bg(true);
             let bs = self.base_surface.clone();
             let (w, h) = (self.WIDTH, self.HEIGHT);
@@ -434,11 +448,13 @@ impl G {
                             vy = -20.0 * modm.jump;
                             is_jumping = true;
                             used_double_jump = false;
+                            if fx_on { fx.jump_puff(player.centerx() as f64, player.bottom() as f64, dark_round); }
                             let t = self.stats.gi("total_jumps", 0) + 1;
                             self.stats.insert("total_jumps".into(), json!(t));
                         } else if rp.double_jump && !used_double_jump {
                             vy = -18.0 * modm.jump;
                             used_double_jump = true;
+                            if fx_on { fx.jump_puff(player.centerx() as f64, player.bottom() as f64, dark_round); }
                             let t = self.stats.gi("total_jumps", 0) + 1;
                             self.stats.insert("total_jumps".into(), json!(t));
                             let txt = format!("{}!", self.get_power_name("Double Jump"));
@@ -539,10 +555,13 @@ impl G {
                 let current_speed = speed * rp.speed_multiplier();
             floor_scroll += current_speed;
                 let fall_speed = (current_speed * 0.85).max(2.0);
+                let score_before = score;
+                let mut passed: Vec<Rect> = vec![];
                 let mut i = 0;
                 while i < obstacles.len() {
                     let o = &mut obstacles[i];
                     let fr = o.dir_x.is_some() || o.dir_y.is_some();
+                    let right_before = o.r.right();
                     if fr {
                         o.r.x = addf(o.r.x, o.dir_x.unwrap_or(0.0) * current_speed);
                         o.r.y = addf(o.r.y, o.dir_y.unwrap_or(0.0) * current_speed);
@@ -554,9 +573,32 @@ impl G {
                         o.r.x = addf(o.r.x, -current_speed * o.spd);
                         if wind_h && rp.freeze_remaining == 0.0 { o.r.x = addf(o.r.x, wh * 5.0); }
                     }
+                    if !fr && right_before >= player.left() && o.r.right() < player.left() { passed.push(o.r); }
                     let off = if fr { o.r.right() < 0 || o.r.left() > w || o.r.bottom() < 0 || o.r.top() > h } else { o.r.right() < 0 };
                     if off { obstacles.remove(i); score += 1; continue; }
                     i += 1;
+                }
+                if fx_on {
+                    // Knapp drüber: Spieler war beim Vorbeiziehen nur wenige Pixel über dem Hindernis
+                    for o in &passed {
+                        if hit_invuln == 0 && player.bottom() <= o.top() && player.bottom() >= o.top() - 14 {
+                            let s = self.small_font.render(&self.tde("Knapp!", "Close!"), true, super::ui_c::readable(super::ui_c::ACCENT, dark_round));
+                            fx.pop(player.centerx() as f64, (player.top() - 18) as f64, s, 650.0, 1.4);
+                            fx.sparkle(player.centerx() as f64, player.bottom() as f64, super::ui_c::ACCENT, 8);
+                        }
+                    }
+                    if score > score_before {
+                        score_bump_ms = 160.0;
+                        let big = score % 25 == 0;
+                        let txt = if big { format!("{}!", score) } else { "+1".to_string() };
+                        let col = if big { super::ui_c::readable(super::ui_c::ACCENT, dark_round) } else if dark_round { (200, 200, 225) } else { (90, 90, 130) };
+                        if big {
+                            fx.pop((w / 2) as f64, 96.0, self.menu_font.render(&txt, true, col), 1000.0, 0.7);
+                        } else {
+                            let sw = self.small_font.size(&format!("{}: {}", self.get_text("score"), score)).0;
+                            fx.pop((12 + sw + 74) as f64, 24.0, self.tab_font.render(&txt, true, col), 520.0, 0.35);
+                        }
+                    }
                 }
                 if rp.freeze_remaining == 0.0 {
                     let mut i = 0;
@@ -625,7 +667,11 @@ impl G {
                             lives -= 1;
                             hit_invuln = 750;
                             self.play_sound_v(Snd::Hit, "hit_volume");
-                            if fx_on { fx.burst(player.centerx() as f64, player.centery() as f64, super::art::HAZARD, 22); }
+                            if fx_on {
+                                fx.burst(player.centerx() as f64, player.centery() as f64, super::art::HAZARD, 22);
+                                hitstop_ms = 70.0;
+                                if self.flash_timer < 300.0 { self.flash_timer = 300.0; }
+                            }
                             self.shake(7.0);
                             if modded { self.mods.on_hit(score, lives); }
                         }
@@ -718,7 +764,7 @@ impl G {
             }
             fx.draw(&bs);
             if show_player { super::art::draw_player(&bs, dplayer, self.get_player_color()); }
-            self.draw_player_cosmetics(&bs, dplayer, None);
+            if show_player { self.draw_player_cosmetics(&bs, dplayer, None); }
             if wind_h || wind_v {
                 let mag = wh.abs().max(wv.abs());
                 if mag > 0.04 {
@@ -739,7 +785,11 @@ impl G {
             let coins = self.stats.gi("coins", 0);
             let lines = [format!("{}: {}", self.get_text("score"), score), format!("{}: {}", self.get_text("lives"), lives),
                          format!("{}: {}", self.get_text("highscore"), hs), format!("{}: {}", self.get_text("coins"), coins)];
-            for (k, l) in lines.iter().enumerate() { self.hud_text(l, tx, ty + k as i32 * lh); }
+            for (k, l) in lines.iter().enumerate() {
+                // Punkte hüpfen kurz, wenn sie steigen
+                let lift = if k == 0 && score_bump_ms > 0.0 { (2.0 * (score_bump_ms / 160.0)).round() as i32 } else { 0 };
+                self.hud_text(l, tx, ty + k as i32 * lh - lift);
+            }
             let sw = self.small_font.size(&lines[0]).0;
             self.hud_text(&format!("{}s", elapsed), tx + sw + 14, ty);
             if wind_h || wind_v {

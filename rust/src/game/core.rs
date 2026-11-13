@@ -293,6 +293,8 @@ impl G {
     pub fn event_get(&mut self) -> Vec<Event> {
         self.poll_online();
         let ev = self.display.event_get();
+        // Klick/Taste: Startbild für einen möglichen Bildschirm-Übergang merken
+        if ev.iter().any(|e| matches!(e, Event::MouseButtonDown { .. } | Event::KeyDown { .. })) { self.transition_snapshot(); }
         for m in std::mem::take(&mut self.display.pad_messages) { self.push_overlay(&m, (120, 170, 230), 2.5, None); }
         self._handle_window_events(&ev);
         ev
@@ -501,6 +503,8 @@ impl G {
                 self._fade_dir = 0;
             }
         }
+        let frame_now = target.clone().unwrap_or_else(|| self.base_surface.clone());
+        if let Some(t) = self.apply_transition(&frame_now) { target = Some(t); }
         let shown = target.unwrap_or_else(|| self.base_surface.clone());
         if self._fade_alpha > 0 {
             let (sw, sh) = shown.get_size();
@@ -512,6 +516,7 @@ impl G {
         self._frame_counter += 1;
         // Grafik-Stil und Animationszeit fürs nächste Bild
         super::art::set_legacy(self.settings.gb("legacy_art", false));
+        super::art::set_motion_level(self.settings.gi("ui_motion", 2).clamp(0, 2) as u8);
         super::art::set_anim_time(self.get_ticks() as f64 / 1000.0);
         self._screenshot_hook(&shown);
     }
@@ -609,14 +614,47 @@ impl G {
         }
     }
 
-    /// draw_ui_button(surface, rect, text, font=None, hovered=False, ...)
+    /// Panel/Kasten. Neuer Look: ruhige Fläche wie im Startmenü (dezenter Rand, Schatten nach unten);
+    /// Legacy: wie bisher mit der übergebenen Randfarbe.
+    pub fn draw_panel(&self, bs: &Surface, r: Rect, radius: i32, border: (i32, i32, i32), bw: i32) {
+        let fill = self.get_panel_color();
+        if super::art::legacy() {
+            draw::rect(bs, fill, r, 0, radius);
+            draw::rect(bs, border, r, bw, radius);
+            return;
+        }
+        let dark = self.is_dark_mode();
+        let edge = if dark { super::ui_c::mix(fill, (255, 255, 255), 0.08) } else { super::ui_c::mix(fill, (60, 50, 110), 0.12) };
+        super::ui_c::panel(bs, r, fill, edge, 2, true, dark);
+    }
+
+    /// Tab (Reiter). Neuer Look: wie die Menüknöpfe, der aktive in der Akzentfarbe.
+    pub fn draw_tab(&self, bs: &Surface, r: Rect, label: &str, font: &Font, selected: bool, hot: bool) {
+        if super::art::legacy() {
+            draw::rect(bs, if selected { self.get_button_color() } else { self.get_panel_color() }, r, 0, 10);
+            draw::rect(bs, if hot { (255, 255, 255) } else if selected { self.get_button_hover_color() } else { (180, 180, 180) }, r, 2, 10);
+            let t = font.render_fit(label, r.w - 10, self.get_text_color());
+            bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
+            return;
+        }
+        let o = if selected {
+            BtnOpts { font: Some(font.clone()), hovered: hot, base_color: Some(super::ui_c::ACCENT), hover_color: Some(super::ui_c::mix(super::ui_c::ACCENT, (255, 255, 255), 0.12)), text_color: Some((255, 255, 255)), ..Default::default() }
+        } else {
+            BtnOpts { font: Some(font.clone()), hovered: hot, ..Default::default() }
+        };
+        self.draw_ui_button(bs, r, label, o);
+    }
+
+
     pub fn draw_ui_button(&self, surface: &Surface, rect: Rect, text: &str, o: BtnOpts) {
         let font = o.font.clone().unwrap_or_else(|| self.menu_font.clone());
         if !super::art::legacy() {
             let dark = self.is_dark_mode();
             let base = o.base_color.unwrap_or(self.get_button_color());
             let hover = o.hover_color.unwrap_or(if dark { (78, 76, 104) } else { (214, 222, 255) });
-            let accent = if o.hovered { o.hover_border_color.or(o.border_color) } else { o.border_color }.unwrap_or(if dark { (150, 130, 230) } else { (110, 90, 200) });
+            // Ein Akzent für alle: Randfarben der Bildschirme gelten nur im Legacy-Look.
+            // Knöpfe mit eigener Flächenfarbe (Start, Belohnungen ...) bekommen einen helleren Ring im eigenen Ton.
+            let accent = if o.base_color.is_some() { super::ui_c::mix(base, (255, 255, 255), 0.45) } else { super::ui_c::ACCENT };
             let tc = o.text_color.unwrap_or(if o.base_color.is_some() { super::ui_c::text_on(base) } else { self.get_text_color() });
             super::ui_c::button(surface, rect, text, &font, base, hover, accent, tc, o.hovered, dark);
             return;

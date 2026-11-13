@@ -103,8 +103,7 @@ impl G {
         bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
         let sf = self.small_font.clone();
         let cb = Rect::new(20, 15, 150, 32);
-        draw::rect(&bs, self.get_panel_color(), cb, 0, 16);
-        draw::rect(&bs, (200, 180, 60), cb, 2, 16);
+        self.draw_panel(&bs, cb, 16, (200, 180, 60), 2);
         draw::circle(&bs, GOLD, (cb.x + 18, cb.centery()), 8, 0);
         draw::circle(&bs, (180, 140, 0), (cb.x + 18, cb.centery()), 8, 2);
         bs.blit(&sf.render(&self.stats.gi("coins", 0).to_string(), true, GOLD), (cb.x + 32, cb.y + 7));
@@ -120,8 +119,7 @@ impl G {
         let win = Rect::new(40, RIBBON_Y - TILE_H / 2, w - 80, TILE_H);
         let sh: Color = if dark { (0, 0, 0, 60).into() } else { (180, 180, 200).into() };
         draw::rect(&bs, sh, Rect::new(win.x + 4, win.y + 4, win.w, win.h), 0, 14);
-        draw::rect(&bs, self.get_panel_color(), win, 0, 14);
-        draw::rect(&bs, (60, 80, 140), win, 2, 14);
+        self.draw_panel(&bs, win, 14, (60, 80, 140), 2);
         if self.ribbon_tiles.is_empty() { return; }
         let total_base = self.ribbon_tiles.len() as i32;
         let total_width = (total_base * TILE_W) as f64;
@@ -184,8 +182,7 @@ impl G {
         let panel = Rect::new(80, 80, w - 160, h - 160);
         let sh: Color = if dark { (0, 0, 0, 80).into() } else { (170, 170, 190).into() };
         draw::rect(&bs, sh, Rect::new(panel.x + 5, panel.y + 5, panel.w, panel.h), 0, 16);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 16);
-        draw::rect(&bs, (60, 80, 140), panel, 3, 16);
+        self.draw_panel(&bs, panel, 16, (60, 80, 140), 3);
         let tt = self.get_text("results");
         let t = self.menu_font.render(&tt, true, self.get_text_color());
         bs.blit(&self.menu_font.render(&tt, true, (80, 80, 100)), (panel.centerx() - t.get_width() / 2 + 2, panel.y + 18));

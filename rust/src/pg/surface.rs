@@ -300,21 +300,21 @@ pub fn set_step_corners(on: bool) { STEP_CORNERS.with(|c| c.set(on)); }
 pub fn step_corners() -> bool { STEP_CORNERS.with(|c| c.get()) }
 
 fn step_path(pb: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4]) {
-    // Stufen in ganzen logischen Pixeln, höchstens 5 (sonst wirkt es grob)
-    let st = |r: f32| (r / 2.0).round().clamp(0.0, 5.0);
+    // eine Pixel-Stufe pro Ecke (ruhiger als zwei), 1..4 logische Pixel
+    let st = |r: f32| if r <= 0.0 { 0.0 } else { (r / 3.0).round().clamp(1.0, 4.0) };
     let [a, b, c, d] = [st(radii[0]), st(radii[1]), st(radii[2]), st(radii[3])];
-    pb.move_to(x + 2.0 * a, y);
-    pb.line_to(x + w - 2.0 * b, y);
-    if b > 0.0 { pb.line_to(x + w - 2.0 * b, y + b); pb.line_to(x + w - b, y + b); pb.line_to(x + w - b, y + 2.0 * b); }
-    pb.line_to(x + w, y + 2.0 * b);
-    pb.line_to(x + w, y + h - 2.0 * c);
-    if c > 0.0 { pb.line_to(x + w - c, y + h - 2.0 * c); pb.line_to(x + w - c, y + h - c); pb.line_to(x + w - 2.0 * c, y + h - c); }
-    pb.line_to(x + w - 2.0 * c, y + h);
-    pb.line_to(x + 2.0 * d, y + h);
-    if d > 0.0 { pb.line_to(x + 2.0 * d, y + h - d); pb.line_to(x + d, y + h - d); pb.line_to(x + d, y + h - 2.0 * d); }
-    pb.line_to(x, y + h - 2.0 * d);
-    pb.line_to(x, y + 2.0 * a);
-    if a > 0.0 { pb.line_to(x + a, y + 2.0 * a); pb.line_to(x + a, y + a); pb.line_to(x + 2.0 * a, y + a); }
+    pb.move_to(x + a, y);
+    pb.line_to(x + w - b, y);
+    if b > 0.0 { pb.line_to(x + w - b, y + b); }
+    pb.line_to(x + w, y + b);
+    pb.line_to(x + w, y + h - c);
+    if c > 0.0 { pb.line_to(x + w - c, y + h - c); }
+    pb.line_to(x + w - c, y + h);
+    pb.line_to(x + d, y + h);
+    if d > 0.0 { pb.line_to(x + d, y + h - d); }
+    pb.line_to(x, y + h - d);
+    pb.line_to(x, y + a);
+    if a > 0.0 { pb.line_to(x + a, y + a); }
     pb.close();
 }
 

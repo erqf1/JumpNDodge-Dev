@@ -14,6 +14,7 @@ pub mod loadout;
 pub mod art;
 pub mod ui_c;
 pub mod settings_ui;
+pub mod transitions;
 pub mod menus;
 pub mod mods;
 pub mod mods_ui;

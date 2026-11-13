@@ -477,10 +477,20 @@ impl G {
 
     pub fn draw_coin_display(&self, bs: &Surface) {
         let coin_bg = Rect::new(15, 15, 200, 35);
-        draw::rect(bs, self.get_panel_color(), coin_bg, 0, 18);
-        draw::rect(bs, (200, 200, 200), coin_bg, 2, 18);
-        let ct = self.small_font.render(&format!("{}: {}", self.get_text("coins"), self.stats.gi("coins", 0)), true, self.get_text_color());
-        bs.blit(&ct, (25, 22));
+        if super::art::legacy() {
+            draw::rect(bs, self.get_panel_color(), coin_bg, 0, 18);
+            draw::rect(bs, (200, 200, 200), coin_bg, 2, 18);
+            let ct = self.small_font.render(&format!("{}: {}", self.get_text("coins"), self.stats.gi("coins", 0)), true, self.get_text_color());
+            bs.blit(&ct, (25, 22));
+            return;
+        }
+        // wie die Menüknöpfe: ruhige Fläche, Münze, Zahl
+        let r = Rect::new(15, 15, 170, 34);
+        self.draw_panel(bs, r, 8, (200, 200, 200), 2);
+        draw::circle(bs, (255, 210, 63), (r.x + 18, r.centery()), 8, 0);
+        draw::circle(bs, (200, 150, 20), (r.x + 18, r.centery()), 8, 2);
+        let ct = self.small_font.render_fit(&self.stats.gi("coins", 0).to_string(), r.w - 42, self.get_text_color());
+        bs.blit(&ct, (r.x + 34, r.centery() - ct.get_height() / 2));
     }
 
     pub fn more_menu_buttons(&mut self) -> Vec<(String, (i32, i32, i32), &'static str)> {

@@ -266,8 +266,7 @@ impl G {
             x += g.get_width() + spacing;
         }
         let coin_bg = Rect::new(15, 15, 200, 35);
-        draw::rect(&bs, self.get_panel_color(), coin_bg, 0, 18);
-        draw::rect(&bs, (200, 200, 200), coin_bg, 2, 18);
+        self.draw_panel(&bs, coin_bg, 18, (200, 200, 200), 2);
         let ct = self.small_font.render(&format!("{}: {}", self.get_text("coins"), self.stats.gi("coins", 0)), true, self.get_text_color());
         bs.blit(&ct, (25, 22));
 

@@ -20,6 +20,8 @@ pub struct Config {
     pub max_rooms: u32,
     /// Log-Datei (leer = nur Konsole)
     pub log_file: String,
+    /// Server-Chat an/aus. Nachrichten werden nur live weitergereicht, nie gespeichert oder geloggt.
+    pub chat: bool,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             password: String::new(),
             max_rooms: 16,
             log_file: "server.log".into(),
+            chat: true,
         }
     }
 }

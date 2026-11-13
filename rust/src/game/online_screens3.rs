@@ -347,8 +347,7 @@ impl G {
         for m in members {
             if y + row_h > h - 110 { break; }
             let rr = Rect::new(w / 2 - 220, y, 440, row_h - 6);
-            draw::rect(&bs, self.get_panel_color(), rr, 0, 8);
-            draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+            self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
             let un = m.gos("username").filter(|s| !s.is_empty());
             let lt = if un.is_some() && un == owner { format!("{}  ({})", m.gs("name", ""), self.get_text("clan_owner_label")) } else { m.gs("name", "") };
             let ns = sf.render(&lt, true, self.get_text_color());
@@ -467,8 +466,7 @@ impl G {
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
         let panel = Rect::new(60, 70, w - 120, h - 220);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 12);
-        draw::rect(&bs, (180, 180, 180), panel, 1, 12);
+        self.draw_panel(&bs, panel, 12, (180, 180, 180), 1);
         if self._chat_loading && self._chat_messages.is_empty() {
             let s = sf.render(&self.get_text("loading"), true, self.get_text_color());
             bs.blit(&s, (panel.centerx() - s.get_width() / 2, panel.centery() - s.get_height() / 2));

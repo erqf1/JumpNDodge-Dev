@@ -49,8 +49,7 @@ impl G {
             bs.blit(&ss, (w / 2 - ss.get_width() / 2, 78));
             // Liste links
             let list = Rect::new(w / 2 - 385, 104, 400, h - 180);
-            draw::rect(&bs, self.get_panel_color(), list, 0, 12);
-            draw::rect(&bs, (110, 110, 150), list, 2, 12);
+            self.draw_panel(&bs, list, 12, (110, 110, 150), 2);
             if self.mods.list.is_empty() {
                 let t = self.tde("Noch keine Mods. Leg eine Beispiel-Mod an!", "No mods yet. Create an example mod!");
                 let s = sf.render(&t, true, (140, 140, 160));
@@ -78,8 +77,7 @@ impl G {
             }
             // Details rechts
             let det = Rect::new(w / 2 + 25, 104, 360, h - 180);
-            draw::rect(&bs, self.get_panel_color(), det, 0, 12);
-            draw::rect(&bs, (110, 110, 150), det, 2, 12);
+            self.draw_panel(&bs, det, 12, (110, 110, 150), 2);
             let mut dy = det.y + 12;
             let mut line = |text: &str, col: (i32, i32, i32), f: &Font, dy: &mut i32| {
                 for l in super::screens_a::wrap_words(f, text, det.w - 28) {

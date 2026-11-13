@@ -114,6 +114,7 @@ impl G {
                     r("theme", self.tde("Farbschema", "Colour scheme"), if dark { self.tde("Dunkel", "Dark") } else { self.tde("Hell", "Light") }, None),
                     r("legacy_art", self.tde("Legacy-Grafik (Python-Look)", "Legacy graphics (Python look)"), self.onoff(s.gb("legacy_art", false)), Some(s.gb("legacy_art", false))),
                     r("gui_scale", self.tde("GUI-Größe", "GUI size"), format!("{}%", (gs * 100.0).round() as i64), None),
+                    r("ui_motion", self.tde("Animationen", "Animations"), match s.gi("ui_motion", 2) { 0 => self.tde("Aus", "Off"), 1 => self.tde("Reduziert", "Reduced"), _ => self.tde("Voll", "Full") }, None),
                     r("fullscreen", self.tde("Vollbild (F11)", "Fullscreen (F11)"), self.onoff(s.gb("fullscreen", false)), Some(s.gb("fullscreen", false))),
                     r("fps", self.tde("Bildrate", "Frame rate"), fps, None),
                     r("effects", self.tde("Effekte (Partikel, Wackeln)", "Effects (particles, shake)"), self.onoff(s.gb("effects", true)), Some(s.gb("effects", true))),
@@ -144,9 +145,9 @@ impl G {
     /// (Zeilen-Rechtecke, Zurück-Knopf)
     fn settings_page_rects(&self, n: usize) -> (Vec<Rect>, Rect) {
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        let row_h = if n > 8 { 31 } else { 42 };
-        let gap = 6;
-        let top = if n > 8 { 98 } else { 112 };
+        let row_h = if n > 8 { 29 } else { 42 };
+        let gap = if n > 8 { 5 } else { 6 };
+        let top = if n > 8 { 96 } else { 112 };
         let rw = 520.min(w - 40);
         let rows = (0..n).map(|i| Rect::new(w / 2 - rw / 2, top + i as i32 * (row_h + gap), rw, row_h)).collect();
         let back_y = (top + n as i32 * (row_h + gap) + 10).min(h - 58);
@@ -255,6 +256,11 @@ impl G {
                 let i = GUI_STEPS.iter().position(|v| (*v - cur).abs() < 0.01).unwrap_or(3) as i32;
                 let ni = (i + dir).rem_euclid(GUI_STEPS.len() as i32) as usize;
                 self.settings.insert("gui_scale".into(), json!(GUI_STEPS[ni]));
+                self.save_section("settings", None);
+            }
+            "ui_motion" => {
+                let v = (self.settings.gi("ui_motion", 2) - dir as i64).rem_euclid(3);
+                self.settings.insert("ui_motion".into(), json!(v));
                 self.save_section("settings", None);
             }
             "fullscreen" => self.toggle_fullscreen(),

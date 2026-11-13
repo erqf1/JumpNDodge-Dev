@@ -85,8 +85,7 @@ impl G {
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
         let r = Rect::new(w / 2 - 280, h / 2 - 170, 560, 340);
-        draw::rect(&bs, self.get_panel_color(), r, 0, 18);
-        draw::rect(&bs, (110, 140, 220), r, 2, 18);
+        self.draw_panel(&bs, r, 18, (110, 140, 220), 2);
         (bs, r)
     }
 

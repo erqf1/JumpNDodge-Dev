@@ -283,11 +283,7 @@ impl G {
             let tr = Rect::new(tx0 + ti as i32 * (tw + tg), 96, tw, th);
             tab_rects.push(tr);
             let active = ti == self._ctrl_active_tab;
-            let bg = if active { (70, 120, 200) } else if tr.collidepoint(mp) { self.get_button_hover_color() } else { self.get_button_color() };
-            draw::rect(&bs, bg, tr, 0, 8);
-            draw::rect(&bs, if active { (150, 180, 220) } else { (150, 150, 150) }, tr, 2, 8);
-            let ls = sf.render(tl, true, if active { (255, 255, 255) } else { self.get_text_color() });
-            bs.blit(&ls, (tr.centerx() - ls.get_width() / 2, tr.centery() - ls.get_height() / 2));
+            self.draw_tab(&bs, tr, tl, &sf, active, tr.collidepoint(mp));
         }
         let kb = self.get_keybindings();
         let extras = self.get_menu_nav_extra_keys();

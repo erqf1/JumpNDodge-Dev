@@ -104,8 +104,7 @@ impl G {
                         let ns = self.menu_font.render(&name, true, self.get_text_color());
                         bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                     } else {
-                        draw::rect(&bs, self.get_panel_color(), rr, 0, 8);
-                        draw::rect(&bs, (110, 110, 120), rr, 1, 8);
+                        self.draw_panel(&bs, rr, 8, (110, 110, 120), 1);
                         let ns = self.menu_font.render(&name, true, (130, 130, 145));
                         bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                         let hs = sf.render(&self.get_text("not_migrated_hint"), true, (110, 110, 125));
@@ -126,8 +125,7 @@ impl G {
                 let fname = req.gs("from_name", "");
                 let funame = req.gos("from_username");
                 let rr = Rect::new(w / 2 - 260, y, 520, row_h - 6);
-                draw::rect(&bs, self.get_panel_color(), rr, 0, 8);
-                draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
                 let ns = self.menu_font.render(&fname, true, self.get_text_color());
                 bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                 let (ar, dr) = self.accept_decline(&bs, mp, rr);
@@ -184,32 +182,75 @@ impl G {
     pub fn back_to_hub_from_friends_hub(&mut self) { self.play_sound(Snd::ClickBack); self.in_friends_hub = false; self.in_online_hub = true; }
 
     // ---------------- Online-Hub ----------------
+    /// Online-Bereich: Status, Multiplayer groß, darunter 2x2 (Rangliste, Freunde, Squad, Nachrichten), Zurück.
+    /// Reihenfolge der Rechtecke wie vorher: Multiplayer, Rangliste, Freunde, Squad, Nachrichten, Zurück.
     pub fn draw_online_hub(&mut self) -> Vec<Rect> {
         let mp = self.get_mouse_pos_logical();
         self.fill_bg(true);
         let bs = self.base_surface.clone();
-        let w = self.WIDTH;
-        let tt = self.get_text("online_hub_title");
-        let ts = self.font.render(&tt, true, self.get_text_color());
-        bs.blit(&self.font.render(&tt, true, (100, 100, 120)), (w / 2 - ts.get_width() / 2 + 2, 22));
-        bs.blit(&ts, (w / 2 - ts.get_width() / 2, 20));
+        let (w, h) = (self.WIDTH, self.HEIGHT);
+        let dark = self.is_dark_mode();
+        self.draw_screen_title(&bs, &self.get_text("online_hub_title"), 22);
         self.draw_coin_display(&bs);
-        if self._server_reachable == Some(false) {
-            let o = self.small_font.render(&self.get_text("offline_hint"), true, (210, 150, 70));
-            bs.blit(&o, (w / 2 - o.get_width() / 2, 60));
-        }
-        let (sx, sy, gap) = (w / 2 - 180, 112, 56);
-        let texts = ["Multiplayer".to_string(), self.get_text("online_leaderboard_btn"), self.get_text("friends_hub_title"), self.get_text("clan_hub_title"), self.get_text("messages_hub_title"), self.get_text("back")];
-        let colors = [(120, 160, 255), (100, 180, 160), (100, 190, 130), (210, 175, 80), (100, 150, 200), (150, 150, 150)];
-        let badges = [0, 0, self._notif_pending_friend_requests, self._notif_pending_clan_requests, self._notif_unread_conversations, 0];
+        let sf = self.small_font.clone();
+        let mf = self.menu_font.clone();
+        let bf = self.badge_font.clone();
+        // Statuszeile
+        let (dot, status) = match self._server_reachable {
+            Some(false) => ((230, 90, 80), self.get_text("offline_hint")),
+            Some(true) => ((80, 200, 120), match self.current_profile_username.clone() {
+                Some(u) if !u.is_empty() => format!("{} @{}", self.tde("Verbunden als", "Connected as"), u),
+                _ => self.tde("Verbunden", "Connected"),
+            }),
+            None => ((200, 180, 90), self.tde("Verbinde …", "Connecting …")),
+        };
+        let st = sf.render_fit(&status, w - 120, if dark { (190, 186, 214) } else { (90, 86, 120) });
+        let sx = w / 2 - (st.get_width() + 16) / 2;
+        draw::circle(&bs, dot, (sx + 5, 82), 5, 0);
+        bs.blit(&st, (sx + 16, 82 - st.get_height() / 2));
+
+        let cw = 440.min(w - 40);
+        let cx = w / 2 - cw / 2;
         let mut rects = vec![];
-        for (i, (t, c)) in texts.iter().zip(colors.iter()).enumerate() {
-            let r = Rect::new(sx, sy + i as i32 * gap, 360, 48);
+        // Multiplayer: Hauptaktion
+        let mr = Rect::new(cx, 106, cw, 64);
+        let hov = mr.collidepoint(mp) || self.nav_is_focused("online_hub", 0, 6);
+        self.draw_ui_button(&bs, mr, "", BtnOpts { hovered: hov, base_color: Some(super::ui_c::ACCENT), hover_color: Some(super::ui_c::mix(super::ui_c::ACCENT, (255, 255, 255), 0.12)), ..Default::default() });
+        let lift = if hov { 2 } else { 0 };
+        let t1 = mf.render("Multiplayer", true, (255, 255, 255));
+        let t2 = bf.render_fit(&self.tde("VS oder Koop mit einem Freund", "Versus or co-op with a friend"), cw - 40, (235, 228, 255));
+        let ty = mr.centery() - (t1.get_height() + t2.get_height()) / 2 - lift - 2;
+        bs.blit(&t1, (mr.centerx() - t1.get_width() / 2, ty));
+        bs.blit(&t2, (mr.centerx() - t2.get_width() / 2, ty + t1.get_height()));
+        rects.push(mr);
+        // 2x2-Kacheln
+        let fr = self._notif_pending_friend_requests;
+        let cr = self._notif_pending_clan_requests;
+        let un = self._notif_unread_conversations;
+        let tiles = [
+            (self.get_text("online_leaderboard_btn"), self.tde("Highscores vergleichen", "Compare high scores"), 0),
+            (self.get_text("friends_hub_title"), if fr > 0 { format!("{} {}", fr, self.tde("neue Anfragen", "new requests")) } else { self.tde("Freunde und Anfragen", "Friends and requests") }, fr),
+            (self.get_text("clan_hub_title"), if cr > 0 { format!("{} {}", cr, self.tde("Beitrittsanfragen", "join requests")) } else { self.tde("Dein Clan", "Your clan") }, cr),
+            (self.get_text("messages_hub_title"), if un > 0 { format!("{} {}", un, self.tde("ungelesen", "unread")) } else { self.tde("Chats mit Freunden", "Chats with friends") }, un),
+        ];
+        let (tw, th, g) = ((cw - 12) / 2, 74, 12);
+        for (i, (title, sub, badge)) in tiles.iter().enumerate() {
+            let r = Rect::new(cx + (i as i32 % 2) * (tw + g), 186 + (i as i32 / 2) * (th + g), tw, th);
+            let hov = r.collidepoint(mp) || self.nav_is_focused("online_hub", i + 1, 6);
+            self.draw_ui_button(&bs, r, "", BtnOpts { hovered: hov, ..Default::default() });
+            let lift = if hov { 2 } else { 0 };
+            let a = mf.render_fit(title, tw - 24, self.get_text_color());
+            let b = bf.render_fit(sub, tw - 24, if *badge > 0 { (255, 196, 90) } else if dark { (170, 166, 196) } else { (100, 96, 130) });
+            let ty = r.centery() - (a.get_height() + b.get_height()) / 2 - lift - 2;
+            bs.blit(&a, (r.centerx() - a.get_width() / 2, ty));
+            bs.blit(&b, (r.centerx() - b.get_width() / 2, ty + a.get_height() + 2));
+            if *badge > 0 { self._draw_notification_badge(&bs, r.right() - 4, r.top() + 4, *badge); }
             rects.push(r);
-            let hov = r.collidepoint(mp) || self.nav_is_focused("online_hub", i, texts.len());
-            self.draw_ui_button(&bs, r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hov, border_color: Some(*c), hover_border_color: Some(*c), hover_border_width: Some(3), ..Default::default() });
-            if badges[i] > 0 { self._draw_notification_badge(&bs, r.right(), r.top(), badges[i]); }
         }
+        let back = Rect::new(w / 2 - 120, (186 + 2 * (th + g) + 14).min(h - 58), 240, 46);
+        let hov = back.collidepoint(mp) || self.nav_is_focused("online_hub", 5, 6);
+        self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(mf.clone()), hovered: hov, ..Default::default() });
+        rects.push(back);
         self.flip();
         rects
     }
@@ -411,8 +452,7 @@ impl G {
         let (pw, ph) = (440, 180);
         let (px, py) = (w / 2 - pw / 2, h / 2 - ph / 2);
         let panel = Rect::new(px, py, pw, ph);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 16);
-        draw::rect(&bs, (200, 100, 100), panel, 2, 16);
+        self.draw_panel(&bs, panel, 16, (200, 100, 100), 2);
         let ms = self.menu_font.render(message, true, self.get_text_color());
         bs.blit(&ms, (panel.centerx() - ms.get_width() / 2, py + 40));
         let mp = self.get_mouse_pos_logical();
@@ -466,8 +506,7 @@ impl G {
                     if y + row_h > h - 20 { break; }
                     let tag = req.gs("tag", "");
                     let rr = Rect::new(w / 2 - 180, y, 360, row_h - 6);
-                    draw::rect(&bs, self.get_panel_color(), rr, 0, 8);
-                    draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                    self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
                     let ns = sf.render(&format!("[{}] {}", tag, req.gs("name", "")), true, self.get_text_color());
                     bs.blit(&ns, (rr.x + 10, rr.centery() - ns.get_height() / 2));
                     let cc = Rect::new(rr.right() - 76, rr.y + 3, 70, rr.h - 6);
@@ -509,8 +548,7 @@ impl G {
                         let fu = req.gos("from_username").filter(|s| !s.is_empty());
                         let fname = req.gs("from_name", "");
                         let rr = Rect::new(w / 2 - 260, y, 520, row_h - 6);
-                        draw::rect(&bs, self.get_panel_color(), rr, 0, 8);
-                        draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                        self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
                         let ns = self.menu_font.render(&fname, true, self.get_text_color());
                         bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                         let dr0 = Rect::new(rr.right() - 96, rr.y + 4, 88, rr.h - 8);

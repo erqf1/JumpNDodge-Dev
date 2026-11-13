@@ -20,6 +20,11 @@ thread_local! {
 /// Legacy-Grafik an/aus (wird jedes Bild aus den Einstellungen gesetzt)
 pub fn set_legacy(v: bool) { LEGACY.with(|c| c.set(v)); crate::pg::surface::set_step_corners(!v); }
 pub fn legacy() -> bool { LEGACY.with(|c| c.get()) }
+thread_local! { static MOTION: Cell<u8> = const { Cell::new(2) }; }
+/// Animationen: 0 = aus, 1 = reduziert (nur Überblenden), 2 = voll (Einstellung `ui_motion`)
+pub fn set_motion_level(v: u8) { MOTION.with(|c| c.set(v.min(2))); }
+pub fn motion_level() -> u8 { MOTION.with(|c| c.get()) }
+
 /// Laufende Zeit in Sekunden für Animationen in Texturen (jedes Bild gesetzt)
 pub fn set_anim_time(t: f64) { ANIM_T.with(|c| c.set(t)); }
 pub fn anim_time() -> f64 { ANIM_T.with(|c| c.get()) }
@@ -431,12 +436,30 @@ pub fn squash(r: Rect, vy: f64, land_ms: f64) -> Rect {
 #[derive(Clone)]
 struct Part { x: f64, y: f64, vx: f64, vy: f64, life: f64, max: f64, col: Col, size: f64, grav: f64 }
 
+/// Kurzer Text, der aufsteigt und verblasst ("+1", "Knapp!")
+struct Pop { x: f64, y: f64, life: f64, max: f64, rise: f64, surf: Surface }
+
 #[derive(Default)]
-pub struct Fx { parts: Vec<Part> }
+pub struct Fx { parts: Vec<Part>, pops: Vec<Pop> }
 
 impl Fx {
-    pub fn new() -> Fx { Fx { parts: Vec::new() } }
-    pub fn clear(&mut self) { self.parts.clear(); }
+    pub fn new() -> Fx { Fx { parts: Vec::new(), pops: Vec::new() } }
+    pub fn clear(&mut self) { self.parts.clear(); self.pops.clear(); }
+    /// Text-Pop (fertig gerendert), Mitte bei (x, y)
+    /// `rise` = Pixel pro Logikschritt am Anfang (wird zum Ende hin langsamer)
+    pub fn pop(&mut self, x: f64, y: f64, surf: Surface, life_ms: f64, rise: f64) {
+        if self.pops.len() < 12 { self.pops.push(Pop { x, y, life: life_ms, max: life_ms, rise, surf }); }
+    }
+    /// Kleiner Abdruck beim Absprung: Staub drückt nach unten/außen weg
+    pub fn jump_puff(&mut self, x: f64, y: f64, dark: bool) {
+        use crate::util::uniform;
+        let col = if dark { (150, 140, 190) } else { (170, 165, 200) };
+        for i in 0..6 {
+            let dir = if i % 2 == 0 { -1.0 } else { 1.0 };
+            let life = uniform(160.0, 300.0);
+            self.push(Part { x: x + dir * uniform(2.0, 12.0), y: y - 1.0, vx: dir * uniform(1.6, 3.6), vy: uniform(-0.6, 0.2), life, max: life, col, size: uniform(1.8, 3.0), grav: 0.02 });
+        }
+    }
     fn push(&mut self, p: Part) { if self.parts.len() < 600 { self.parts.push(p); } }
 
     /// Splitter in alle Richtungen (Treffer)
@@ -479,6 +502,13 @@ impl Fx {
             p.life -= dt;
         }
         self.parts.retain(|p| p.life > 0.0);
+        for p in self.pops.iter_mut() {
+            // schnell hoch, dann ausrollen
+            let f = (p.life / p.max).clamp(0.0, 1.0);
+            p.y -= p.rise * f * k;
+            p.life -= dt;
+        }
+        self.pops.retain(|p| p.life > 0.0);
     }
     pub fn draw(&self, bs: &Surface) {
         for p in &self.parts {
@@ -487,6 +517,12 @@ impl Fx {
             if r < 0.6 { continue; }
             draw::aacircle(bs, p.col, (p.x, p.y), r);
         }
+        for p in &self.pops {
+            let f = (p.life / p.max).clamp(0.0, 1.0);
+            let a = if f < 0.4 { f / 0.4 } else { 1.0 };
+            let (w, h) = p.surf.get_size();
+            bs.blit_f(&p.surf, p.x - w as f64 / 2.0, p.y - h as f64 / 2.0, a as f32);
+        }
     }
-    pub fn is_empty(&self) -> bool { self.parts.is_empty() }
+    pub fn is_empty(&self) -> bool { self.parts.is_empty() && self.pops.is_empty() }
 }

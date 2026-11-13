@@ -1,5 +1,6 @@
 //! Statistik-Bildschirm (Python 10816-11337).
 
+use super::core::BtnOpts;
 use super::state::G;
 use crate::game::save::DIFFICULTIES;
 use crate::pg::*;
@@ -65,29 +66,29 @@ impl G {
             let st = py_str(stimes.get(*diff).unwrap_or(&Value::from(0)));
             let rounds = self.stats.gobj("rounds_by_diff").gi(diff, 0);
             let avg = if rounds > 0 { py_float((self.stats.gobj("score_sum_by_diff").gf(diff, 0.0) / rounds as f64 * 10.0).round() / 10.0) } else { "0".into() };
-            let alpha = fade_alpha(*y, 36, ft, fb, 20);
+            let alpha = fade_alpha(*y, 32, ft, fb, 20);
             if alpha > 0 {
-                let rb = Rect::new(70, *y, w - 140, 36);
+                let rb = Rect::new(70, *y, w - 140, 32);
                 draw::rect(bs, if i % 2 == 0 { self.get_bg_color() } else { self.get_panel_color() }, rb, 0, 6);
                 draw::rect(bs, (180, 180, 180), rb, 1, 6);
                 let ds = sf.render(&self.get_difficulty_name(diff), true, diff_col_map(diff).map(|c| super::ui_c::readable(c, self.is_dark_mode())).unwrap_or(self.get_text_color()));
                 ds.set_alpha(Some(alpha));
-                bs.blit(&ds, (90, *y + 10));
+                bs.blit(&ds, (90, *y + 8));
                 for (sv_, tv, cx) in [(record.clone(), rt.clone(), 320), (sv.clone(), st.clone(), 470)] {
                     let s = sf.render(&sv_, true, self.get_text_color());
                     let t = sf.render(&format!(" {}s", tv), true, dim);
                     s.set_alpha(Some(alpha));
                     t.set_alpha(Some(alpha));
-                    bs.blit(&s, (cx, *y + 10));
-                    bs.blit(&t, (cx + s.get_width(), *y + 10));
+                    bs.blit(&s, (cx, *y + 8));
+                    bs.blit(&t, (cx + s.get_width(), *y + 8));
                 }
                 if with_avg {
                     let a = sf.render(&avg, true, self.get_text_color());
                     a.set_alpha(Some(alpha));
-                    bs.blit(&a, (620, *y + 10));
+                    bs.blit(&a, (620, *y + 8));
                 }
             }
-            *y += 40;
+            *y += 36;
         }
     }
 
@@ -132,17 +133,12 @@ impl G {
         let sf = self.small_font.clone();
         for (i, key) in vis.iter().enumerate() {
             let r = Rect::new(tx0 + i as i32 * (tw + tg), 65, tw, 35);
-            draw::rect(&bs, if i == self.current_stat_tab { self.get_button_color() } else { self.get_panel_color() }, r, 0, 10);
-            let mut brd = if *key == "stat_modded" && i == self.current_stat_tab { (220, 160, 0) } else { (180, 180, 180) };
-            if self.nav_is_focused("statistics", i, nav_total) { brd = (255, 255, 255); }
-            draw::rect(&bs, brd, r, 2, 10);
-            let ls = sf.render(&self.get_text(key), true, self.get_text_color());
-            bs.blit(&ls, (r.centerx() - ls.get_width() / 2, r.centery() - ls.get_height() / 2));
+            let hot = r.collidepoint(self.get_mouse_pos_logical()) || self.nav_is_focused("statistics", i, nav_total);
+            self.draw_tab(&bs, r, &self.get_text(key), &sf, i == self.current_stat_tab, hot);
             self.stat_tab_rects.push((r, StatTab::Main(i)));
         }
         let cp = Rect::new(50, 160, w - 100, h - 240);
-        draw::rect(&bs, self.get_panel_color(), cp, 0, 16);
-        draw::rect(&bs, (60, 80, 140), cp, 3, 16);
+        self.draw_panel(&bs, cp, 16, (60, 80, 140), 3);
         let (ft, fb) = (160, h - 80);
         let mut y = 180 - self.stat_scroll;
         if self.current_stat_tab == 0 {
@@ -169,11 +165,8 @@ impl G {
             let sx0 = (w - (3 * sw + 2 * sg)) / 2;
             for (si, sl) in labels.iter().enumerate() {
                 let sr = Rect::new(sx0 + si as i32 * (sw + sg), y, sw, 32);
-                draw::rect(&bs, if si == self.modded_sub_tab { self.get_button_color() } else { self.get_panel_color() }, sr, 0, 8);
-                let brd = if self.nav_is_focused("statistics", vis.len() + si, nav_total) { (255, 255, 255) } else { (220, 160, 0) };
-                draw::rect(&bs, brd, sr, 2, 8);
-                let ss = sf.render(sl, true, self.get_text_color());
-                bs.blit(&ss, (sr.centerx() - ss.get_width() / 2, sr.centery() - ss.get_height() / 2));
+                let hot = sr.collidepoint(self.get_mouse_pos_logical()) || self.nav_is_focused("statistics", vis.len() + si, nav_total);
+                self.draw_tab(&bs, sr, sl, &sf, si == self.modded_sub_tab, hot);
                 self.stat_tab_rects.push((sr, StatTab::Sub(si)));
             }
             y += 44;
@@ -202,11 +195,9 @@ impl G {
             let nm = sf.render("Keine Mods geladen.", true, (160, 160, 160));
             bs.blit(&nm, (w / 2 - nm.get_width() / 2, y + 10));
         }
-        let br = Rect::new(w - 180, h - 60, 150, 40);
-        draw::rect(&bs, self.get_button_color(), br, 0, 10);
-        draw::rect(&bs, (180, 180, 180), br, 2, 10);
-        let bl = sf.render(&self.get_text("back"), true, self.get_text_color());
-        bs.blit(&bl, (br.centerx() - bl.get_width() / 2, br.centery() - bl.get_height() / 2));
+        let br = Rect::new(w / 2 - 150, h - 56, 300, 44);
+        let bh = br.collidepoint(self.get_mouse_pos_logical());
+        self.draw_ui_button(&bs, br, &self.get_text("back"), BtnOpts { font: Some(self.menu_font.clone()), hovered: bh, ..Default::default() });
         self.stat_tab_rects.push((br, StatTab::Back));
         self.flip();
     }

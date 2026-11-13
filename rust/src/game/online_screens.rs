@@ -153,8 +153,7 @@ impl G {
         let dr = Rect::new(w / 2 - 95, 65, 190, 36);
         let dleft = Rect::new(dr.x - 32, dr.y, 26, 36);
         let dright = Rect::new(dr.right() + 6, dr.y, 26, 36);
-        draw::rect(&bs, self.get_panel_color(), dr, 0, 10);
-        draw::rect(&bs, (180, 180, 180), dr, 2, 10);
+        self.draw_panel(&bs, dr, 10, (180, 180, 180), 2);
         let ls = sf.render(&dl, true, self.get_text_color());
         bs.blit(&ls, (dr.centerx() - ls.get_width() / 2, dr.centery() - ls.get_height() / 2));
         for (ar, at) in [(dleft, "<"), (dright, ">")] {

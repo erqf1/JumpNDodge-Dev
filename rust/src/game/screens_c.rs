@@ -149,8 +149,7 @@ impl G {
         bs.blit(&t, (w / 2 - t.get_width() / 2, 70));
         self.draw_coin_display(&bs);
         let mp_ = Rect::new(50, 120, w - 100, h - 200);
-        draw::rect(&bs, self.get_panel_color(), mp_, 0, 16);
-        draw::rect(&bs, (60, 80, 140), mp_, 3, 16);
+        self.draw_panel(&bs, mp_, 16, (60, 80, 140), 3);
         let mf = self.menu_font.clone();
         let sf = self.small_font.clone();
         let mut y = 150;

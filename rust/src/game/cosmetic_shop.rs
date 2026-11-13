@@ -36,26 +36,21 @@ impl G {
         let sf = self.small_font.clone();
         let mf = self.menu_font.clone();
         let cb = Rect::new(w - 175, 15, 160, 32);
-        draw::rect(&bs, self.get_panel_color(), cb, 0, 16);
-        draw::rect(&bs, (200, 180, 60), cb, 2, 16);
+        self.draw_panel(&bs, cb, 16, (200, 180, 60), 2);
         draw::circle(&bs, GOLD, (cb.x + 18, cb.centery()), 8, 0);
         draw::circle(&bs, (180, 140, 0), (cb.x + 18, cb.centery()), 8, 2);
-        bs.blit(&sf.render(&format!("  {} Coins", self.stats.gi("coins", 0)), true, GOLD), (cb.x + 10, cb.y + 7));
+        let ct = sf.render_fit(&format!("{} Coins", self.stats.gi("coins", 0)), cb.w - 42, self.get_text_color());
+        bs.blit(&ct, (cb.x + 34, cb.centery() - ct.get_height() / 2));
         let (tabs, tw, _) = self.get_cosmetic_tab_layout(true);
         let tlf = if tw < 150 { self.tab_font.clone() } else { sf.clone() };
         for (i, (r, k)) in tabs.iter().zip(COSMETIC_TAB_LABEL_KEYS.iter()).enumerate() {
-            let (bg, bc) = if !self.cosmetic_shop_showing_sale && self.cosmetic_shop_tab == i { (self.get_button_color(), self.get_button_hover_color()) } else { (self.get_panel_color(), (180, 180, 180)) };
-            draw::rect(&bs, bg, *r, 0, 12);
-            draw::rect(&bs, bc, *r, 2, 12);
-            let t = tlf.render(&self.get_text(k), true, self.get_text_color());
-            bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
+            let hot = r.collidepoint(mp);
+            self.draw_tab(&bs, *r, &self.get_text(k), &tlf, !self.cosmetic_shop_showing_sale && self.cosmetic_shop_tab == i, hot);
         }
         let sr = self.get_sale_button_rect();
         let sh = sr.collidepoint(mp);
-        draw::rect(&bs, if self.cosmetic_shop_showing_sale || sh { (230, 40, 40) } else { (170, 25, 25) }, sr, 0, 15);
-        draw::rect(&bs, if self.cosmetic_shop_showing_sale { (255, 120, 120) } else { (100, 15, 15) }, sr, 2, 15);
-        let st = sf.render("Sale", true, (255, 255, 255));
-        bs.blit(&st, (sr.centerx() - st.get_width() / 2, sr.centery() - st.get_height() / 2));
+        // Sale bleibt rot (Bedeutung: Angebot), sonst wie die anderen Reiter
+        self.draw_ui_button(&bs, sr, "Sale", BtnOpts { font: Some(sf.clone()), hovered: sh || self.cosmetic_shop_showing_sale, base_color: Some(if self.cosmetic_shop_showing_sale { (210, 45, 60) } else { (160, 32, 44) }), hover_color: Some((220, 55, 70)), text_color: Some((255, 255, 255)), ..Default::default() });
         let content_top = 160;
         let resolved: Option<String>;
         let grid_start_y;
@@ -73,10 +68,8 @@ impl G {
                 let subs = self.get_face_subtab_layout();
                 for (i, r) in subs.iter().enumerate() {
                     let active = FACE_SUBCATEGORIES[i] == self.shop_face_subcategory;
-                    draw::rect(&bs, if active { self.get_button_color() } else { self.get_panel_color() }, *r, 0, 10);
-                    draw::rect(&bs, if active { self.get_button_hover_color() } else { (150, 150, 150) }, *r, 2, 10);
-                    let t = sf.render(&self.get_text(FACE_SUBCATEGORY_LABEL_KEYS[i]), true, self.get_text_color());
-                    bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
+                    let hot = r.collidepoint(mp);
+                    self.draw_tab(&bs, *r, &self.get_text(FACE_SUBCATEGORY_LABEL_KEYS[i]), &sf, active, hot);
                 }
                 resolved = Some(self.shop_face_subcategory.clone());
                 grid_start_y = subs[0].bottom() + 20;

@@ -185,3 +185,31 @@ fn raum_voll_und_unbekannt() {
     let e = wait_for(&mut c, 10, |m| if let ServerMsg::Error(e) = m { Some(e.clone()) } else { None });
     assert!(e.contains("voll"), "{e}");
 }
+
+#[test]
+fn chat_nur_live_und_mit_spamschutz() {
+    let srv = start_server("", 4, 0.0);
+    let mut a = Client::connect(&srv.addr, opts("Alice", 0.0)).expect("Alice verbindet");
+    // Nachricht, bevor Bob da ist: Bob darf sie nie sehen (kein Verlauf)
+    a.send(&ClientMsg::Chat { text: "vorher".into() });
+    wait_for(&mut a, 5, |m| matches!(m, ServerMsg::Chat { text, .. } if text == "vorher").then_some(()));
+    let mut b = Client::connect(&srv.addr, opts("Bob", 0.0)).expect("Bob verbindet");
+    // Alice bekommt den Hinweis "Bob ist da"
+    wait_pump(&mut a, Some(&mut b), 5, |m| matches!(m, ServerMsg::Chat { from_id: 0, text, .. } if text.contains("Bob")).then_some(()));
+    a.send(&ClientMsg::Chat { text: "  hallo\n  Bob  ".into() });
+    let (from, text) = wait_pump(&mut b, Some(&mut a), 5, |m| match m {
+        ServerMsg::Chat { from_id, from, text } if *from_id != 0 => Some((from.clone(), text.clone())),
+        _ => None,
+    });
+    assert_eq!((from.as_str(), text.as_str()), ("Alice", "hallo Bob"), "bereinigt und mit Absender");
+    // Spam: nach CHAT_BURST Nachrichten kommt der Hinweis an den Absender
+    for i in 0..8 { b.send(&ClientMsg::Chat { text: format!("spam {i}") }); }
+    wait_pump(&mut b, Some(&mut a), 5, |m| matches!(m, ServerMsg::Chat { from_id: 0, text, .. } if text.contains("schnell")).then_some(()));
+    // Bob hat "vorher" nie bekommen
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(300) {
+        a.pump();
+        for m in b.poll() { assert!(!matches!(m, ServerMsg::Chat { ref text, .. } if text == "vorher"), "kein Verlauf für Neue"); }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+}

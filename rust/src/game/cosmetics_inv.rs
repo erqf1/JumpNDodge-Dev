@@ -137,31 +137,25 @@ impl G {
         let (tabs, tw, _) = self.get_cosmetic_tab_layout(false);
         let tlf = if tw < 150 { self.tab_font.clone() } else { self.small_font.clone() };
         for (i, (r, k)) in tabs.iter().zip(COSMETIC_TAB_LABEL_KEYS.iter()).enumerate() {
-            let (bg, bc) = if self.cosmetic_tab == i { (self.get_button_color(), self.get_button_hover_color()) } else { (self.get_panel_color(), (180, 180, 180)) };
-            draw::rect(&bs, bg, *r, 0, 12);
-            draw::rect(&bs, bc, *r, 2, 12);
-            let ts = tlf.render(&self.get_text(k), true, self.get_text_color());
-            bs.blit(&ts, (r.centerx() - ts.get_width() / 2, r.centery() - ts.get_height() / 2));
+            let hot = r.collidepoint(self.get_mouse_pos_logical());
+            self.draw_tab(&bs, *r, &self.get_text(k), &tlf, self.cosmetic_tab == i, hot);
         }
         let sf = self.small_font.clone();
         if COSMETIC_TAB_CATEGORIES[self.cosmetic_tab] == Some("face") {
             for (i, sr) in self.get_face_subtab_layout().iter().enumerate() {
                 let active = FACE_SUBCATEGORIES[i] == self.face_subcategory;
-                draw::rect(&bs, if active { self.get_button_color() } else { self.get_panel_color() }, *sr, 0, 10);
-                draw::rect(&bs, if active { self.get_button_hover_color() } else { (150, 150, 150) }, *sr, 2, 10);
-                let st = sf.render(&self.get_text(FACE_SUBCATEGORY_LABEL_KEYS[i]), true, self.get_text_color());
-                bs.blit(&st, (sr.centerx() - st.get_width() / 2, sr.centery() - st.get_height() / 2));
+                let hot = sr.collidepoint(self.get_mouse_pos_logical());
+                self.draw_tab(&bs, *sr, &self.get_text(FACE_SUBCATEGORY_LABEL_KEYS[i]), &sf, active, hot);
             }
         }
         let pt = self.inv_panel_top();
         let mut y = pt + 10;
         let panel = Rect::new(50, pt, w - 100, h - pt - 70);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 16);
-        draw::rect(&bs, (60, 80, 140), panel, 3, 16);
+        self.draw_panel(&bs, panel, 16, (60, 80, 140), 3);
         let (owned, active) = self.get_cosmetics_for_tab(self.cosmetic_tab);
         if COSMETIC_TAB_CATEGORIES[self.cosmetic_tab].is_some() {
             let cs = self.tab_font.render(&format!("{} {}", owned.len(), self.get_text("owned_tab")), true, self.get_text_color());
-            bs.blit(&cs, (panel.right() - cs.get_width() - 16, panel.y - 22));
+            bs.blit(&cs, (panel.right() - cs.get_width() - 14, panel.bottom() - cs.get_height() - 10));
         }
         if COSMETIC_TAB_CATEGORIES[self.cosmetic_tab].is_none() {
             let m = sf.render(&self.get_text("tools_coming_soon"), true, self.get_text_color());

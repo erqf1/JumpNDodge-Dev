@@ -23,6 +23,9 @@ struct Conn {
     room: Option<String>,
     /// Abgelehnte Verbindungen werden nach kurzer Zeit entfernt
     remove_after: Option<Instant>,
+    /// Chat-Spamschutz (Token-Eimer): verfügbare Nachrichten und letzter Stand
+    chat_tokens: f64,
+    chat_at: Instant,
 }
 
 struct Game {
@@ -166,7 +169,7 @@ impl Server {
         peer.loss = self.loss;
         let id = self.next_id;
         self.next_id += 1;
-        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None });
+        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, chat_tokens: CHAT_BURST, chat_at: Instant::now() });
     }
 
     fn reject(&mut self, a: SocketAddr, reason: String) {
@@ -179,6 +182,9 @@ impl Server {
         let welcomed = self.conns.get(&a).map(|c| c.welcomed).unwrap_or(false);
         if !welcomed {
             if let ClientMsg::Hello { proto, game_version, name, password } = m {
+                if game_version == GAME_VERSION && proto != PROTO_VERSION {
+                    return self.reject(a, format!("Server und Spiel passen nicht zusammen (Protokoll {} statt {}). Der Server muss aktualisiert werden.", PROTO_VERSION, proto));
+                }
                 if proto != PROTO_VERSION || game_version != GAME_VERSION {
                     return self.reject(a, format!("Andere Version: Server hat {}, du hast {}. Bitte dieselbe Version benutzen.", GAME_VERSION, game_version));
                 }
@@ -195,6 +201,7 @@ impl Server {
                 };
                 self.logf(&format!("{} verbunden ({}) - {} Spieler online", name, a, self.player_count()));
                 self.send(a, &ServerMsg::Welcome { client_id: id, server_name: sn, motd });
+                self.chat_notice_others(a, &format!("{} ist da", name));
             }
             return;
         }
@@ -270,7 +277,40 @@ impl Server {
             }
             ClientMsg::Ping { t } => self.send_u(a, &ServerMsg::Pong { t }),
             ClientMsg::Bye => self.drop_conn(a, "hat das Spiel verlassen"),
+            ClientMsg::Chat { text } => self.on_chat(a, &text),
         }
+    }
+
+    // ---------------- Chat ----------------
+    /// Nur live weiterreichen: kein Verlauf, kein Log des Inhalts. Wer später kommt, sieht nichts davon.
+    fn on_chat(&mut self, a: SocketAddr, text: &str) {
+        if !self.cfg.chat { return self.chat_notice(a, "Der Chat ist auf diesem Server aus"); }
+        let text = clean_chat(text);
+        if text.is_empty() { return; }
+        let (id, name, ok) = {
+            let Some(c) = self.conns.get_mut(&a) else { return; };
+            let now = Instant::now();
+            c.chat_tokens = (c.chat_tokens + now.duration_since(c.chat_at).as_secs_f64() / CHAT_REFILL_SECS).min(CHAT_BURST);
+            c.chat_at = now;
+            let ok = c.chat_tokens >= 1.0;
+            if ok { c.chat_tokens -= 1.0; }
+            (c.id, c.name.clone(), ok)
+        };
+        if !ok { return self.chat_notice(a, "Nicht so schnell - kurz warten"); }
+        let m = ServerMsg::Chat { from_id: id, from: name, text };
+        let to: Vec<SocketAddr> = self.conns.iter().filter(|(_, c)| c.welcomed && c.remove_after.is_none()).map(|(k, _)| *k).collect();
+        for t in to { self.send(t, &m); }
+    }
+
+    fn chat_notice(&mut self, a: SocketAddr, text: &str) {
+        self.send(a, &ServerMsg::Chat { from_id: 0, from: String::new(), text: text.into() });
+    }
+
+    /// Hinweis an alle außer `a` (z.B. "X ist da")
+    fn chat_notice_others(&mut self, a: SocketAddr, text: &str) {
+        if !self.cfg.chat { return; }
+        let to: Vec<SocketAddr> = self.conns.iter().filter(|(k, c)| **k != a && c.welcomed && c.remove_after.is_none()).map(|(k, _)| *k).collect();
+        for t in to { self.chat_notice(t, text); }
     }
 
     fn new_code(&self) -> String {
@@ -323,6 +363,7 @@ impl Server {
     fn drop_conn(&mut self, a: SocketAddr, why: &str) {
         self.leave_room(a, if why.is_empty() { "ist weg" } else { why });
         if let Some(c) = self.conns.remove(&a) {
+            if c.welcomed { self.chat_notice_others(a, &format!("{} ist weg", c.name)); }
             if c.welcomed { self.logf(&format!("{} getrennt ({}) - {} Spieler online", c.name, if why.is_empty() { "-" } else { why }, self.player_count())); }
         }
     }

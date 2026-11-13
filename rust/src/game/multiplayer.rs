@@ -14,7 +14,7 @@ use jnd_core::net::netround::{DrawPlayer, NetRound};
 use jnd_core::net::proto::*;
 use jnd_core::sim2p::{Input, ObstacleKind, SimEvent, Winner};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -30,9 +30,13 @@ pub const MP_COLORS: [(i32, i32, i32); 2] = [(70, 130, 255), (225, 80, 170)];
 enum Screen { Browser, Connecting, Lobby, Room, Playing, Result }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Field { None, Addr, Code }
+enum Field { None, Addr, Code, Chat }
 
 enum InfoState { Checking, Online(ServerInfo, u32), Offline }
+
+/// Eine Chat-Zeile. Lebt nur im Speicher, solange man verbunden ist (kein Verlauf, nichts auf der Platte).
+struct ChatLine { from: String, text: String, own: bool, system: bool, at: Instant }
+const CHAT_KEEP: usize = 60;
 
 #[derive(Clone)]
 struct RoomView { code: String, mode: Mode, difficulty: String, you: usize, players: [Option<LobbyPlayer>; 2] }
@@ -76,6 +80,9 @@ struct Mp {
     /// Test/Dev: bereit melden, sobald man in einem vollen Raum ist
     auto_ready: bool,
     fx: super::art::Fx,
+    client_id: u32,
+    chat: VecDeque<ChatLine>,
+    chat_input: String,
 }
 
 impl Mp {
@@ -89,6 +96,7 @@ impl Mp {
             create_mode: Mode::Vs, create_diff: 1, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
+            client_id: 0, chat: VecDeque::new(), chat_input: String::new(),
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -97,6 +105,32 @@ impl Mp {
         self.message_until = Instant::now() + Duration::from_secs(if err { 6 } else { 3 });
     }
     fn send(&mut self, m: ClientMsg) { if let Some(c) = self.client.as_mut() { c.send(&m); } }
+    fn chat_push(&mut self, from: String, text: String, own: bool, system: bool) {
+        self.chat.push_back(ChatLine { from, text, own, system, at: Instant::now() });
+        while self.chat.len() > CHAT_KEEP { self.chat.pop_front(); }
+    }
+}
+
+/// Text in Zeilen umbrechen (Wörter; überlange Wörter werden hart getrennt). `first_indent` = Platz,
+/// den die erste Zeile schon belegt (Name davor).
+fn wrap_text(f: &Font, text: &str, max_w: i32, first_indent: i32) -> Vec<String> {
+    let mut lines: Vec<String> = vec![];
+    let mut cur = String::new();
+    let avail = |n: usize| if n == 0 { max_w - first_indent } else { max_w };
+    for word in text.split(' ') {
+        let cand = if cur.is_empty() { word.to_string() } else { format!("{} {}", cur, word) };
+        if f.size(&cand).0 <= avail(lines.len()) { cur = cand; continue; }
+        if !cur.is_empty() { lines.push(std::mem::take(&mut cur)); }
+        // Wort allein zu lang: Zeichen für Zeichen trennen
+        let mut piece = String::new();
+        for ch in word.chars() {
+            let c2 = format!("{}{}", piece, ch);
+            if f.size(&c2).0 > avail(lines.len()) && !piece.is_empty() { lines.push(std::mem::take(&mut piece)); piece.push(ch); } else { piece = c2; }
+        }
+        cur = piece;
+    }
+    if !cur.is_empty() || lines.is_empty() { lines.push(cur); }
+    lines
 }
 
 fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
@@ -175,6 +209,10 @@ impl G {
         mp.result = None;
         mp.screen = Screen::Browser;
         mp.last_info_query = None;
+        // Chat ist flüchtig: mit der Verbindung ist er weg
+        mp.chat.clear();
+        mp.chat_input.clear();
+        if mp.focus == Field::Chat { mp.focus = Field::None; }
         match msg { Some(m) => mp.say(m, true), None => mp.message.clear() }
         if self.mixer_playing_ingame { self.stop_music(); self.mixer_playing_ingame = false; self.play_menu_music(); }
     }
@@ -216,8 +254,13 @@ impl G {
                     mp.connect_rx = None;
                     mp.server_name = c.server_name.clone();
                     mp.motd = c.motd.clone();
+                    mp.client_id = c.client_id;
                     mp.client = Some(c);
                     mp.screen = Screen::Lobby;
+                    mp.chat.clear();
+                    mp.chat_input.clear();
+                    let hint = self.tde("Verbunden. Den Chat siehst du nur, solange du hier bist - nichts wird gespeichert.", "Connected. You only see chat while you're here - nothing is stored.");
+                    mp.chat_push(String::new(), hint, false, true);
                     mp.rooms.clear();
                     mp.last_list = Instant::now() - Duration::from_secs(10);
                     let a = mp.connecting_addr.clone();
@@ -300,6 +343,7 @@ impl G {
                 self.play_sound(Snd::Click);
             }
             ServerMsg::Start { mode, difficulty, width, height, .. } => {
+                if mp.focus == Field::Chat { mp.focus = Field::None; }
                 let you = mp.room.as_ref().map(|r| r.you).unwrap_or(0);
                 mp.round = Some(NetRound::new(mode, &difficulty, you, width, height));
                 mp.round_started = Instant::now();
@@ -351,6 +395,10 @@ impl G {
             }
             ServerMsg::Pong { t } => { mp.ping_ms = Some(now_ms().saturating_sub(t) as u32); }
             ServerMsg::Reject { reason } => self.mp_disconnect(mp, Some(&reason)),
+            ServerMsg::Chat { from_id, from, text } => {
+                let own = from_id != 0 && from_id == mp.client_id;
+                mp.chat_push(from, text, own, from_id == 0);
+            }
             ServerMsg::Welcome { .. } | ServerMsg::Info(_) => {}
         }
     }
@@ -442,11 +490,12 @@ impl G {
             return;
         }
         if mp.focus != Field::None {
-            let field = if mp.focus == Field::Addr { &mut mp.addr_input } else { &mut mp.code_input };
-            let max = if mp.focus == Field::Addr { 80 } else { 4 };
+            let focus = mp.focus;
+            let field = match focus { Field::Addr => &mut mp.addr_input, Field::Chat => &mut mp.chat_input, _ => &mut mp.code_input };
+            let max = match focus { Field::Addr => 80, Field::Chat => MAX_CHAT_LEN, _ => 4 };
             if key == K_BACKSPACE { field.pop(); return; }
             if key == K_RETURN || key == K_KP_ENTER {
-                let a = if mp.focus == Field::Addr { "connect_input" } else { "join_code" };
+                let a = match focus { Field::Addr => "connect_input", Field::Chat => "chat_send", _ => "join_code" };
                 self.mp_action(mp, a);
                 return;
             }
@@ -459,8 +508,11 @@ impl G {
             }
             for ch in unicode.chars() {
                 if ch.is_control() || field.chars().count() >= max { continue; }
-                if mp.focus == Field::Code { if ch.is_ascii_alphanumeric() { field.push(ch.to_ascii_uppercase()); } }
-                else if !ch.is_whitespace() { field.push(ch); }
+                match focus {
+                    Field::Code => if ch.is_ascii_alphanumeric() { field.push(ch.to_ascii_uppercase()); },
+                    Field::Chat => field.push(ch),
+                    _ => if !ch.is_whitespace() { field.push(ch); },
+                }
             }
             return;
         }
@@ -481,6 +533,9 @@ impl G {
             }
         } else if key == K_F5 && mp.screen == Screen::Lobby {
             self.mp_action(mp, "refresh");
+        } else if key == K_t && matches!(mp.screen, Screen::Lobby | Screen::Room | Screen::Result) {
+            // T = Chat (wie in vielen Spielen); das "t" selbst landet nicht im Feld
+            mp.focus = Field::Chat;
         }
     }
 
@@ -490,6 +545,12 @@ impl G {
             "back" => { self.play_sound(Snd::ClickBack); self.mp_leave_screen(mp); }
             "focus_addr" => mp.focus = Field::Addr,
             "focus_code" => mp.focus = Field::Code,
+            "focus_chat" => mp.focus = Field::Chat,
+            "chat_send" => {
+                let t = clean_chat(&mp.chat_input);
+                mp.chat_input.clear();
+                if !t.is_empty() { mp.send(ClientMsg::Chat { text: t }); }
+            }
             "connect_official" => { self.play_sound(Snd::Click); let o = self.mp_official(); self.mp_connect(mp, &o); }
             "connect_input" => { self.play_sound(Snd::Click); let a = mp.addr_input.clone(); self.mp_connect(mp, &a); }
             "connect" => { self.play_sound(Snd::Click); self.mp_connect(mp, arg); }
@@ -559,6 +620,9 @@ impl G {
             "leave" => mp.send(ClientMsg::LeaveRoom),
             "disconnect" => self.mp_disconnect(mp, None),
             "list" => mp.send(ClientMsg::ListRooms),
+            "chat" => { let t = p[1..].join(" "); mp.send(ClientMsg::Chat { text: t }); }
+            "chat_focus" => mp.focus = Field::Chat,
+            "chat_type" => { mp.focus = Field::Chat; mp.chat_input = p[1..].join(" "); }
             "state" => println!("[MP] Bildschirm {:?}, Raum {:?}", mp.screen, mp.room.as_ref().map(|r| r.code.clone())),
             _ => println!("[MP] unbekannt: {}", line),
         }
@@ -650,8 +714,7 @@ impl G {
         // Offizieller Server
         let off = self.mp_official();
         let card = Rect::new(cx, 112, 600, 74);
-        draw::rect(&bs, self.get_panel_color(), card, 0, 12);
-        draw::rect(&bs, (100, 160, 220), card, 2, 12);
+        self.draw_panel(&bs, card, 12, (100, 160, 220), 2);
         self.mp_text(&bs, &mf, &self.tde("Offizieller Server", "Official server"), tc, card.x + 16, card.y + 8, false);
         let (st, sc) = self.mp_status_line(mp.infos.get(&off));
         draw::circle(&bs, sc, (card.x + 22, card.y + 54), 6, 0);
@@ -714,9 +777,8 @@ impl G {
         self.mp_text(&bs, &sf, &format!("{}{}", mp.motd, ping), (150, 150, 180), w / 2, 82, true);
         // Raumliste
         let lx = w / 2 - 385;
-        let list = Rect::new(lx, 110, 430, h - 190);
-        draw::rect(&bs, self.get_panel_color(), list, 0, 12);
-        draw::rect(&bs, (110, 110, 150), list, 2, 12);
+        let list = Rect::new(lx, 110, 430, 190);
+        self.draw_panel(&bs, list, 12, (110, 110, 150), 2);
         self.mp_text(&bs, &sf, &self.tde("Räume", "Rooms"), tc, list.x + 14, list.y + 10, false);
         let mut y = list.y + 42;
         if mp.rooms.is_empty() {
@@ -724,25 +786,25 @@ impl G {
         }
         for r in mp.rooms.clone() {
             if y + 40 > list.bottom() - 6 { break; }
-            let row = Rect::new(list.x + 10, y, list.w - 20, 38);
+            let row = Rect::new(list.x + 10, y, list.w - 20, 34);
             let open = r.players < 2 && !r.playing;
             let hov = open && row.collidepoint(self.mouse_logical_peek());
             draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, row, 0, 8);
             let col = if open { tc } else { (130, 130, 140) };
-            self.mp_text(&bs, &sf, &r.code, (120, 180, 255), row.x + 10, row.y + 9, false);
+            self.mp_text(&bs, &sf, &r.code, (120, 180, 255), row.x + 10, row.y + 6, false);
             let info = format!("{} · {} · {}", mode_name(self, r.mode), self.get_difficulty_name(&r.difficulty), r.host);
-            self.mp_text(&bs, &bf, &info, col, row.x + 80, row.y + 12, false);
+            self.mp_text(&bs, &bf, &info, col, row.x + 80, row.y + 9, false);
             let st = if r.playing { self.tde("läuft", "playing") } else { format!("{}/2", r.players) };
             let sw = bf.size(&st).0;
-            self.mp_text(&bs, &bf, &st, col, row.right() - 10 - sw, row.y + 12, false);
+            self.mp_text(&bs, &bf, &st, col, row.right() - 10 - sw, row.y + 9, false);
             if open { mp.buttons.push((row, format!("join:{}", r.code))); }
-            y += 44;
+            y += 38;
         }
+        self.mp_draw_chat(&bs, mp, Rect::new(lx, 312, 430, h - 80 - 312));
         // Raum erstellen
         let rx = w / 2 + 60;
         let panel = Rect::new(rx, 110, 325, 200);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 12);
-        draw::rect(&bs, (110, 110, 150), panel, 2, 12);
+        self.draw_panel(&bs, panel, 12, (110, 110, 150), 2);
         self.mp_text(&bs, &sf, &self.tde("Raum erstellen", "Create room"), tc, panel.x + 14, panel.y + 10, false);
         let vs_sel = mp.create_mode == Mode::Vs;
         let sel = |on: bool| if on { (120, 180, 255) } else { (110, 110, 130) };
@@ -755,8 +817,7 @@ impl G {
         self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 144, 297, 42), &self.tde("Erstellen", "Create"), "create", (90, 190, 140), None);
         // Code
         let jp = Rect::new(rx, 322, 325, 104);
-        draw::rect(&bs, self.get_panel_color(), jp, 0, 12);
-        draw::rect(&bs, (110, 110, 150), jp, 2, 12);
+        self.draw_panel(&bs, jp, 12, (110, 110, 150), 2);
         self.mp_text(&bs, &sf, &self.tde("Mit Code beitreten", "Join with code"), tc, jp.x + 14, jp.y + 10, false);
         let ci = mp.code_input.clone();
         let foc = mp.focus == Field::Code;
@@ -799,12 +860,18 @@ impl G {
         }
         if room.players.iter().any(|p| p.is_none()) {
             let t = format!("{} {}", self.tde("Gib deinem Freund den Code", "Give your friend the code"), room.code);
-            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 270, true);
+            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 258, true);
         }
+        let chat_r = Rect::new(w / 2 - 300, 290, 600, h - 132 - 290);
+        self.mp_draw_chat(&bs, mp, chat_r);
         if let Some(c) = mp.countdown {
             thread_local! { static BIG: Font = Font::new(140); }
             let big = BIG.with(|f| f.clone());
-            self.mp_text(&bs, &big, &c.to_string(), (120, 180, 255), w / 2, 290, true);
+            let veil = Surface::new_alpha(chat_r.w, chat_r.h);
+            veil.fill((0, 0, 0, if self.is_dark_mode() { 150 } else { 90 }));
+            bs.blit(&veil, (chat_r.x, chat_r.y));
+            let bh = big.size("0").1;
+            self.mp_text(&bs, &big, &c.to_string(), (120, 180, 255), w / 2, chat_r.centery() - bh / 2, true);
         }
         let me_ready = room.players[room.you].as_ref().map(|p| p.ready).unwrap_or(false);
         let rt = if me_ready { self.tde("Nicht mehr bereit", "Not ready") } else { self.tde("Bereit!", "Ready!") };
@@ -903,7 +970,76 @@ impl G {
             (self.tde("Nochmal ESC = Runde verlassen (online gibt es keine Pause)", "Press ESC again to leave (no pause online)"), (230, 120, 130))
         } else { (self.tde("ESC: Runde verlassen", "ESC: leave round"), (90, 90, 110)) };
         self.mp_text(&bs, &sf, &hint.0, hint.1, w / 2, h - 20, true);
+        self.mp_draw_chat_toasts(&bs, mp);
         self.draw_overlays_ingame();
+    }
+
+    /// Server-Chat-Kasten: Verlauf seit dem Verbinden (nur im Speicher), Eingabe unten
+    fn mp_draw_chat(&self, bs: &Surface, mp: &mut Mp, r: Rect) {
+        if r.h < 90 { return; }
+        let dark = self.is_dark_mode();
+        let sf = self.small_font.clone();
+        let bf = self.badge_font.clone();
+        self.draw_panel(bs, r, 12, (110, 110, 150), 2);
+        let tc = self.get_text_color();
+        let dim = if dark { (140, 136, 170) } else { (110, 106, 140) };
+        self.mp_text(bs, &bf, "Server-Chat", dim, r.x + 14, r.y + 9, false);
+        let note = self.tde("nur live · nichts wird gespeichert", "live only · nothing is stored");
+        let nw = bf.size(&note).0;
+        self.mp_text(bs, &bf, &note, dim, r.right() - 14 - nw, r.y + 9, false);
+        // Eingabe
+        let input = Rect::new(r.x + 10, r.bottom() - 46, r.w - 20, 36);
+        let ci = mp.chat_input.clone();
+        let foc = mp.focus == Field::Chat;
+        let ph = self.tde("T oder hier klicken zum Schreiben", "Press T or click to chat");
+        self.mp_text_field(bs, mp, input, &ci, &ph, foc, "focus_chat");
+        // Zeilen von unten nach oben
+        let lh = bf.size("Ag").1 + 3;
+        let top = r.y + 30;
+        let mut y = input.y - 6;
+        let max_w = r.w - 28;
+        let own_col = super::ui_c::readable(super::ui_c::ACCENT, dark);
+        let other_col = super::ui_c::readable((60, 190, 210), dark);
+        'outer: for line in mp.chat.iter().rev() {
+            let (prefix, pcol) = if line.system { (String::new(), dim) } else { (format!("{}: ", line.from), if line.own { own_col } else { other_col }) };
+            let pw = if prefix.is_empty() { 0 } else { bf.size(&prefix).0 };
+            let rows = wrap_text(&bf, &line.text, max_w, pw);
+            let block_h = rows.len() as i32 * lh;
+            if y - block_h < top { break 'outer; }
+            y -= block_h;
+            let tcol = if line.system { dim } else { tc };
+            for (k, row) in rows.iter().enumerate() {
+                let ry = y + k as i32 * lh;
+                if k == 0 && pw > 0 {
+                    self.mp_text(bs, &bf, &prefix, pcol, r.x + 14, ry, false);
+                    self.mp_text(bs, &bf, row, tcol, r.x + 14 + pw, ry, false);
+                } else {
+                    self.mp_text(bs, &bf, row, tcol, r.x + 14, ry, false);
+                }
+            }
+        }
+        let _ = sf;
+    }
+
+    /// Während der Runde: neue Nachrichten 6 s unten links, dann ausblenden (Tippen geht erst danach)
+    fn mp_draw_chat_toasts(&self, bs: &Surface, mp: &Mp) {
+        let bf = self.badge_font.clone();
+        let now = Instant::now();
+        let recent: Vec<&ChatLine> = mp.chat.iter().rev().filter(|l| !l.system && now.duration_since(l.at) < Duration::from_secs(6)).take(3).collect();
+        let lh = bf.size("Ag").1 + 4;
+        let mut y = self.HEIGHT - 46 - lh;
+        for l in recent {
+            let age = now.duration_since(l.at).as_secs_f64();
+            let a = if age > 5.0 { ((6.0 - age) * 255.0) as u8 } else { 255 };
+            let txt: String = format!("{}: {}", l.from, l.text).chars().take(70).collect();
+            let s = bf.render(&txt, true, if l.own { (200, 190, 255) } else { (235, 235, 245) });
+            let bg = Surface::new_alpha(s.get_width() + 14, s.get_height() + 4);
+            bg.fill((10, 8, 20, (a as f64 * 0.55) as u8));
+            s.set_alpha(Some(a as i32));
+            bs.blit(&bg, (10, y));
+            bs.blit(&s, (17, y + 2));
+            y -= lh;
+        }
     }
 
     fn mp_draw_result(&mut self, mp: &mut Mp) {
@@ -935,8 +1071,9 @@ impl G {
                 Some(p) => format!("{}: {}", self.tde("Mitspieler", "Opponent"), p.name),
                 None => self.tde("Dein Mitspieler hat den Raum verlassen", "The other player left the room"),
             };
-            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 290, true);
+            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 282, true);
         }
+        self.mp_draw_chat(&bs, mp, Rect::new(w / 2 - 300, 316, 600, h - 142 - 316));
         let can_rematch = mp.room.as_ref().map(|r| r.players.iter().all(|p| p.is_some())).unwrap_or(false);
         if can_rematch {
             self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 130, 380, 54), &self.tde("Nochmal!", "Rematch!"), "rematch", (90, 190, 140), Some(mf.clone()));

@@ -4,7 +4,7 @@
 use crate::sim2p::{Input, ObstacleKind, SimEvent, Sim2p, Winner};
 use serde::{Deserialize, Serialize};
 
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 /// Spielversion: Client und Server müssen exakt übereinstimmen (gleiche Regeln)
 pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 47800;
@@ -18,6 +18,11 @@ pub const SNAPSHOT_EVERY: u64 = 2;
 pub const EVENT_HISTORY_FRAMES: u64 = 60;
 pub const COUNTDOWN_SECS: u8 = 3;
 pub const MAX_NAME_LEN: usize = 20;
+/// Server-Chat: maximale Länge einer Nachricht (Zeichen)
+pub const MAX_CHAT_LEN: usize = 120;
+/// Server-Chat: so viele Nachrichten am Stück, danach eine pro CHAT_REFILL_SECS
+pub const CHAT_BURST: f64 = 5.0;
+pub const CHAT_REFILL_SECS: f64 = 2.0;
 pub const DIFFICULTIES: [&str; 8] = ["Leicht", "Mittel", "Schwer", "Hardcore", "Unmöglich", "Albtraum", "Hölle", "Dynamisch"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +42,8 @@ pub enum ClientMsg {
     Input { frame: u64, input: Input },
     Ping { t: u64 },
     Bye,
+    /// Chat-Nachricht an alle, die gerade auf dem Server sind (wird nicht gespeichert)
+    Chat { text: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -123,6 +130,8 @@ pub enum ServerMsg {
     GameOver { winner: Option<Winner>, score: i64, frames: u64, reason: String },
     Error(String),
     Pong { t: u64 },
+    /// Chat live weitergereicht. `from_id` 0 = Hinweis vom Server (beigetreten, zu schnell ...)
+    Chat { from_id: u32, from: String, text: String },
 }
 
 pub fn encode<T: Serialize>(m: &T) -> Vec<u8> {
@@ -135,9 +144,43 @@ pub fn decode<'a, T: Deserialize<'a>>(b: &'a [u8]) -> Option<T> {
     bincode::DefaultOptions::new().with_fixint_encoding().allow_trailing_bytes().with_limit(64 * 1024).deserialize(b).ok()
 }
 
+/// Chat-Text bereinigen: keine Steuerzeichen, Leerraum zusammengefasst, max. MAX_CHAT_LEN Zeichen.
+/// Leer = nicht senden.
+pub fn clean_chat(t: &str) -> String {
+    let mut out = String::new();
+    for w in t.split_whitespace() {
+        let w: String = w.chars().filter(|c| !c.is_control() && !matches!(*c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')).collect();
+        if w.is_empty() { continue; }
+        if !out.is_empty() { out.push(' '); }
+        out.push_str(&w);
+    }
+    out.chars().take(MAX_CHAT_LEN).collect::<String>().trim_end().to_string()
+}
+
 /// Spielername bereinigen: sichtbare ASCII-Zeichen, max. 20, sonst "Spieler"
 pub fn clean_name(n: &str) -> String {
     let s: String = n.chars().filter(|c| (' '..='~').contains(c)).take(MAX_NAME_LEN).collect();
     let s = s.trim().to_string();
     if s.is_empty() { "Spieler".into() } else { s }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn chat_text_bereinigen() {
+        assert_eq!(clean_chat("  hallo 
+	 welt  "), "hallo welt");
+        assert_eq!(clean_chat("\u{202E}böse\u{200B}"), "böse");
+        assert_eq!(clean_chat("   "), "");
+        assert_eq!(clean_chat(&"x".repeat(500)).chars().count(), MAX_CHAT_LEN);
+        assert_eq!(clean_chat("Grüße 👋"), "Grüße 👋");
+    }
+    #[test]
+    fn chat_kodieren() {
+        let m = ServerMsg::Chat { from_id: 3, from: "Anna".into(), text: "hi".into() };
+        assert_eq!(decode::<ServerMsg>(&encode(&m)), Some(m));
+        let c = ClientMsg::Chat { text: "yo".into() };
+        assert_eq!(decode::<ClientMsg>(&encode(&c)), Some(c));
+    }
 }

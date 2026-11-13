@@ -129,14 +129,8 @@ impl G {
         for (i, (r, label)) in [(or_, self.get_text("owned_tab")), (ar, self.get_text("all_tab"))].iter().enumerate() {
             let active = self.loadout_tab == i;
             let hv = r.collidepoint(mp);
-            let (bg, bc) = if active { (self.get_button_color(), self.get_button_hover_color()) } else { (if hv { self.get_button_hover_color() } else { self.get_panel_color() }, if hv { (150, 180, 220) } else { (180, 180, 180) }) };
-            draw::rect(&bs, bg, *r, 0, 12);
-            draw::rect(&bs, bc, *r, 2, 12);
-            let ts = sf.render(label, true, self.get_text_color());
-            bs.blit(&ts, (r.centerx() - ts.get_width() / 2, r.centery() - ts.get_height() / 2));
             let cnt = if i == 0 { owned.len() } else { all.len() };
-            let ct = sf.render(&format!("({})", cnt), true, self.get_text_color());
-            bs.blit(&ct, (r.right() - ct.get_width() - 8, r.y + 4));
+            self.draw_tab(&bs, *r, &format!("{} ({})", label, cnt), &sf, active, hv);
         }
         let info = sf.render(&self.get_text("click_equip"), true, self.get_text_color());
         bs.blit(&info, (w / 2 - info.get_width() / 2, h - 40));
@@ -185,8 +179,7 @@ impl G {
             s.fill(OVERLAY_BG);
             bs.blit(&s, (0, 0));
             let panel = Rect::new(60, 60, w - 120, h - 120);
-            draw::rect(&bs, self.get_panel_color(), panel, 0, 16);
-            draw::rect(&bs, (60, 80, 140), panel, 3, 16);
+            self.draw_panel(&bs, panel, 16, (60, 80, 140), 3);
             let rc = if ["Common", "Rare", "Epic", "Legendary", "Mythic"].contains(&rar.as_str()) { rarity_color(&rar) } else { GRAY };
             let mf = self.menu_font.clone();
             let t1 = mf.render(&self.get_power_name(&name), true, self.get_text_color());
