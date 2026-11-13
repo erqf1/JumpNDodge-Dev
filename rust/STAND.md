@@ -37,6 +37,14 @@ Letzte Aktualisierung: 2026-11-13 · Branch: `main`
 - **Updater-Fix (nach 5.3.0):** Portable Windows-Installationen luden das Server-Zip statt des Spiels (beide endeten auf
   `-windows-x64.zip`). Im Release 5.3.0 heißt die Server-Datei jetzt `JumpNDodge-Server-win-x64.zip` (damit klappt es auch
   für alte 5.2.1), der Updater sucht ab 5.3.1 nur noch exakte Spiel-Dateinamen und gibt PowerShell normale Pfade.
+- **5.4.0:** Menüs überall im Startmenü-Look (`ui_c.rs`, `G::draw_panel`/`draw_tab`), Einstellungen neu sortiert
+  (`settings_ui.rs`), Übergänge mit Herkunft und **Pop-ups** (`transitions.rs`: Einstellungen, Belohnungen, Profil, Online,
+  Anleitung, Code, Mods, Schwierigkeit als Karte über dem Menü; direkt in Kartengröße gezeichnet), Einstellungen als Zahnrad
+  neben dem Profil, Hover-Streifen. **Server-Chat** (Protokoll 2: nur live weitergereicht, kein Verlauf/Log, Spam-Limit,
+  `server.json` → `chat`). Spielgefühl: Combo + Meilensteine, "Knapp!" mit kurzer Zeitlupe, Hit-Stop, Punkte-Pops,
+  Sprungstaub, leichtes Licht-Shading, Spur-Band. **Leistung:** schneller Blit/Überblend-Weg in `pg/surface.rs`
+  (`fast_blit`, `fill_blend`, `edge_vignette`) - vorher bei 1440p 25 ms pro Spielbild (45 ms bei 1 HP), jetzt ~3 ms (~8 ms).
+  Messen: `JND_PERF=1 JND_WIN_SIZE=2560x1440` mit Debug-Build (Zeiten pro Abschnitt über `art::pmark`).
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
