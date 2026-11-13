@@ -22,6 +22,12 @@ pub struct Config {
     pub log_file: String,
     /// Server-Chat an/aus. Nachrichten werden nur live weitergereicht, nie gespeichert oder geloggt.
     pub chat: bool,
+    /// Zusätzlicher WebSocket-Port (TCP) für Cloudflare Tunnel u.ä. (0 = aus). Das Spiel nutzt ihn mit wss://<domain>.
+    pub ws_port: u16,
+    /// Neue Server-Versionen von GitHub holen und neu starten, sobald niemand verbunden ist
+    pub auto_update: bool,
+    /// Wie oft nach Updates gesucht wird (Minuten)
+    pub update_check_minutes: u32,
 }
 
 impl Default for Config {
@@ -35,6 +41,9 @@ impl Default for Config {
             max_rooms: 16,
             log_file: "server.log".into(),
             chat: true,
+            ws_port: 47801,
+            auto_update: true,
+            update_check_minutes: 60,
         }
     }
 }

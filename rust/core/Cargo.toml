@@ -9,3 +9,9 @@ license = "Apache-2.0"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
+# WebSocket-Weg (Cloudflare Tunnel); TLS nur fürs Spiel (Feature "tls"), der Server spricht ws:// hinter dem Tunnel
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+
+[features]
+default = []
+tls = ["tungstenite/rustls-tls-native-roots"]

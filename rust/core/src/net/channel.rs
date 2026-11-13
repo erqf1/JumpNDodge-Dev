@@ -38,9 +38,17 @@ impl Lossy {
     fn drop_now(&self) -> bool { self.0 > 0.0 && rand::random::<f64>() < self.0 }
 }
 
-pub fn send_raw(sock: &UdpSocket, addr: SocketAddr, p: &Packet, loss: Lossy) {
+/// Etwas, worüber Pakete rausgehen: UDP-Socket oder WebSocket (siehe `ws.rs`)
+pub trait Wire {
+    fn send_bytes(&self, to: SocketAddr, b: &[u8]);
+}
+impl Wire for UdpSocket {
+    fn send_bytes(&self, to: SocketAddr, b: &[u8]) { let _ = self.send_to(b, to); }
+}
+
+pub fn send_raw(sock: &dyn Wire, addr: SocketAddr, p: &Packet, loss: Lossy) {
     if loss.drop_now() { return; }
-    let _ = sock.send_to(&encode_packet(p), addr);
+    sock.send_bytes(addr, &encode_packet(p));
 }
 
 /// Alles empfangen, was gerade da ist (nicht blockierend). Fehler wie Windows'
@@ -81,7 +89,7 @@ impl Peer {
     pub fn recv_next(&self) -> u32 { self.recv_next }
     pub fn has_unacked(&self) -> bool { !self.unacked.is_empty() }
 
-    pub fn send_reliable(&mut self, sock: &UdpSocket, data: Vec<u8>) {
+    pub fn send_reliable(&mut self, sock: &dyn Wire, data: Vec<u8>) {
         let seq = self.send_seq;
         self.send_seq = self.send_seq.wrapping_add(1);
         let now = Instant::now();
@@ -91,7 +99,7 @@ impl Peer {
         self.ack_dirty = false;
     }
 
-    pub fn send_unreliable(&mut self, sock: &UdpSocket, data: Vec<u8>) {
+    pub fn send_unreliable(&mut self, sock: &dyn Wire, data: Vec<u8>) {
         send_raw(sock, self.addr, &Packet::Unreliable { ack: self.recv_next, data }, self.loss);
         self.last_sent = Instant::now();
         self.ack_dirty = false;
@@ -124,7 +132,7 @@ impl Peer {
     }
 
     /// Regelmäßig aufrufen: wiederholt Unbestätigtes, schickt Bestätigungen, erkennt Timeout
-    pub fn update(&mut self, sock: &UdpSocket) {
+    pub fn update(&mut self, sock: &dyn Wire) {
         let now = Instant::now();
         if now.duration_since(self.last_heard) > PEER_TIMEOUT { self.dead = true; }
         let ack = self.recv_next;

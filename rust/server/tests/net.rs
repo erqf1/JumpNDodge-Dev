@@ -86,11 +86,17 @@ fn serverinfo() {
 #[test]
 fn falsche_version_und_passwort() {
     let srv = start_server("geheim", 4, 0.0);
-    let mut o = opts("Eve", 0.0);
-    o.game_version = "0.0.1".into();
+    // andere Spielversion, gleiches Protokoll: darf mitspielen
+    let mut o = opts("Alt", 0.0);
+    o.game_version = "5.0.0".into();
     o.password = "geheim".into();
-    let e = Client::connect(&srv.addr, o).err().expect("Version wird abgelehnt");
-    assert!(e.contains("Andere Version"), "{e}");
+    assert!(Client::connect(&srv.addr, o).is_ok(), "ältere Spielversion mit gleichem Protokoll passt");
+    // anderes Protokoll: gesperrt, mit Hinweis wer aktualisieren muss
+    let mut o = opts("Eve", 0.0);
+    o.proto = PROTO_VERSION - 1;
+    o.password = "geheim".into();
+    let e = Client::connect(&srv.addr, o).err().expect("altes Protokoll wird abgelehnt");
+    assert!(e.contains("zu alt"), "{e}");
     let e = Client::connect(&srv.addr, opts("Eve", 0.0)).err().expect("Passwort wird abgelehnt");
     assert!(e.contains("Passwort"), "{e}");
     let mut o = opts("Eve", 0.0);

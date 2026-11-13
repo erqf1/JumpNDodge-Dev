@@ -4,3 +4,4 @@ pub mod channel;
 pub mod client;
 pub mod netround;
 pub mod proto;
+pub mod ws;

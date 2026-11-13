@@ -1,11 +1,16 @@
 //! Nachrichten zwischen Spiel (Client) und Multiplayer-Server.
-//! Wird per bincode kodiert. Bei jeder inkompatiblen Änderung PROTO_VERSION erhöhen.
+//! Wird per bincode kodiert.
+//!
+//! Versionen: Spiel und Server dürfen verschiedene Spielversionen haben (ältere/neuere passen zusammen).
+//! Gesperrt wird nur über PROTO_VERSION - die von Hand erhöhen, wenn sich Nachrichten oder Spielregeln
+//! (sim2p) so ändern, dass alte und neue Versionen nicht mehr zusammen spielen können. Neue Nachrichten
+//! immer HINTEN an die enums anhängen und nur senden, wenn die Gegenseite sie kennt.
 
 use crate::sim2p::{Input, ObstacleKind, SimEvent, Sim2p, Winner};
 use serde::{Deserialize, Serialize};
 
 pub const PROTO_VERSION: u32 = 2;
-/// Spielversion: Client und Server müssen exakt übereinstimmen (gleiche Regeln)
+/// Spielversion (nur zur Anzeige; ob es passt, entscheidet PROTO_VERSION)
 pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 47800;
 /// Feste Spielfeldgröße online (jeder Client skaliert auf sein Fenster)

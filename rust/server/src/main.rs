@@ -14,10 +14,22 @@ fn exe_dir() -> PathBuf {
     std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn make_logger(log_path: Option<PathBuf>) -> jnd_server::server::Logger {
+    Box::new(move |s: &str| {
+        let line = format!("[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), s);
+        println!("{line}");
+        if let Some(p) = &log_path {
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) { let _ = writeln!(f, "{line}"); }
+        }
+    })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") { println!("{GAME_VERSION}"); return; }
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS");
+        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS,
+JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_UPDATE (1/0)");
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -34,6 +46,8 @@ fn main() {
     if let Some(v) = env("JND_SERVER_BIND") { cfg.bind = v; }
     if let Some(v) = env("JND_SERVER_PORT").and_then(|v| v.parse().ok()) { cfg.port = v; }
     if let Some(v) = env("JND_SERVER_MAX_ROOMS").and_then(|v| v.parse().ok()) { cfg.max_rooms = v; }
+    if let Some(v) = env("JND_SERVER_WS_PORT").and_then(|v| v.parse().ok()) { cfg.ws_port = v; }
+    if let Some(v) = env("JND_SERVER_AUTO_UPDATE") { cfg.auto_update = !matches!(v.trim(), "0" | "false" | "nein" | "aus"); }
     if let Some(p) = arg("--port") {
         match p.parse() { Ok(p) => cfg.port = p, Err(_) => { eprintln!("Fehler: ungültiger Port {p}"); std::process::exit(1); } }
     }
@@ -42,33 +56,57 @@ fn main() {
         let p = PathBuf::from(&cfg.log_file);
         Some(if p.is_absolute() { p } else { cfg_path.parent().map(|d| d.join(&p)).unwrap_or(p) })
     };
-    let logger = Box::new(move |s: &str| {
-        let line = format!("[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), s);
-        println!("{line}");
-        if let Some(p) = &log_path {
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) { let _ = writeln!(f, "{line}"); }
-        }
-    });
+    let log_path2 = log_path.clone();
+    let logger = make_logger(log_path);
 
     let port = cfg.port;
-    let mut server = match Server::bind(cfg, logger) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Fehler: Port {port} (UDP) konnte nicht geöffnet werden: {e}\nLäuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
-            std::process::exit(1);
+    let ws_port = cfg.ws_port;
+    let mut cfg = Some(cfg);
+    let mut logger = Some(logger);
+    loop {
+        let (c, l) = (cfg.take().unwrap(), logger.take().unwrap());
+        let keep = c.clone();
+        let mut server = match Server::bind(c, l) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Fehler: Port {port} (UDP) konnte nicht geöffnet werden: {e}
+Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
+                std::process::exit(1);
+            }
+        };
+        println!("=====================================================");
+        println!(" JumpNDodge-Server {GAME_VERSION} (Protokoll {PROTO_VERSION})");
+        println!(" Name:   {}", server.cfg.name);
+        println!(" Port:   {port} (UDP)");
+        match server.ws_addr() {
+            Some(a) => println!(" Web:    {} (TCP, WebSocket - für Cloudflare Tunnel: http://<host>:{})", a.port(), a.port()),
+            None if ws_port != 0 => println!(" Web:    aus (Port {ws_port} belegt)"),
+            None => {}
         }
-    };
-    println!("=====================================================");
-    println!(" JumpNDodge-Server {GAME_VERSION} (Protokoll {PROTO_VERSION})");
-    println!(" Name:   {}", server.cfg.name);
-    println!(" Port:   {port} (UDP)");
-    println!(" Config: {}", cfg_path.display());
-    println!("-----------------------------------------------------");
-    println!(" Spieler im selben Netz verbinden sich mit deiner lokalen IP.");
-    println!(" Für Spieler aus dem Internet: im Router UDP-Port {port}");
-    println!(" an diesen PC weiterleiten und deine öffentliche IP teilen.");
-    println!(" Beenden: Strg+C");
-    println!("=====================================================");
-    let stop = AtomicBool::new(false);
-    server.run(&stop);
+        println!(" Update: {}", if server.cfg.auto_update { "automatisch (neu starten, wenn niemand verbunden ist)" } else { "aus" });
+        println!(" Config: {}", cfg_path.display());
+        println!("-----------------------------------------------------");
+        println!(" Spieler im selben Netz verbinden sich mit deiner lokalen IP.");
+        println!(" Für Spieler aus dem Internet: im Router UDP-Port {port}");
+        println!(" an diesen PC weiterleiten und deine öffentliche IP teilen.");
+        println!(" Beenden: Strg+C");
+        println!("=====================================================");
+        let stop = AtomicBool::new(false);
+        server.run(&stop);
+        let Some(ready) = server.restart_for_update.take() else { break; };
+        // Ports freigeben, bevor die neue Version startet
+        let log_line = |s: &str| println!("[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), s);
+        drop(server);
+        match jnd_server::update::apply(&ready, &args) {
+            Ok(()) => { log_line(&format!("Update auf {} eingespielt - Neustart", ready.version)); std::process::exit(0); }
+            Err(e) => {
+                log_line(&format!("Update fehlgeschlagen ({e}) - laufe mit {GAME_VERSION} weiter, ohne Auto-Update"));
+                let mut k = keep;
+                k.auto_update = false;
+                cfg = Some(k);
+                let lp = log_path2.clone();
+                logger = Some(make_logger(lp));
+            }
+        }
+    }
 }

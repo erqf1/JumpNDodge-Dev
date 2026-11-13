@@ -2,7 +2,8 @@
 //! eigentliche Runde - gerechnet mit derselben Simulation wie der lokale 2P-Modus.
 
 use crate::config::Config;
-use jnd_core::net::channel::{recv_all, send_raw, Lossy, Packet, Peer};
+use jnd_core::net::channel::{recv_all, send_raw, Lossy, Packet, Peer, Wire};
+use jnd_core::net::ws::WsHub;
 use jnd_core::net::proto::*;
 use jnd_core::sim2p::{self, Input, SimEvent, Sim2p, Winner};
 use rand::Rng;
@@ -54,6 +55,14 @@ impl Room {
 
 pub type Logger = Box<dyn FnMut(&str) + Send>;
 
+/// Senden über UDP oder - für WebSocket-Verbindungen - über den Hub
+struct Wires<'a> { udp: &'a UdpSocket, ws: Option<&'a WsHub> }
+impl Wire for Wires<'_> {
+    fn send_bytes(&self, to: SocketAddr, b: &[u8]) {
+        match self.ws { Some(h) if h.is_ws(&to) => h.send_bytes(to, b), _ => self.udp.send_bytes(to, b) }
+    }
+}
+
 pub struct Server {
     sock: UdpSocket,
     pub cfg: Config,
@@ -65,6 +74,10 @@ pub struct Server {
     /// Simulierter Paketverlust (nur Tests)
     pub loss: Lossy,
     log: Logger,
+    ws: Option<WsHub>,
+    updater: Option<crate::update::Updater>,
+    /// Ein Update liegt bereit und niemand ist verbunden: run() endet, main.rs startet neu
+    pub restart_for_update: Option<crate::update::Ready>,
 }
 
 fn tick_dt_ms(n: u64) -> i64 { ((n * 1000) / TICK_HZ - ((n - 1) * 1000) / TICK_HZ) as i64 }
@@ -73,8 +86,19 @@ impl Server {
     pub fn bind(cfg: Config, log: Logger) -> std::io::Result<Server> {
         let sock = UdpSocket::bind((cfg.bind.as_str(), cfg.port))?;
         sock.set_nonblocking(true)?;
-        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log })
+        let mut log = log;
+        let ws = if cfg.ws_port == 0 { None } else {
+            match WsHub::bind(&cfg.bind, cfg.ws_port) {
+                Ok(h) => Some(h),
+                Err(e) => { log(&format!("WebSocket-Port {} (TCP) nicht verfügbar: {} - nur UDP", cfg.ws_port, e)); None }
+            }
+        };
+        let updater = if cfg.auto_update { Some(crate::update::Updater::new(cfg.update_check_minutes)) } else { None };
+        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log, ws, updater, restart_for_update: None })
     }
+
+    /// Adresse des WebSocket-Ports (falls an)
+    pub fn ws_addr(&self) -> Option<SocketAddr> { self.ws.as_ref().map(|h| h.local_addr()) }
 
     pub fn local_addr(&self) -> SocketAddr { self.sock.local_addr().expect("lokale Adresse") }
     pub fn player_count(&self) -> usize { self.conns.values().filter(|c| c.welcomed).count() }
@@ -84,7 +108,7 @@ impl Server {
 
     /// Läuft, bis `stop` gesetzt wird
     pub fn run(&mut self, stop: &AtomicBool) {
-        while !stop.load(Ordering::Relaxed) {
+        while !stop.load(Ordering::Relaxed) && self.restart_for_update.is_none() {
             self.poll_once();
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -97,7 +121,21 @@ impl Server {
     pub fn poll_once(&mut self) {
         let mut pkts = vec![];
         recv_all(&self.sock, |from, p| pkts.push((from, p)));
+        if let Some(h) = &self.ws {
+            h.recv_all(|from, p| pkts.push((from, p)));
+            for a in h.take_closed() { self.drop_conn(a, "Verbindung getrennt"); }
+        }
         for (from, p) in pkts { self.on_packet(from, p); }
+        // Auto-Update: suchen, laden, und erst neu starten, wenn niemand verbunden ist
+        if let Some(u) = self.updater.as_mut() {
+            for line in u.poll() { (self.log)(&line); }
+            if self.conns.values().all(|c| !c.welcomed) {
+                if let Some(r) = u.take_ready() {
+                    (self.log)(&format!("Update auf {} bereit - niemand verbunden, starte neu", r.version));
+                    self.restart_for_update = Some(r);
+                }
+            }
+        }
 
         let target = self.start.elapsed().as_millis() as u64 * TICK_HZ / 1000;
         if target > self.ticks_done + MAX_CATCHUP_TICKS { self.ticks_done = target - MAX_CATCHUP_TICKS; }
@@ -109,8 +147,9 @@ impl Server {
 
         let now = Instant::now();
         let mut dead = vec![];
+        let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
         for (a, c) in self.conns.iter_mut() {
-            c.peer.update(&self.sock);
+            c.peer.update(&wires);
             if c.peer.dead { dead.push((*a, "Zeitüberschreitung")); }
             else if c.remove_after.map(|t| now >= t).unwrap_or(false) { dead.push((*a, "")); }
         }
@@ -119,10 +158,12 @@ impl Server {
 
     // ---------------- Senden ----------------
     fn send(&mut self, a: SocketAddr, m: &ServerMsg) {
-        if let Some(c) = self.conns.get_mut(&a) { c.peer.send_reliable(&self.sock, encode(m)); }
+        let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
+        if let Some(c) = self.conns.get_mut(&a) { c.peer.send_reliable(&wires, encode(m)); }
     }
     fn send_u(&mut self, a: SocketAddr, m: &ServerMsg) {
-        if let Some(c) = self.conns.get_mut(&a) { c.peer.send_unreliable(&self.sock, encode(m)); }
+        let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
+        if let Some(c) = self.conns.get_mut(&a) { c.peer.send_unreliable(&wires, encode(m)); }
     }
 
     fn info(&self) -> ServerInfo {
@@ -141,7 +182,8 @@ impl Server {
         // Serverinfo (auch ohne Verbindung)
         if let Packet::Unreliable { data, .. } = &p {
             if let Some(ClientMsg::Info) = decode::<ClientMsg>(data) {
-                send_raw(&self.sock, from, &Packet::Unreliable { ack: 0, data: encode(&ServerMsg::Info(self.info())) }, self.loss);
+                let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
+                send_raw(&wires, from, &Packet::Unreliable { ack: 0, data: encode(&ServerMsg::Info(self.info())) }, self.loss);
                 return;
             }
         }
@@ -182,16 +224,20 @@ impl Server {
         let welcomed = self.conns.get(&a).map(|c| c.welcomed).unwrap_or(false);
         if !welcomed {
             if let ClientMsg::Hello { proto, game_version, name, password } = m {
-                if game_version == GAME_VERSION && proto != PROTO_VERSION {
-                    return self.reject(a, format!("Server und Spiel passen nicht zusammen (Protokoll {} statt {}). Der Server muss aktualisiert werden.", PROTO_VERSION, proto));
-                }
-                if proto != PROTO_VERSION || game_version != GAME_VERSION {
-                    return self.reject(a, format!("Andere Version: Server hat {}, du hast {}. Bitte dieselbe Version benutzen.", GAME_VERSION, game_version));
+                // Nur die Protokoll-Sperre zählt: verschiedene Spielversionen dürfen zusammen spielen
+                if proto != PROTO_VERSION {
+                    if proto > PROTO_VERSION { if let Some(u) = self.updater.as_mut() { u.check_soon(); } }
+                    let who = if proto < PROTO_VERSION { "Dein Spiel ist zu alt - bitte aktualisieren" } else { "Der Server ist zu alt - er muss aktualisiert werden" };
+                    return self.reject(a, format!("{} (Server {}, Protokoll {}; Spiel {}, Protokoll {}).", who, GAME_VERSION, PROTO_VERSION, game_version, proto));
                 }
                 if !self.cfg.password.is_empty() && password != self.cfg.password {
                     return self.reject(a, "Falsches Passwort".into());
                 }
                 let name = clean_name(&name);
+                // Neuere Spielversion verbunden -> Server ist vermutlich hinterher: sofort nach Update schauen
+                if crate::update::is_newer(&game_version, GAME_VERSION) {
+                    if let Some(u) = self.updater.as_mut() { u.check_soon(); }
+                }
                 let (sn, motd) = (self.cfg.name.clone(), self.cfg.motd.clone());
                 let id = {
                     let c = self.conns.get_mut(&a).unwrap();
@@ -361,6 +407,7 @@ impl Server {
     }
 
     fn drop_conn(&mut self, a: SocketAddr, why: &str) {
+        if let Some(h) = &self.ws { h.close(&a); }
         self.leave_room(a, if why.is_empty() { "ist weg" } else { why });
         if let Some(c) = self.conns.remove(&a) {
             if c.welcomed { self.chat_notice_others(a, &format!("{} ist weg", c.name)); }

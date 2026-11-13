@@ -22,7 +22,7 @@ members = ["core", "server", "tex", "tools/texturwerk"]
 version = "5.4.0"
 
 [dependencies]
-jnd_core = { path = "core" }
+jnd_core = { path = "core", features = ["tls"] }
 jnd_tex = { path = "tex" }
 winit = "0.30"
 softbuffer = "0.4"
