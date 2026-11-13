@@ -137,6 +137,10 @@ jobs:
           workspaces: rust
       - name: Bauen
         working-directory: rust
+        env:
+          # Spielstand-Schlüssel (nur als Secret, nie im Code); ohne ihn bricht der Build ab
+          JND_SAVE_KEY: ${{ secrets.JND_SAVE_KEY }}
+          JND_REQUIRE_SAVE_KEY: '1'
         run: cargo build --release --locked --workspace
       - name: Pakete
         working-directory: rust
@@ -195,6 +199,10 @@ jobs:
           [ "$ok" = 1 ]
       - name: Bauen
         working-directory: rust
+        env:
+          # Spielstand-Schlüssel (nur als Secret, nie im Code); ohne ihn bricht der Build ab
+          JND_SAVE_KEY: ${{ secrets.JND_SAVE_KEY }}
+          JND_REQUIRE_SAVE_KEY: '1'
         run: cargo build --release --locked --workspace
       - name: Pakete (.deb, tar.gz, Zips)
         working-directory: rust
@@ -266,6 +274,10 @@ jobs:
           workspaces: rust
       - name: Bauen
         working-directory: rust
+        env:
+          # Spielstand-Schlüssel (nur als Secret, nie im Code); ohne ihn bricht der Build ab
+          JND_SAVE_KEY: ${{ secrets.JND_SAVE_KEY }}
+          JND_REQUIRE_SAVE_KEY: '1'
         run: cargo build --release --locked --workspace
       - name: App + DMG
         working-directory: rust

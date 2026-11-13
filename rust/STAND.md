@@ -29,6 +29,10 @@ Letzte Aktualisierung: 2026-11-13 · Branch: `main`
   Hover-Animation (`src/game/ui_c.rs`). **Einstellungen → Mehr → Legacy-Grafik** schaltet den alten Look zurück.
   Eigene Texturen: Ordner `textures/` neben dem Spiel (`player.png`, `cos_<name>.svg` …). Dev-Konsole: `run equip <cosmetic>`.
   Außerdem drin (war in 5.2.2 vorbereitet): Rangliste über mert.win, Multiplayer-Server play.mert.win.
+- **Spielstand-Schlüssel (5.3):** steht nicht mehr im Code. `build.rs` setzt ihn aus `JND_SAVE_KEY` verschleiert ein
+  (GitHub-Secret; Sicherung liegt außerhalb des Repos in `JumpNDodge/Geheim (nicht hochladen)/`). Release-Builds ohne Secret
+  brechen ab (`JND_REQUIRE_SAVE_KEY=1`). Alte Stände werden mit dem alten Schlüssel gelesen und sofort neu gespeichert;
+  den alten Schlüssel in ein paar Versionen ganz rausnehmen. Ohne Variable (Entwickler-Builds) gilt der alte Schlüssel.
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
@@ -44,7 +48,7 @@ Letzte Aktualisierung: 2026-11-13 · Branch: `main`
      ist behoben). Unter github.com/erqf1 → Packages → jumpndodge-server die Sichtbarkeit auf **Public** stellen,
      sonst kann CasaOS es nicht ohne Login laden. Alternativ das Server-Zip (Linux) direkt starten.
    - Ohne eigene IPv4 (DS-Lite) bitte beim Anbieter eine IPv4 anfragen – Details auf der Seite „Server hosten“.
-3. **Rangliste über mert.win** (seit 5.2.2): Das Spiel ruft `https://mert.win/jump/api/...` auf. Die neue `nginx.conf` (Latein Trainer/latein-sync) leitet `/jump/api/` an den Ranglisten-Container (192.168.178.188:5000) weiter – hochladen, Container `latein-trainer` neu starten, Ranglisten-Container muss mit Port 5000 laufen. Der alte Tunnel für leaderboard.jumpndodge.download wird nicht mehr gebraucht.
+3. **Rangliste über mert.win** (seit 5.2.2): Das Spiel ruft `https://mert.win/jump/api/...` auf. Die neue `nginx.conf` (Latein Trainer/latein-sync) leitet `/jump/api/` an den Ranglisten-Container (Port 5000 auf dem CasaOS-Rechner) weiter – hochladen, Container `latein-trainer` neu starten, Ranglisten-Container muss mit Port 5000 laufen. Der alte Tunnel für leaderboard.jumpndodge.download wird nicht mehr gebraucht.
 4. **GitHub Actions:** Seit 11.11. starten keine Jobs mehr („recent account payments have failed or your spending limit needs
    to be increased“). Unter github.com → Settings → Billing & plans beheben, dann Release 5.3.0 per Run workflow starten.
 5. **Linux-Nutzer der alten Python-Version** wechseln nicht automatisch (der alte Python-Updater verliert unter Linux das

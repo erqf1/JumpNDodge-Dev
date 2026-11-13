@@ -13,7 +13,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(|a| a == "--decrypt-test").unwrap_or(false) {
         let path = args.get(2).cloned().unwrap_or_default();
-        match crypto::load_encrypted_json(std::path::Path::new(&path)) {
+        match crypto::load_encrypted_json_ro(std::path::Path::new(&path)) {
             Some(v) => println!("OK keys: {:?}", v.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>())),
             None => println!("FEHLER"),
         }
