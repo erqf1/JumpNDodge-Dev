@@ -226,7 +226,7 @@ impl G {
         self.sync_window_size();
         let bs = self.base_surface.clone();
         let (w, h) = (self.WIDTH, self.HEIGHT);
-        if self.settings.gb("mono_bg", false) || !self.settings.gb("bg_gradient", true) {
+        if super::art::legacy() || self.settings.gb("mono_bg", false) || !self.settings.gb("bg_gradient", true) {
             bs.fill(self.get_bg_color());
         } else {
             // Rust Edition: sanfter Verlauf statt einfarbig

@@ -26,13 +26,17 @@ Letzte Aktualisierung: 2026-11-13 · Branch: `main`
   Werkzeug **Texturwerk** (`cargo run -p texturwerk --release -- <befehl>`): `pix` (Raster → SVG), `check`, `bogen` (Vorschau aller
   Texturen), `szene` (Probe-Szene), `export`, `figur` (Spielfigur mit Cosmetics als PNG). Boden steht still, Bodenhindernisse
   haben Fahrtstreifen, Cosmetics/Spuren/Shop-Symbole als Texturen, Menüknöpfe und Panels im selben Stil mit Reinfahr- und
-  Hover-Animation (`src/game/ui_c.rs`). **Einstellungen → Mehr → Legacy-Grafik** schaltet den alten Look zurück.
+  Hover-Animation (`src/game/ui_c.rs`). **Einstellungen → Mehr → Legacy-Grafik** zeichnet alles wie die ursprüngliche
+  Python-Version (rote Blöcke, grünes 1-UP, zwei Bodenlinien, einfarbig, kein Squash); Dev-Befehl `run legacy_art [off]`.
   Eigene Texturen: Ordner `textures/` neben dem Spiel (`player.png`, `cos_<name>.svg` …). Dev-Konsole: `run equip <cosmetic>`.
   Außerdem drin (war in 5.2.2 vorbereitet): Rangliste über mert.win, Multiplayer-Server play.mert.win.
 - **Spielstand-Schlüssel (5.3):** steht nicht mehr im Code. `build.rs` setzt ihn aus `JND_SAVE_KEY` verschleiert ein
   (GitHub-Secret; Sicherung liegt außerhalb des Repos in `JumpNDodge/Geheim (nicht hochladen)/`). Release-Builds ohne Secret
   brechen ab (`JND_REQUIRE_SAVE_KEY=1`). Alte Stände werden mit dem alten Schlüssel gelesen und sofort neu gespeichert;
   den alten Schlüssel in ein paar Versionen ganz rausnehmen. Ohne Variable (Entwickler-Builds) gilt der alte Schlüssel.
+- **Updater-Fix (nach 5.3.0):** Portable Windows-Installationen luden das Server-Zip statt des Spiels (beide endeten auf
+  `-windows-x64.zip`). Im Release 5.3.0 heißt die Server-Datei jetzt `JumpNDodge-Server-win-x64.zip` (damit klappt es auch
+  für alte 5.2.1), der Updater sucht ab 5.3.1 nur noch exakte Spiel-Dateinamen und gibt PowerShell normale Pfade.
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst

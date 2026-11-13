@@ -154,7 +154,7 @@ jobs:
           mkdir -p arch && cp target/release/JumpNDodge.exe ../icon.ico arch/ && echo "$VER" > arch/version.txt
           (cd arch && 7z a -bd "$OUT/JumpNDodge-v$VER-windows.zip" . >/dev/null)
           # Server
-          S=JumpNDodge-Server-windows-x64; mkdir -p "$S"
+          S=JumpNDodge-Server-win-x64; mkdir -p "$S"
           cp target/release/JumpNDodge-Server.exe server/LIESMICH.txt server/docker-compose.yml LICENSE "$S/"
           7z a -bd "$OUT/$S.zip" "$S" >/dev/null
       - name: Installer (Inno Setup)

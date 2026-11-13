@@ -577,7 +577,7 @@ impl G {
 
     /// draw_avatar(surface, rect, color=None, cosmetics=True, cosmetics_overrides=None)
     pub fn draw_avatar(&self, surface: &Surface, r: Rect, color: Option<(i32, i32, i32)>, cosmetics: bool, overrides: Option<&serde_json::Map<String, Value>>) {
-        super::art::draw_player(surface, r, color.unwrap_or(self.get_player_color()));
+        super::art::draw_avatar_body(surface, r, color.unwrap_or(self.get_player_color()));
         if cosmetics { self.draw_player_cosmetics(surface, r, overrides); }
     }
 }

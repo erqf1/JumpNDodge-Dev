@@ -74,7 +74,7 @@ pub fn fetch_latest() -> Result<Release, String> {
     })
 }
 
-fn exe_path() -> PathBuf { std::env::current_exe().ok().and_then(|p| p.canonicalize().ok().or(Some(p))).unwrap_or_default() }
+fn exe_path() -> PathBuf { plain_path(&std::env::current_exe().ok().and_then(|p| p.canonicalize().ok().or(Some(p))).unwrap_or_default()) }
 fn exe_dir() -> PathBuf { exe_path().parent().map(|p| p.to_path_buf()).unwrap_or_default() }
 
 fn which(cmd: &str) -> bool {
@@ -99,7 +99,18 @@ pub fn pick_asset(rel: &Release) -> Option<(String, String, u64)> {
         }
     };
     let suffix = std::env::var("UPDATER_ASSET_SUFFIX").ok().filter(|s| !s.is_empty()).unwrap_or(suffix);
-    rel.assets.iter().find(|(n, _, _)| n.to_lowercase().ends_with(&suffix.to_lowercase())).cloned()
+    // Genau der Spiel-Dateiname ("jumpndodge" + Endung), nicht nur die Endung: bis 5.3.0 endete auch das
+    // Server-Zip auf "-windows-x64.zip" und wurde von portablen Windows-Installationen statt des Spiels geladen.
+    let want = format!("jumpndodge{}", suffix.to_lowercase());
+    rel.assets.iter().find(|(n, _, _)| n.to_lowercase() == want).cloned()
+}
+
+/// `\\?\C:\...` (von canonicalize) -> `C:\...`, damit PowerShell und Installer normale Pfade bekommen
+fn plain_path(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") { return PathBuf::from(format!(r"\\{}", rest)); }
+    if let Some(rest) = s.strip_prefix(r"\\?\") { return PathBuf::from(rest); }
+    p.to_path_buf()
 }
 
 /// Download mit Fortschritt (blockierend). `cancel` bricht ab.
@@ -252,5 +263,27 @@ mod tests {
         assert!(!is_newer("installer", "5.0.0"));
         assert!(!is_newer("rust-v4.9.1", "4.0.0"));
         assert_eq!(parse_version("v5.0.0-beta"), Some((5, 0, 0)));
+    }
+    #[test]
+    fn nimmt_nie_das_server_zip() {
+        let a = |n: &str| (n.to_string(), format!("https://x/{n}"), 1u64);
+        let rel = Release { tag: "v9.0.0".into(), version: "9.0.0".into(), page: String::new(), notes: String::new(), assets: vec![
+            a("JumpNDodge-Server-windows-x64.zip"), a("JumpNDodge-Server-win-x64.zip"), a("JumpNDodge-Server-linux-x86_64.zip"),
+            a("JumpNDodge-Server-macos-apple-silicon.zip"), a("JumpNDodge-windows-x64-setup.exe"), a("JumpNDodge-windows-x64.zip"),
+            a("jumpndodge_amd64.deb"), a("jumpndodge-x86_64.pkg.tar.zst"), a("jumpndodge-linux-x86_64.tar.gz"),
+            a("JumpNDodge-macos-apple-silicon.dmg"), a("JumpNDodge-macos-intel.dmg"),
+        ] };
+        for suf in ["-windows-x64.zip", "-windows-x64-setup.exe", "_amd64.deb", "-x86_64.pkg.tar.zst", "-linux-x86_64.tar.gz", "-macos-apple-silicon.dmg", "-macos-intel.dmg"] {
+            std::env::set_var("UPDATER_ASSET_SUFFIX", suf);
+            let got = pick_asset(&rel).map(|x| x.0).unwrap_or_default();
+            assert!(!got.to_lowercase().contains("server") && got.to_lowercase().ends_with(suf), "{suf} -> {got}");
+        }
+        std::env::remove_var("UPDATER_ASSET_SUFFIX");
+    }
+    #[test]
+    fn verbatim_pfade() {
+        assert_eq!(plain_path(Path::new(r"\\?\C:\Users\x\JumpNDodge.exe")), PathBuf::from(r"C:\Users\x\JumpNDodge.exe"));
+        assert_eq!(plain_path(Path::new(r"\\?\UNC\srv\share\a")), PathBuf::from(r"\\srv\share\a"));
+        assert_eq!(plain_path(Path::new(r"C:\a")), PathBuf::from(r"C:\a"));
     }
 }

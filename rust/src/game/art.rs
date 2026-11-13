@@ -4,8 +4,9 @@
 //! Farbregel: nie Orange und Grün zusammen (1-UP ist türkis statt grün).
 //!
 //! Seit 5.3: Standard sind die Texturen aus `assets/textures` (Pixel-Raster im Stil der Python-Version:
-//! flach, harte Schatten, Treppen-Ecken). Die bisherige Zeichnung im Code bleibt als "Legacy-Grafik"
-//! (Einstellung `legacy_art`).
+//! flach, harte Schatten, Treppen-Ecken). "Legacy-Grafik" (Einstellung `legacy_art`) zeichnet alles exakt
+//! wie die ursprüngliche Python-Version (JumpNDodge.py: einfarbige Rechtecke, harte Schatten, rote Blöcke,
+//! grünes 1-UP, zwei Bodenlinien, einfarbiger Hintergrund, kein Squash & Stretch).
 
 use crate::pg::*;
 use std::cell::{Cell, RefCell};
@@ -93,9 +94,26 @@ fn cached(key: String, make: impl FnOnce() -> Surface) -> Surface {
 
 const PAD: i32 = 6;
 
+// ---------------- Python-Original (Legacy-Grafik) ----------------
+/// Python RED / GREEN (JumpNDodge.py)
+pub const PY_RED: Col = (255, 0, 0);
+pub const PY_GREEN: Col = (0, 200, 0);
+pub const PY_FALLER: Col = (160, 0, 200);
+
+fn py_player(bs: &Surface, r: Rect, color: Col, shadow: bool) {
+    if shadow { draw::rect(bs, (100, 100, 150), Rect::new(r.x + 3, r.y + 3, r.w, r.h), 0, 8); }
+    draw::rect(bs, color, r, 0, 8);
+}
+
+/// Avatar in Menüs (Python: ohne Schatten), sonst wie die Spielfigur
+pub fn draw_avatar_body(bs: &Surface, r: Rect, color: Col) {
+    if legacy() { py_player(bs, r, color, false); } else { draw_player(bs, r, color); }
+}
+
 /// Spielfigur: Verlauf, dunkler Rand, Glanzkante, weicher Schatten. `r` = gezeichnetes Rechteck.
 pub fn draw_player(bs: &Surface, r: Rect, color: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if legacy() { py_player(bs, r, color, true); return; }
     if !legacy() && put(bs, "player", &pal(color), r, 1.0) { return; }
     let rad = (r.w.min(r.h) / 5).max(4);
     let spr = cached(format!("p{}x{}:{:?}", r.w, r.h, color), || {
@@ -118,6 +136,16 @@ pub fn draw_player(bs: &Surface, r: Rect, color: Col) {
 /// Geist (Rekordlauf): halbtransparente Spielfigur
 pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if legacy() {
+        let spr = cached(format!("pyghost{}x{}:{:?}", r.w, r.h, color), || {
+            let s = Surface::new_alpha(r.w, r.h);
+            draw::rect(&s, lighten(color, 0.35), Rect::new(0, 0, r.w, r.h), 0, 8);
+            s.set_alpha(Some(95));
+            s
+        });
+        bs.blit(&spr, (r.x, r.y));
+        return;
+    }
     if !legacy() && put(bs, "player", &pal(lighten(color, 0.25)), r, 0.4) { return; }
     let spr = cached(format!("g{}x{}:{:?}", r.w, r.h, color), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
@@ -135,6 +163,12 @@ pub fn draw_ghost(bs: &Surface, r: Rect, color: Col) {
 pub fn draw_hazard(bs: &Surface, r: Rect) { draw_hazard_c(bs, r, HAZARD) }
 pub fn draw_hazard_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if legacy() {
+        let (fill, shadow) = if base == HAZARD { (PY_RED, (150, 50, 50)) } else { (base, darken(base, 0.4)) };
+        draw::rect(bs, shadow, Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
+        draw::rect(bs, fill, r, 0, 6);
+        return;
+    }
     if !legacy() {
         draw_speed_streaks(bs, r, base);
         if put(bs, "hazard", &pal(base), r, 1.0) { return; }
@@ -168,6 +202,12 @@ pub fn draw_hazard_c(bs: &Surface, r: Rect, base: Col) {
 pub fn draw_faller(bs: &Surface, r: Rect) { draw_faller_c(bs, r, FALLER) }
 pub fn draw_faller_c(bs: &Surface, r: Rect, base: Col) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if legacy() {
+        let (fill, shadow) = if base == FALLER { (PY_FALLER, (80, 0, 110)) } else { (base, darken(base, 0.45)) };
+        draw::rect(bs, shadow, Rect::new(r.x + 2, r.y + 2, r.w, r.h), 0, 6);
+        draw::rect(bs, fill, r, 0, 6);
+        return;
+    }
     if !legacy() && put(bs, "faller", &pal(base), r, 1.0) { return; }
     let spr = cached(format!("f{}x{}:{:?}", r.w, r.h, base), || {
         let s = Surface::new_alpha(r.w + PAD * 2, r.h + PAD * 2);
@@ -196,6 +236,12 @@ pub fn draw_faller_c(bs: &Surface, r: Rect, base: Col) {
 
 /// Warnpfeil über einem fallenden Hindernis
 pub fn draw_faller_marker(bs: &Surface, r: Rect, t: f64) {
+    if legacy() {
+        // Python: fester Pfeil, kein Blinken
+        let (ax, ay) = (r.centerx(), r.top() - 8);
+        draw::polygon(bs, (200, 100, 255), &[(ax, ay + 7), (ax - 6, ay), (ax + 6, ay)], 0);
+        return;
+    }
     let a = 0.6 + 0.4 * (t * 8.0).sin().abs();
     let c = lighten(FALLER, 0.35 * a);
     let (ax, ay) = (r.centerx(), r.top() - 10);
@@ -205,6 +251,14 @@ pub fn draw_faller_marker(bs: &Surface, r: Rect, t: f64) {
 /// 1-UP: türkise Kachel mit Herz und pulsierendem Glühen
 pub fn draw_oneup(bs: &Surface, r: Rect, t: f64, label_font: &Font) {
     if r.w <= 0 || r.h <= 0 { return; }
+    if legacy() {
+        // Python: hellgrüner Rand, grünes Feld, "1-UP" in Weiß mittig
+        draw::rect(bs, (100, 255, 100), Rect::new(r.x - 3, r.y - 3, r.w + 6, r.h + 6), 0, 10);
+        draw::rect(bs, PY_GREEN, r, 0, 8);
+        let txt = label_font.render("1-UP", true, (255, 255, 255));
+        bs.blit(&txt, (r.centerx() - txt.get_width() / 2, r.centery() - txt.get_height() / 2));
+        return;
+    }
     let pulse = 0.5 + 0.5 * (t * 4.0).sin();
     draw::glow(bs, with_a(ONEUP, (60.0 + 50.0 * pulse) as i32), (r.centerx(), r.centery()), r.w as f32 * (0.85 + 0.12 * pulse as f32));
     if !legacy() {
@@ -232,6 +286,13 @@ pub fn draw_oneup(bs: &Surface, r: Rect, t: f64, label_font: &Font) {
 
 /// Boden. Steht still - die Hindernisse bewegen sich selbst (Nutzerwunsch), `_scroll` wird ignoriert.
 pub fn draw_floor(bs: &Surface, w: i32, h: i32, floor_y: i32, _scroll: f64, dark: bool) {
+    if legacy() {
+        // Python: zwei lila Linien, sonst nichts
+        let _ = (h, dark);
+        draw::line(bs, (60, 30, 110), (0, floor_y - 1), (w, floor_y - 1), 1);
+        draw::line(bs, (140, 80, 220), (0, floor_y), (w, floor_y), 2);
+        return;
+    }
     if !legacy() {
         let name = if dark { "floor" } else { "floor_light" };
         if let Some((tile, ox, oy)) = tex(name, &[], 96.0, 48.0) {
@@ -351,6 +412,7 @@ pub fn draw_trail_tex(bs: &Surface, trail: &str, x: f64, y: f64, size: f64, alph
 
 /// Squash & Stretch beim Springen/Landen - nur Optik, die Hitbox bleibt
 pub fn squash(r: Rect, vy: f64, land_ms: f64) -> Rect {
+    if legacy() { return r; } // Python kannte kein Squash & Stretch
     let (sx, sy) = if land_ms < 110.0 {
         let k = 1.0 - land_ms / 110.0;
         (1.0 + 0.14 * k, 1.0 - 0.14 * k)

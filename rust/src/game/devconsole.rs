@@ -61,6 +61,7 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("unlock_all_powers", "Alle Powers freischalten"),
     ("unlock_all_cosmetics", "Alle Kosmetik-Items freischalten"),
     ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
+    ("legacy_art", "Legacy-Grafik (Python-Original) an/aus, z.B.: run legacy_art / run legacy_art off"),
     ("give_power", "Eine bestimmte Power geben, z.B.: run give_power Double Jump"),
     ("set_difficulty", "Schwierigkeit setzen, z.B.: run set_difficulty Hardcore"),
     ("set_lang", "Sprache setzen, z.B.: run set_lang English"),
@@ -229,6 +230,13 @@ impl G {
                 self.powers_state.insert("owned".into(), json!(owned));
                 self.save_section("powers", None);
                 println!("[DEV] unlock_all_powers: {} neu freigeschaltet ({} gesamt)", added.len(), owned.len());
+            }
+            "legacy_art" => {
+                let v = args.first().map(|a| *a != "off").unwrap_or(true);
+                self.settings.insert("legacy_art".into(), json!(v));
+                self.save_section("settings", None);
+                super::art::set_legacy(v);
+                println!("[DEV] legacy_art {}", v);
             }
             "equip" => {
                 let Some(key) = args.first().map(|s| s.to_string()) else { println!("[DEV] equip braucht einen Kosmetik-Schlüssel"); return true; };
