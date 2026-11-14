@@ -69,7 +69,18 @@ Name: "{app}\data"; Permissions: users-modify
 
 [Icons]
 Name: "{autoprograms}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"
-Name: "{autodesktop}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"; Tasks: desktopicon
+; Desktop-Verknüpfung nur anlegen, wenn es noch keine gibt: Bei Updates bleibt die vorhandene unangetastet
+; (neu angelegt setzt Windows sie ans Ende - sie sprang nach jedem Update von ihrem Platz).
+Name: "{autodesktop}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"; Tasks: desktopicon; Check: NoDesktopIconYet
 
 [Run]
 Filename: "{app}\JumpNDodge.exe"; Description: "{cm:LaunchProgram,JumpNDodge}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function NoDesktopIconYet: Boolean;
+begin
+  // beide Desktops prüfen (alle Benutzer / nur ich), egal in welchem Modus installiert wird
+  Result := not FileExists(ExpandConstant('{autodesktop}\JumpNDodge.lnk'))
+        and not FileExists(ExpandConstant('{userdesktop}\JumpNDodge.lnk'))
+        and not FileExists(ExpandConstant('{commondesktop}\JumpNDodge.lnk'));
+end;
