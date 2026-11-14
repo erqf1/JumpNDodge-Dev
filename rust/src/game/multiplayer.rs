@@ -83,6 +83,8 @@ struct Mp {
     client_id: u32,
     chat: VecDeque<ChatLine>,
     chat_input: String,
+    /// Zuletzt an den Server gemeldete Fenstergröße (für die Feldbreite)
+    sent_screen: (i32, i32),
 }
 
 impl Mp {
@@ -96,7 +98,7 @@ impl Mp {
             create_mode: Mode::Vs, create_diff: 1, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
-            client_id: 0, chat: VecDeque::new(), chat_input: String::new(),
+            client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -132,6 +134,12 @@ fn wrap_text(f: &Font, text: &str, max_w: i32, first_indent: i32) -> Vec<String>
     if !cur.is_empty() || lines.is_empty() { lines.push(cur); }
     lines
 }
+
+thread_local! {
+    /// Spielfeld der laufenden Runde (vom Server beim Start vorgegeben)
+    static FIELD: std::cell::Cell<(i32, i32)> = const { std::cell::Cell::new((FIELD_W, FIELD_H)) };
+}
+fn field() -> (i32, i32) { FIELD.with(|f| f.get()) }
 
 fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
 
@@ -287,6 +295,11 @@ impl G {
             self.mp_disconnect(mp, Some(&t));
             return;
         }
+        // Bildschirmformat melden (beim Verbinden und wenn sich das Fenster ändert) - außerhalb einer Runde
+        if mp.screen != Screen::Playing && mp.sent_screen != (self.WIDTH, self.HEIGHT) {
+            mp.sent_screen = (self.WIDTH, self.HEIGHT);
+            mp.send(ClientMsg::Screen { w: self.WIDTH.max(1) as u32, h: self.HEIGHT.max(1) as u32 });
+        }
         if mp.last_ping_sent.elapsed() >= Duration::from_secs(2) {
             mp.last_ping_sent = Instant::now();
             mp.send(ClientMsg::Ping { t: now_ms() });
@@ -345,6 +358,7 @@ impl G {
             ServerMsg::Start { mode, difficulty, width, height, .. } => {
                 if mp.focus == Field::Chat { mp.focus = Field::None; }
                 let you = mp.room.as_ref().map(|r| r.you).unwrap_or(0);
+                FIELD.with(|f| f.set((width.max(100), height.max(100))));
                 mp.round = Some(NetRound::new(mode, &difficulty, you, width, height));
                 mp.round_started = Instant::now();
                 mp.acc_ms = 0.0;
@@ -882,8 +896,9 @@ impl G {
 
     /// Spielfeld (800x600) in Fensterkoordinaten: (Faktor, Versatz x, Versatz y)
     fn mp_field_tf(&self) -> (f64, f64, f64) {
-        let s = (self.WIDTH as f64 / FIELD_W as f64).min(self.HEIGHT as f64 / FIELD_H as f64);
-        (s, (self.WIDTH as f64 - FIELD_W as f64 * s) / 2.0, (self.HEIGHT as f64 - FIELD_H as f64 * s) / 2.0)
+        let (fw, fh) = field();
+        let s = (self.WIDTH as f64 / fw as f64).min(self.HEIGHT as f64 / fh as f64);
+        (s, (self.WIDTH as f64 - fw as f64 * s) / 2.0, (self.HEIGHT as f64 - fh as f64 * s) / 2.0)
     }
     fn mp_field_rect(&self, r: Rect) -> Rect {
         let (s, ox, oy) = self.mp_field_tf();
@@ -919,11 +934,11 @@ impl G {
         let (s, ox, _) = self.mp_field_tf();
         // Feldränder bei breiten Fenstern andeuten
         if ox > 4.0 {
-            let fr = self.mp_field_rect(Rect::new(0, 0, FIELD_W, FIELD_H));
+            let fr = self.mp_field_rect(Rect::new(0, 0, field().0, field().1));
             draw::line(&bs, (70, 60, 110), (fr.left() - 1, fr.top()), (fr.left() - 1, fr.bottom()), 1);
             draw::line(&bs, (70, 60, 110), (fr.right(), fr.top()), (fr.right(), fr.bottom()), 1);
         }
-        let floor = self.mp_field_rect(Rect::new(0, r.floor_y + 2, FIELD_W, 2));
+        let floor = self.mp_field_rect(Rect::new(0, r.floor_y + 2, field().0, 2));
         let tsec = self.get_ticks() as f64 / 1000.0;
         let dark = self.is_dark_mode();
         super::art::draw_floor(&bs, w, h, floor.top(), r.server_frame * r.speed * s, dark);
@@ -944,15 +959,19 @@ impl G {
         // HUD: Leben P1 links, P2 rechts
         let mf = self.menu_font.clone();
         let sf = self.small_font.clone();
+        let full = self.mp_field_rect(Rect::new(0, 0, field().0, field().1));
+        let (hud_l, hud_r) = (full.left().max(0), full.right().min(w));
         for i in 0..2 {
             let (alive, lives) = if i == you { (me.alive, me.lives) } else { r.server_player(i).map(|p| (p.alive, p.lives)).unwrap_or((true, 3)) };
             let col = if alive { MP_COLORS[i] } else { (70, 70, 70) };
             let lbl = mf.render(&format!("P{}", i + 1), true, col);
             let cnt = 3.max(lives);
-            if i == 0 { bs.blit(&lbl, (12, 10)); } else { bs.blit(&lbl, (w - 12 - lbl.get_width(), 10)); }
+            // HUD am Rand des Spielfelds, nicht des Fensters
+            let (hl, hr) = (hud_l + 12, hud_r - 12);
+            if i == 0 { bs.blit(&lbl, (hl, 10)); } else { bs.blit(&lbl, (hr - lbl.get_width(), 10)); }
             for k in 0..cnt {
                 let c = if k < lives { col } else { (55, 55, 55) };
-                let x = if i == 0 { 12 + k as i32 * 15 } else { w - 12 - (cnt - k) as i32 * 15 };
+                let x = if i == 0 { hl + k as i32 * 15 } else { hr - (cnt - k) as i32 * 15 };
                 draw::rect(&bs, c, Rect::new(x, 10 + lbl.get_height() + 3, 11, 11), 0, 3);
             }
         }

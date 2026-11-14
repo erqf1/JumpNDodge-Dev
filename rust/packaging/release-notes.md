@@ -1,6 +1,7 @@
-## JumpNDodge 5.4.3
+## JumpNDodge 5.4.4
 
-- **Spuren repariert:** Die Partikel bleiben jetzt dort, wo du warst, und kommen immer hinten raus – statt quer übers Bild nach links zu fliegen.
-- Mit 5.3.0 oder 5.4.0 dieses Update bitte **einmal von Hand** installieren (deren Updater startet die Installation nicht). Ab 5.4.1 klappt das automatische Update.
+- **Online-Multiplayer füllt den Bildschirm:** Das Spielfeld passt sich an die Bildschirme beider Spieler an (das schmalere Format zählt, damit keiner mehr sieht) – keine dicken Ränder mehr auf breiten Monitoren. Sprünge und Tempo bleiben gleich.
+- Dafür muss auch der Server 5.4.4 haben (Server ab 5.4.1 aktualisieren sich selbst). Mit älteren Servern oder Spielen bleibt das Feld wie bisher.
+- Mit 5.3.0 oder 5.4.0 dieses Update bitte **einmal von Hand** installieren (deren Updater startet die Installation nicht).
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

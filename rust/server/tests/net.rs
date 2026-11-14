@@ -261,3 +261,22 @@ fn websocket_raum_und_chat() {
     a.disconnect();
     b.disconnect();
 }
+
+#[test]
+fn feldbreite_nach_bildschirmen() {
+    let srv = start_server("", 4, 0.0);
+    let mut a = Client::connect(&srv.addr, opts("Breit", 0.0)).expect("A verbindet");
+    let mut b = Client::connect(&srv.addr, opts("Normal", 0.0)).expect("B verbindet");
+    a.send(&ClientMsg::Screen { w: 2560, h: 1080 });
+    b.send(&ClientMsg::Screen { w: 1920, h: 1080 });
+    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into() });
+    let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    b.send(&ClientMsg::JoinRoom { code });
+    wait_pump(&mut b, Some(&mut a), 10, |m| if let ServerMsg::RoomState { players, .. } = m { (players[0].is_some() && players[1].is_some()).then_some(()) } else { None });
+    a.send(&ClientMsg::Ready(true));
+    b.send(&ClientMsg::Ready(true));
+    let (w, h) = wait_pump(&mut a, Some(&mut b), 15, |m| if let ServerMsg::Start { width, height, .. } = m { Some((*width, *height)) } else { None });
+    // das schmalere Format (16:9) gewinnt: 600 * 16/9 = 1067
+    assert_eq!((w, h), (1067, FIELD_H));
+}
+

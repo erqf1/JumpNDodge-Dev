@@ -13,9 +13,20 @@ pub const PROTO_VERSION: u32 = 2;
 /// Spielversion (nur zur Anzeige; ob es passt, entscheidet PROTO_VERSION)
 pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 47800;
-/// Feste Spielfeldgröße online (jeder Client skaliert auf sein Fenster)
+/// Spielfeld online: Höhe fest (gleiche Sprünge wie überall), Breite nach den Bildschirmen der beiden
+/// Spieler (das schmalere Format gewinnt, damit keiner mehr sieht). Ohne Angabe (alte Spiele) 800x600.
 pub const FIELD_W: i32 = 800;
 pub const FIELD_H: i32 = 600;
+pub const FIELD_W_MIN: i32 = 800;
+pub const FIELD_W_MAX: i32 = 1600;
+
+/// Feldbreite für zwei Bildschirmformate (Breite/Höhe). None = ein Spieler hat nichts gemeldet -> 800.
+pub fn field_width_for(a: Option<f64>, b: Option<f64>) -> i32 {
+    match (a, b) {
+        (Some(a), Some(b)) if a.is_finite() && b.is_finite() => ((FIELD_H as f64 * a.min(b)).round() as i32).clamp(FIELD_W_MIN, FIELD_W_MAX),
+        _ => FIELD_W,
+    }
+}
 pub const TICK_HZ: u64 = 60;
 /// Snapshot an die Clients jeden n-ten Tick (60 Hz / 2 = 30 Snapshots pro Sekunde)
 pub const SNAPSHOT_EVERY: u64 = 2;
@@ -49,6 +60,8 @@ pub enum ClientMsg {
     Bye,
     /// Chat-Nachricht an alle, die gerade auf dem Server sind (wird nicht gespeichert)
     Chat { text: String },
+    /// Bildschirmgröße des Spielers (für die Feldbreite). Alte Server kennen das nicht und ignorieren es.
+    Screen { w: u32, h: u32 },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,6 +193,14 @@ mod tests {
         assert_eq!(clean_chat("   "), "");
         assert_eq!(clean_chat(&"x".repeat(500)).chars().count(), MAX_CHAT_LEN);
         assert_eq!(clean_chat("Grüße 👋"), "Grüße 👋");
+    }
+    #[test]
+    fn feldbreite() {
+        assert_eq!(field_width_for(None, Some(1.78)), 800);
+        assert_eq!(field_width_for(Some(16.0 / 9.0), Some(16.0 / 9.0)), 1067);
+        assert_eq!(field_width_for(Some(21.0 / 9.0), Some(16.0 / 9.0)), 1067);
+        assert_eq!(field_width_for(Some(0.5), Some(1.78)), 800);
+        assert_eq!(field_width_for(Some(5.0), Some(4.0)), 1600);
     }
     #[test]
     fn chat_kodieren() {
