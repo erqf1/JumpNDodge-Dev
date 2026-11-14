@@ -1,7 +1,7 @@
 //! Bildschirm-Übergänge mit Herkunft (nach Apples "Designing Fluid Interfaces"):
 //! - Tiefer ins Menü = das Neue kommt von rechts, das Alte rückt etwas nach links.
 //!   Zurück = derselbe Weg rückwärts (das Alte fährt nach rechts raus).
-//! - Online (unten rechts), Profil und Einstellungen (unten links) und Belohnungen (oben rechts) kommen aus
+//! - Online (unten rechts), Profil (unten links) und Belohnungen (oben rechts) kommen aus
 //!   ihrer Ecke und kehren dorthin zurück.
 //! - Feder ohne Nachwippen (kritisch gedämpft, Antwort ~0,3 s), unterbrechbar: ein neuer Wechsel startet
 //!   vom gerade gezeigten Bild aus. Eingaben werden nie gesperrt.
@@ -45,7 +45,7 @@ fn depth(screen: &str) -> Option<i32> {
 fn corner(screen: &str) -> Option<(f64, f64)> {
     match screen {
         "in_online_hub" => Some((1.0, 1.0)),
-        "in_profile_hub" | "in_settings_menu" => Some((-1.0, 1.0)),
+        "in_profile_hub" => Some((-1.0, 1.0)),
         "in_daily_rewards" => Some((1.0, -1.0)),
         _ => None,
     }

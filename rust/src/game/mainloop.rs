@@ -18,7 +18,7 @@ const BG_TOGGLE_DEFS: [(&str, bool); 5] = [
 ];
 
 #[derive(Clone, Copy)]
-enum MenuAct { Btn(super::menus::MenuAction), Mods, Daily, ProfileHub, Online, Settings }
+enum MenuAct { Btn(super::menus::MenuAction), Mods, Daily, ProfileHub, Online }
 
 impl G {
     /// Entspricht dem gesamten Modul-Ebene-Code von JumpNDodge.py bis zur Hauptschleife.
@@ -258,7 +258,6 @@ impl G {
             MenuAct::Daily => self.open_daily_rewards_menu(),
             MenuAct::ProfileHub => self.open_profile_hub(),
             MenuAct::Online => self.open_online_hub(),
-            MenuAct::Settings => self.open_settings_menu(),
         }
     }
 
@@ -411,8 +410,6 @@ impl G {
                 rects.push(daily); acts.push(MenuAct::Daily);
                 rects.push(hub); acts.push(MenuAct::ProfileHub);
                 if has_online { rects.push(online); acts.push(MenuAct::Online); }
-                let gear = self._get_settings_gear_rect();
-                rects.push(gear); acts.push(MenuAct::Settings);
                 for ev in self.event_get() {
                     if let Event::Quit = ev { self.quit(); }
                     if let Event::KeyDown { key, .. } = ev {
@@ -431,7 +428,6 @@ impl G {
                         if has_mods && mods_btn.collidepoint(mp) { self._run_menu_act(MenuAct::Mods); }
                         if hub.collidepoint(mp) { self.open_profile_hub(); }
                         if has_online && online.collidepoint(mp) { self.open_online_hub(); }
-                        if gear.collidepoint(mp) { self.open_settings_menu(); }
                     }
                 }
                 self.draw_menu();

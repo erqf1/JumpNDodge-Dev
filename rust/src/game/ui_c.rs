@@ -120,33 +120,3 @@ pub fn panel(s: &Surface, r: Rect, fill: Col, border: Col, bw: i32, shadow: bool
     }
     draw::rect(s, lighten(fill, 0.06), Rect::new(r.x + n + bw, r.y + bw + 1, (r.w - 2 * n - 2 * bw).max(0), 1), 0, 0);
 }
-
-/// Zahnrad (Einstellungen): 8 Zähne als Trapeze auf einem Ring, Loch in der Mitte, harter Schatten nach unten.
-/// `rot` dreht (Hover), `hole` = Farbe hinter dem Loch (Knopffläche).
-pub fn gear(s: &Surface, cx: f64, cy: f64, r: f64, col: Col, hole: Col, rot: f64) {
-    let shape = |ox: f64, oy: f64| -> Vec<(f64, f64)> {
-        let teeth = 8;
-        let step = std::f64::consts::TAU / teeth as f64;
-        let (ro, ri) = (r, r * 0.76);
-        let mut pts = Vec::with_capacity(teeth * 7);
-        for i in 0..teeth {
-            let a0 = rot + i as f64 * step;
-            // Fuß breit, Kopf schmal: wirkt wie ein echtes Zahnrad
-            for (f, rad) in [(-0.27, ri), (-0.17, ro), (0.17, ro), (0.27, ri)] {
-                let a = a0 + f * step;
-                pts.push((cx + ox + a.cos() * rad, cy + oy + a.sin() * rad));
-            }
-            // Bogen zwischen den Zähnen
-            for f in [0.38, 0.5, 0.62] {
-                let a = a0 + f * step;
-                pts.push((cx + ox + a.cos() * ri, cy + oy + a.sin() * ri));
-            }
-        }
-        pts
-    };
-    draw::polygon(s, darken(hole, 0.45), &shape(0.0, 2.5), 0);
-    draw::polygon(s, col, &shape(0.0, 0.0), 0);
-    // Innenring (etwas dunkler) und Loch
-    draw::aacircle(s, darken(col, 0.14), (cx, cy), (r * 0.46) as f32);
-    draw::aacircle(s, hole, (cx, cy), (r * 0.26) as f32);
-}
