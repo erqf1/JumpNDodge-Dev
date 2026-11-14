@@ -348,6 +348,22 @@ impl G {
                 super::art::draw_player(&s, super::art::squash(Rect::new(400, 200, 50, 50), 0.0, 20.0), (225, 80, 170));
                 s.save_png(&path);
                 println!("[DEV] Grafik-Vorschau gespeichert: {}", path);
+                // zweites Bild: Bewegung (Feder beim Springen/Landen, Wippen, Kristall-Aufprall) als Bildfolge
+                let m = Surface::new(1100, 300);
+                m.blit(&super::art::background(1100, 300, self.is_dark_mode()), (0, 0));
+                super::art::draw_floor(&m, 1100, 300, 250, 13.0, self.is_dark_mode());
+                super::art::set_bounce(true);
+                let col = (45, 95, 235);
+                let poses: [(f64, f64); 7] = [(-20.0, 1000.0), (-8.0, 1000.0), (16.0, 1000.0), (0.0, 0.0), (0.0, 60.0), (0.0, 120.0), (0.0, 230.0)];
+                for (i, (vy, lm)) in poses.iter().enumerate() {
+                    let y = if *lm < 999.0 { 200 } else { 120 };
+                    super::art::draw_player(&m, super::art::squash_spring(Rect::new(20 + i as i32 * 62, y, 50, 50), *vy, *lm, 20.0), col);
+                }
+                for (i, t) in [0.0, 0.12, 0.24, 0.36].iter().enumerate() { super::art::draw_hazard_live(&m, Rect::new(460 + i as i32 * 70, 200, 50, 50), super::art::HAZARD, *t, 0.0); }
+                for (i, y) in [60, 180, 212, 232].iter().enumerate() { super::art::draw_faller_live(&m, Rect::new(760 + i as i32 * 85, *y, 50, 50), super::art::FALLER, 250); }
+                let mpath = path.replace(".png", "_bewegung.png");
+                m.save_png(&mpath);
+                println!("[DEV] Bewegungs-Vorschau gespeichert: {}", mpath);
             }
             "mp" => {
                 // Multiplayer fernsteuern (Tests): run mp connect <adr> | create vs Hölle | join first | ready | rematch | leave

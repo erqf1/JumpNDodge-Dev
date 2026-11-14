@@ -691,7 +691,8 @@ impl G {
             None | Some(InfoState::Checking) => (self.tde("prüfe …", "checking …"), (150, 150, 170)),
             Some(InfoState::Offline) => (self.tde("offline", "offline"), (200, 90, 100)),
             Some(InfoState::Online(i, ping)) => {
-                if i.game_version != GAME_VERSION || i.proto != PROTO_VERSION {
+                // Nur das Protokoll entscheidet, ob man zusammen spielen kann - nicht die Spielversion
+                if i.proto != PROTO_VERSION {
                     (format!("{} {} ({} {})", self.tde("online · andere Version", "online · other version"), i.game_version, self.tde("du:", "you:"), GAME_VERSION), (210, 170, 70))
                 } else {
                     let pw = if i.password { self.tde(" · Passwort", " · password") } else { String::new() };

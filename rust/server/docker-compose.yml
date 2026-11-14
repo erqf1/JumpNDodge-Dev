@@ -1,6 +1,7 @@
 # JumpNDodge-Server für CasaOS / Docker Compose
 # CasaOS: App-Store -> "+" (Benutzerdefinierte App) -> "Importieren" -> diese Datei einfügen.
 # Danach im Router UDP-Port 47800 an den CasaOS-Rechner weiterleiten.
+# Ohne Portweiterleitung (Cloudflare Tunnel, WebSocket auf 47801): siehe casaos-offiziell/ANLEITUNG.md
 name: jumpndodge-server
 services:
   jumpndodge-server:
@@ -16,6 +17,7 @@ services:
       JND_SERVER_MOTD: "Viel Spaß!"
       JND_SERVER_PASSWORD: ""
       JND_SERVER_MAX_ROOMS: "16"
+      JND_SERVER_AUTO_UPDATE: "1"
     volumes:
       - type: bind
         source: /DATA/AppData/jumpndodge-server

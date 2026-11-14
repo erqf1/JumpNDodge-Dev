@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-struct TestServer { addr: String, stop: Arc<AtomicBool>, handle: Option<std::thread::JoinHandle<()>> }
+struct TestServer { addr: String, ws: Option<String>, stop: Arc<AtomicBool>, handle: Option<std::thread::JoinHandle<()>> }
 impl Drop for TestServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -18,19 +18,27 @@ impl Drop for TestServer {
     }
 }
 
-fn start_server(password: &str, max_rooms: u32, loss: f64) -> TestServer {
-    let cfg = Config { port: 0, bind: "127.0.0.1".into(), password: password.into(), max_rooms, log_file: String::new(), name: "Testserver".into(), ..Config::default() };
+fn start_server(password: &str, max_rooms: u32, loss: f64) -> TestServer { start_server_ws(password, max_rooms, loss, 0) }
+
+/// Freien TCP-Port suchen (für den WebSocket-Port des Testservers)
+fn free_tcp_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("freier Port")
+}
+
+/// Wie start_server, zusätzlich mit WebSocket-Port (0 = aus)
+fn start_server_ws(password: &str, max_rooms: u32, loss: f64, ws_port: u16) -> TestServer {
+    let cfg = Config { port: 0, ws_port, auto_update: false, bind: "127.0.0.1".into(), password: password.into(), max_rooms, log_file: String::new(), name: "Testserver".into(), ..Config::default() };
     let stop = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::channel();
     let st = stop.clone();
     let handle = std::thread::spawn(move || {
         let mut s = Server::bind(cfg, Box::new(|l: &str| println!("[server] {l}"))).expect("bind");
         s.loss = Lossy(loss);
-        tx.send(s.local_addr().to_string()).unwrap();
+        tx.send((s.local_addr().to_string(), s.ws_addr().map(|a| format!("ws://127.0.0.1:{}", a.port())))).unwrap();
         s.run(&st);
     });
-    let addr = rx.recv().unwrap();
-    TestServer { addr, stop, handle: Some(handle) }
+    let (addr, ws) = rx.recv().unwrap();
+    TestServer { addr, ws, stop, handle: Some(handle) }
 }
 
 fn opts(name: &str, loss: f64) -> ConnectOptions {
@@ -218,4 +226,38 @@ fn chat_nur_live_und_mit_spamschutz() {
         for m in b.poll() { assert!(!matches!(m, ServerMsg::Chat { ref text, .. } if text == "vorher"), "kein Verlauf für Neue"); }
         std::thread::sleep(Duration::from_millis(3));
     }
+}
+
+/// WebSocket-Weg (wie hinter einem Cloudflare Tunnel): Serverinfo, Verbinden, Raum und Chat über ws://
+#[test]
+fn websocket_raum_und_chat() {
+    let srv = start_server_ws("", 4, 0.0, free_tcp_port());
+    let url = srv.ws.clone().expect("WebSocket-Port offen");
+    let (info, _) = query_info(&url, Duration::from_secs(3)).expect("Info per WebSocket");
+    assert_eq!(info.name, "Testserver");
+    assert_eq!(info.proto, PROTO_VERSION);
+    let mut a = Client::connect(&url, opts("Alice", 0.0)).expect("Alice per WebSocket");
+    assert!(a.via_websocket());
+    // gemischt: Bob kommt per UDP, beide landen auf demselben Server
+    let mut b = Client::connect(&srv.addr, opts("Bob", 0.0)).expect("Bob per UDP");
+    assert!(!b.via_websocket());
+    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into() });
+    let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    b.send(&ClientMsg::JoinRoom { code: code.clone() });
+    wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { players, .. } = m { (players[0].is_some() && players[1].is_some()).then_some(()) } else { None });
+    b.send(&ClientMsg::Chat { text: "hallo per udp".into() });
+    // (eigene Nachrichten kommen als Echo auch zurück - nach Absender filtern)
+    let text = wait_pump(&mut a, Some(&mut b), 5, |m| match m {
+        ServerMsg::Chat { from_id, from, text } if *from_id != 0 && from == "Bob" => Some(text.clone()),
+        _ => None,
+    });
+    assert_eq!(text, "hallo per udp");
+    a.send(&ClientMsg::Chat { text: "hallo per ws".into() });
+    let text = wait_pump(&mut b, Some(&mut a), 5, |m| match m {
+        ServerMsg::Chat { from_id, from, text } if *from_id != 0 && from == "Alice" => Some(text.clone()),
+        _ => None,
+    });
+    assert_eq!(text, "hallo per ws");
+    a.disconnect();
+    b.disconnect();
 }

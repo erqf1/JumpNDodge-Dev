@@ -70,41 +70,6 @@ fn shade_top_light(pm: &mut tiny_skia::Pixmap, s: f32) {
     }
 }
 
-/// Grundfarbe einer Spur (für das Band hinter dem Spieler)
-pub fn trail_color(t: &str) -> Col {
-    match t {
-        "fire_trail" => (255, 150, 60), "ice_trail" => (150, 205, 255), "shadow_trail" => (110, 96, 140),
-        "sparkle_trail" => (255, 228, 120), "toxic_trail" => (150, 220, 100), "electric_trail" => (120, 220, 255),
-        "star_trail" => (255, 215, 100), "smoke_trail" => (175, 175, 190), "blood_trail" => (210, 40, 60),
-        "heart_trail" => (255, 115, 165), _ => (200, 190, 255),
-    }
-}
-
-/// Band hinter dem Spieler: verbindet die letzten Positionen (wandert mit der Welt nach links),
-/// wird zum Ende schmaler und durchsichtiger. Regenbogen läuft durch die Farben.
-pub fn draw_trail_ribbon(bs: &Surface, pts: &[Option<(f64, f64)>], width: f64, trail: &str) {
-    if pts.len() < 2 { return; }
-    let n = pts.len() as f64;
-    let base = trail_color(trail);
-    for i in 0..pts.len() - 1 {
-        let (Some(a), Some(b)) = (pts[i], pts[i + 1]) else { continue; };
-        let f0 = 1.0 - i as f64 / n;
-        let f1 = 1.0 - (i + 1) as f64 / n;
-        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-        let len = (dx * dx + dy * dy).sqrt().max(0.001);
-        let (nx, ny) = (-dy / len, dx / len);
-        let (w0, w1) = (width * 0.5 * f0, width * 0.5 * f1);
-        let col = if trail == "rainbow_trail" {
-            let (r, g, bl) = crate::util::hsv_to_rgb((anim_time() * 0.6 + i as f64 * 0.05).rem_euclid(1.0), 0.75, 1.0);
-            ((r * 255.0) as i32, (g * 255.0) as i32, (bl * 255.0) as i32)
-        } else { base };
-        let al = (120.0 * f0 * f0) as i32;
-        if al <= 2 { continue; }
-        let quad = [(a.0 + nx * w0, a.1 + ny * w0), (b.0 + nx * w1, b.1 + ny * w1), (b.0 - nx * w1, b.1 - ny * w1), (a.0 - nx * w0, a.1 - ny * w0)];
-        draw::polygon(bs, (col.0, col.1, col.2, al), &quad, 0);
-    }
-}
-
 /// Textur auf das Spiel-Rechteck legen. false = Textur fehlt (dann zeichnet der Aufrufer Legacy).
 pub fn put(bs: &Surface, name: &str, vars: &[(&str, String)], r: Rect, opacity: f32) -> bool {
     match tex(name, vars, r.w as f64, r.h as f64) {
@@ -471,7 +436,8 @@ pub fn draw_trail_tex(bs: &Surface, trail: &str, x: f64, y: f64, size: f64, alph
     }
 }
 
-/// Squash & Stretch beim Springen/Landen - nur Optik, die Hitbox bleibt
+/// Squash & Stretch beim Springen/Landen - nur Optik, die Hitbox bleibt.
+/// Mit Bewegung (Effekte an): Feder-Version über `squash_spring`, sonst diese ruhige Variante.
 pub fn squash(r: Rect, vy: f64, land_ms: f64) -> Rect {
     if legacy() { return r; } // Python kannte kein Squash & Stretch
     let (sx, sy) = if land_ms < 110.0 {
@@ -480,10 +446,85 @@ pub fn squash(r: Rect, vy: f64, land_ms: f64) -> Rect {
     } else if vy < -6.0 {
         (0.93, 1.07)
     } else { (1.0, 1.0) };
+    scale_bottom(r, sx, sy)
+}
+
+thread_local! { static BOUNCE: Cell<bool> = const { Cell::new(true) }; }
+/// Bewegung der Figuren (Feder, Wippen) an/aus - folgt der Effekte-Einstellung
+pub fn set_bounce(v: bool) { BOUNCE.with(|c| c.set(v)); }
+pub fn bounce_on() -> bool { BOUNCE.with(|c| c.get()) && !legacy() }
+
+/// Rechteck um die Mitte der Unterkante skalieren
+fn scale_bottom(r: Rect, sx: f64, sy: f64) -> Rect {
     if sx == 1.0 && sy == 1.0 { return r; }
     let nw = (r.w as f64 * sx).round() as i32;
     let nh = (r.h as f64 * sy).round() as i32;
     Rect::new(r.centerx() - nw / 2, r.bottom() - nh, nw, nh)
+}
+
+/// Federnde Spielfigur: streckt sich im Steigen (je schneller, desto mehr), wird am Scheitel rund,
+/// streckt sich leicht im Fallen, quetscht sich beim Landen (je härter der Aufprall, desto stärker)
+/// und wippt danach gedämpft nach. `impact` = Fallgeschwindigkeit beim letzten Landen.
+pub fn squash_spring(r: Rect, vy: f64, land_ms: f64, impact: f64) -> Rect {
+    if legacy() { return r; }
+    if !bounce_on() { return squash(r, vy, land_ms); }
+    let mut s = 0.0f64; // > 0: breit/flach, < 0: schmal/hoch
+    if vy < -0.5 {
+        let k = (-vy / 20.0).clamp(0.0, 1.0);
+        s -= 0.22 * k.powf(1.3);
+    } else if vy > 0.5 {
+        let k = (vy / 22.0).clamp(0.0, 1.0);
+        s -= 0.10 * k * k;
+    }
+    if land_ms < 420.0 {
+        let amp = 0.27 * (impact / 20.0).clamp(0.35, 1.0);
+        s += amp * (-land_ms / 85.0).exp() * (std::f64::consts::TAU * land_ms / 230.0).cos();
+    }
+    if s.abs() < 0.004 { return r; }
+    // Volumen grob erhalten: breiter <-> flacher
+    scale_bottom(r, 1.0 + s * 0.85, 1.0 - s)
+}
+
+/// Textur verformt zeichnen (Skalierung/Drehung um einen Ankerpunkt, ohne neue Texturgröße)
+#[allow(clippy::too_many_arguments)]
+fn put_xf(bs: &Surface, name: &str, vars: &[(&str, String)], r: Rect, sx: f32, sy: f32, rot: f32, anchor: (f64, f64), opacity: f32) -> bool {
+    match tex(name, vars, r.w as f64, r.h as f64) {
+        Some((s, ox, oy)) => { bs.blit_xf(&s, r.x as f64 + ox, r.y as f64 + oy, sx, sy, rot, anchor.0, anchor.1, opacity); true }
+        None => false,
+    }
+}
+
+/// Bodenhindernis mit Bewegung: wippt leicht und neigt sich beim Fahren. `seed` trennt die Hindernisse
+/// voneinander (z.B. Weltposition), `t` = Zeit in Sekunden. Nur Optik.
+pub fn draw_hazard_live(bs: &Surface, r: Rect, base: Col, t: f64, seed: f64) {
+    if !bounce_on() || r.w <= 0 || r.h <= 0 { draw_hazard_c(bs, r, base); return; }
+    let bob = (t * 8.5 + seed).sin();
+    let sy = 1.0 + 0.035 * bob;
+    let sx = 1.0 - 0.025 * bob;
+    let rot = 2.4 * (t * 4.6 + seed * 1.7).sin();
+    let anchor = (r.centerx() as f64, r.bottom() as f64);
+    // Fahrtstreifen liegen rechts neben dem Block, die Reihenfolge ist egal
+    if put_xf(bs, "hazard", &pal(base), r, sx as f32, sy as f32, rot as f32, anchor, 1.0) { draw_speed_streaks(bs, r, base); return; }
+    draw_hazard_c(bs, r, base);
+}
+
+/// Fallender Kristall mit Bewegung: im Fall leicht gestreckt, beim Aufprall auf den Boden (`ground` = y der
+/// Bodenkante) gequetscht und ausgeblendet, statt im Boden zu verschwinden. Nur Optik, die Hitbox fällt weiter.
+pub fn draw_faller_live(bs: &Surface, r: Rect, base: Col, ground: i32) {
+    if !bounce_on() || r.w <= 0 || r.h <= 0 { draw_faller_c(bs, r, base); return; }
+    let pen = (r.bottom() - ground) as f64;
+    let (sx, sy, op, rr, anchor) = if pen <= 0.0 {
+        (0.95, 1.07, 1.0, r, (r.centerx() as f64, r.centery() as f64))
+    } else {
+        // Aufprall: an die Bodenkante gesetzt und flachgedrückt
+        let k = (pen / (r.h as f64 * 0.8)).clamp(0.0, 1.0);
+        let sy = 1.0 - 0.55 * k;
+        let rr = Rect::new(r.x, ground - r.h, r.w, r.h);
+        (1.0 + 0.45 * k, sy, (1.0 - k * k) as f32, rr, (r.centerx() as f64, ground as f64))
+    };
+    if op <= 0.02 { return; }
+    if put_xf(bs, "faller", &pal(base), rr, sx as f32, sy as f32, 0.0, anchor, op) { return; }
+    draw_faller_c(bs, r, base);
 }
 
 // =====================================================================

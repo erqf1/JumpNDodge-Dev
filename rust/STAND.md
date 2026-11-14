@@ -1,6 +1,6 @@
 # Stand der Rust Edition
 
-Letzte Aktualisierung: 2026-11-13 · Branch: `main`
+Letzte Aktualisierung: 2026-11-14 · Branch: `main`
 
 ## Fertig und veröffentlicht
 - **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
@@ -45,21 +45,29 @@ Letzte Aktualisierung: 2026-11-13 · Branch: `main`
   Sprungstaub, leichtes Licht-Shading, Spur-Band. **Leistung:** schneller Blit/Überblend-Weg in `pg/surface.rs`
   (`fast_blit`, `fill_blend`, `edge_vignette`) - vorher bei 1440p 25 ms pro Spielbild (45 ms bei 1 HP), jetzt ~3 ms (~8 ms).
   Messen: `JND_PERF=1 JND_WIN_SIZE=2560x1440` mit Debug-Build (Zeiten pro Abschnitt über `art::pmark`).
+- **Nach 5.4.0 (auf main, kommt mit 5.4.1):** Updater-Fix, Pop-ups wieder raus, Überschriften über
+  `G::draw_screen_title`, Knöpfe über `draw_ui_button`. **Protokoll-Sperre:** Verbinden entscheidet nur noch
+  `PROTO_VERSION` (`core/src/net/proto.rs`), nicht die Spielversion; die Serverliste zeigt „andere Version“ nur bei anderem
+  Protokoll. **WebSocket:** Server hört zusätzlich auf TCP 47801 (`ws_port`, `core/src/net/ws.rs`); das Spiel nimmt `ws://`/`wss://`
+  direkt und weicht bei reinem Hostnamen ohne UDP-Antwort automatisch auf `wss://<host>` aus (Cloudflare Tunnel).
+  **Server-Auto-Update** (`server/src/update.rs`): neuestes Release, SHA256-Prüfung, Neustart wenn niemand verbunden ist;
+  Docker legt die Datei nach `/data/bin`, `server/docker-entrypoint.sh` nimmt die neuere (Image oder /data, Rückfall aufs Image).
+  **CasaOS offiziell:** `server/casaos-offiziell/` (Server + cloudflared, `ANLEITUNG.md`). **Bewegung:** federnde Spielfigur
+  (`art::squash_spring`), wippende Hindernisse (`draw_hazard_live`), Kristall-Aufprall (`draw_faller_live`), verformtes Blitten
+  `Surface::blit_xf`; nur Optik, folgt der Effekte-Einstellung, Legacy unverändert; Vorschau `run art_preview`. Spur-Band entfernt.
+  Historie jetzt in `CHANGELOG.md`, `packaging/release-notes.md` nur noch der kurze Text fürs nächste Release.
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
 1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren
    (`index.html` im Aufbau der Line-Seiten, `img/` mit `shots/`, `tex/`, `figur/`; `style.css` + `site.js` braucht nur noch `server/index.html`). Für W Hub zusätzlich
    `website-update/hub/changelog-1.2.1.html` und `changelog-1.2.2.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
-2. **Offizieller Multiplayer-Server:** Im Spiel ist `play.mert.win` eingetragen (seit 5.2.2; jumpndodge.download gibt es nicht mehr).
-   - Bei Cloudflare einen DNS-Eintrag `play` in der Zone mert.win (Typ A, deine öffentliche IPv4) anlegen – **„Nur DNS“ (graue Wolke)**,
-     denn Cloudflare-Proxy/Tunnel leiten kein UDP weiter.
-   - Im Router **UDP 47800** an den CasaOS-Rechner weiterleiten.
-   - Auf CasaOS: App-Store → „+“ → Importieren → Inhalt von `rust/server/docker-compose.yml`.
-     Das Image `ghcr.io/erqf1/jumpndodge-server` entsteht beim nächsten Release-Lauf (bei 5.0.0 scheiterte nur dieser Teil,
-     ist behoben). Unter github.com/erqf1 → Packages → jumpndodge-server die Sichtbarkeit auf **Public** stellen,
-     sonst kann CasaOS es nicht ohne Login laden. Alternativ das Server-Zip (Linux) direkt starten.
-   - Ohne eigene IPv4 (DS-Lite) bitte beim Anbieter eine IPv4 anfragen – Details auf der Seite „Server hosten“.
+2. **Offizieller Multiplayer-Server** (`play.mert.win`, über Cloudflare Tunnel): Anleitung `rust/server/casaos-offiziell/ANLEITUNG.md`.
+   - Cloudflare Zero Trust → Tunnel anlegen, Token in `docker-compose.yml` bei `TUNNEL_TOKEN` eintragen (nur in CasaOS, nie ins Repo).
+   - Public Hostname `play.mert.win` → HTTP → `jumpndodge-server:47801`. Ein alter DNS-Eintrag `play` (A, graue Wolke) muss dafür weg.
+   - CasaOS: App-Store → „+“ → Importieren → Inhalt von `rust/server/casaos-offiziell/docker-compose.yml`.
+   - Paket `jumpndodge-server` auf GitHub öffentlich stellen. Optional zusätzlich direkt per UDP unter einem anderen Namen
+     (graue Wolke + Portweiterleitung UDP 47800).
 3. **Rangliste über mert.win** (seit 5.2.2): Das Spiel ruft `https://mert.win/jump/api/...` auf. Die neue `nginx.conf` (Latein Trainer/latein-sync) leitet `/jump/api/` an den Ranglisten-Container (Port 5000 auf dem CasaOS-Rechner) weiter – hochladen, Container `latein-trainer` neu starten, Ranglisten-Container muss mit Port 5000 laufen. Der alte Tunnel für leaderboard.jumpndodge.download wird nicht mehr gebraucht.
 4. **GitHub Actions:** Seit 11.11. starten keine Jobs mehr („recent account payments have failed or your spending limit needs
    to be increased“). Unter github.com → Settings → Billing & plans beheben, dann Release 5.3.0 per Run workflow starten.

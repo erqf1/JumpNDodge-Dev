@@ -1,0 +1,54 @@
+# Offizieller JumpNDodge-Server (play.mert.win) für CasaOS
+# CasaOS: App-Store -> "+" (Benutzerdefinierte App) -> "Importieren" -> diese Datei einfügen.
+# Vorher unten bei TUNNEL_TOKEN den Token aus dem Cloudflare-Dashboard eintragen (siehe ANLEITUNG.md).
+# Den Token NIE ins Repo committen - er gehört nur in CasaOS.
+name: jumpndodge-offiziell
+services:
+  jumpndodge-server:
+    image: ghcr.io/erqf1/jumpndodge-server:latest
+    container_name: jumpndodge-server
+    restart: unless-stopped
+    ports:
+      # direkt per UDP (optional, braucht Portweiterleitung im Router)
+      - target: 47800
+        published: "47800"
+        protocol: udp
+    # 47801/tcp (WebSocket) wird NICHT veröffentlicht: cloudflared erreicht ihn im
+    # gemeinsamen Docker-Netz unter http://jumpndodge-server:47801
+    environment:
+      JND_SERVER_NAME: "JumpNDodge Offiziell"
+      JND_SERVER_MOTD: "Viel Spaß!"
+      JND_SERVER_PASSWORD: ""
+      JND_SERVER_MAX_ROOMS: "32"
+      JND_SERVER_AUTO_UPDATE: "1"
+    volumes:
+      - type: bind
+        source: /DATA/AppData/jumpndodge-server
+        target: /data
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: jumpndodge-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Token aus Cloudflare Zero Trust -> Networks -> Tunnels -> (dein Tunnel) -> Docker
+      TUNNEL_TOKEN: ""
+    depends_on:
+      - jumpndodge-server
+
+x-casaos:
+  architectures: [amd64, arm64]
+  main: jumpndodge-server
+  author: W-Software
+  category: Games
+  description:
+    de_DE: Offizieller JumpNDodge-Server mit Cloudflare Tunnel (play.mert.win). Aktualisiert sich selbst.
+    en_US: Official JumpNDodge server with Cloudflare Tunnel (play.mert.win). Updates itself.
+  tagline:
+    de_DE: JumpNDodge – offizieller Server
+    en_US: JumpNDodge official server
+  title:
+    custom: JumpNDodge Offiziell
+  icon: https://raw.githubusercontent.com/erqf1/JumpNDodge/main/icon.png
+  port_map: ""

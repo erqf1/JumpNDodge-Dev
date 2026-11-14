@@ -1,6 +1,7 @@
 # JumpNDodge-Server als Docker-Image (z.B. für CasaOS)
 # Bauen (im Ordner rust/):  docker build -f server/Dockerfile -t jumpndodge-server .
-# Starten: docker run -d --name jumpndodge-server -p 47800:47800/udp -v jnd-data:/data jumpndodge-server
+# Starten: docker run -d --name jumpndodge-server -p 47800:47800/udp -p 47801:47801/tcp -v jnd-data:/data jumpndodge-server
+# 47800/udp = Spiel direkt, 47801/tcp = WebSocket (z.B. hinter einem Cloudflare Tunnel)
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
@@ -19,8 +20,12 @@ LABEL org.opencontainers.image.title="JumpNDodge-Server" \
 RUN useradd -r -u 1000 -m jnd && mkdir -p /data && chown jnd /data
 COPY --from=build /src/target/release/JumpNDodge-Server /usr/local/bin/JumpNDodge-Server
 COPY server/LIESMICH.txt /usr/share/doc/jumpndodge-server/LIESMICH.txt
+# Startskript: nimmt die neuere Datei (Image oder Auto-Update in /data/bin)
+COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 USER jnd
 VOLUME ["/data"]
 EXPOSE 47800/udp
-ENV JND_SERVER_BIND=0.0.0.0
-ENTRYPOINT ["JumpNDodge-Server", "--config", "/data/server.json"]
+EXPOSE 47801/tcp
+ENV JND_SERVER_BIND=0.0.0.0 JND_SERVER_DOCKER=1 JND_SERVER_DATA=/data
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

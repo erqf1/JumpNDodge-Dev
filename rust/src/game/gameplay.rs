@@ -345,9 +345,9 @@ impl G {
         let mut combo_flash_ms = 0.0f64;
         // kurze Zeitlupe nach "Knapp!"
         let mut slowmo_ms = 0.0f64;
-        // Spur-Band: letzte Spielerpositionen (wandern mit der Welt nach links)
-        let mut ribbon: std::collections::VecDeque<Option<(f64, f64)>> = std::collections::VecDeque::new();
-        let has_trail = !self.equipped_trails().is_empty();
+        // Bewegung (Feder, Wippen) folgt der Effekte-Einstellung; Aufprall-Tempo der letzten Landung
+        super::art::set_bounce(fx_on);
+        let mut land_impact = 0.0f64;
         // Aufzeichnung (Replay) und Geist des Rekordlaufs
         let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
         let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
@@ -505,9 +505,10 @@ impl G {
                     if player.top() < 0 { player.set_top(0); vy = 0.0; }
                     if player.bottom() >= h - 50 {
                         player.set_bottom(h - 50);
+                        let impact = vy;
                         vy = 0.0;
                         if is_jumping || used_double_jump {
-                            is_jumping = false; used_double_jump = false; land_ms = 0.0;
+                            is_jumping = false; used_double_jump = false; land_ms = 0.0; land_impact = impact;
                             if fx_on { fx.dust(player.centerx() as f64, player.bottom() as f64, dark_round); }
                         }
                         space_was_down = false;
@@ -546,13 +547,6 @@ impl G {
                 }
                 let current_speed = speed * rp.speed_multiplier();
             floor_scroll += current_speed;
-                if has_trail {
-                    for p in ribbon.iter_mut().flatten() { p.0 -= current_speed; }
-                    // nur in der Luft: das Band zeichnet die Sprungbögen nach und zieht dann mit der Welt weg
-                    let air = is_jumping || player.bottom() < h - 50;
-                    ribbon.push_front(if air { Some((player.centerx() as f64 - player.w as f64 * 0.3, player.centery() as f64)) } else { None });
-                    ribbon.truncate(18);
-                }
                 let fall_speed = (current_speed * 0.85).max(2.0);
                 let score_before = score;
                 let mut passed: Vec<Rect> = vec![];
@@ -760,14 +754,20 @@ impl G {
             // ---- Zeichnen ----
             let show_player = hit_invuln == 0 || (self.get_ticks() / 80) % 2 == 0;
             let tsec = self.get_ticks() as f64 / 1000.0;
-            let dplayer = super::art::squash(lerp_rect(Some((prev_player.x, prev_player.y)), player, alpha), if free_roam { 0.0 } else { vy }, if free_roam { 1000.0 } else { land_ms });
+            let dplayer = super::art::squash_spring(lerp_rect(Some((prev_player.x, prev_player.y)), player, alpha), if free_roam { 0.0 } else { vy }, if free_roam { 1000.0 } else { land_ms + alpha * LOGIC_TICK_MS }, land_impact);
             for p in powerups.iter().map(|p| p.draw_rect(alpha)) {
                 super::art::draw_oneup(&bs, p, tsec, &self.badge_font);
             }
-            for o in &obstacles { super::art::draw_hazard_c(&bs, o.draw_rect(alpha), o.tint.unwrap_or(super::art::HAZARD)); }
+            // Weltposition trennt die Wipp-Phasen der Hindernisse (bleibt für ein Hindernis gleich)
+            let dscroll = prev_floor_scroll + (floor_scroll - prev_floor_scroll) * alpha;
+            for o in &obstacles {
+                let r = o.draw_rect(alpha);
+                let tint = o.tint.unwrap_or(super::art::HAZARD);
+                if free_roam { super::art::draw_hazard_c(&bs, r, tint); } else { super::art::draw_hazard_live(&bs, r, tint, tsec, (r.x as f64 + dscroll) * 0.037); }
+            }
             for o in &top_obstacles {
                 let r = o.draw_rect(alpha);
-                super::art::draw_faller_c(&bs, r, o.tint.unwrap_or(super::art::FALLER));
+                if free_roam { super::art::draw_faller_c(&bs, r, o.tint.unwrap_or(super::art::FALLER)); } else { super::art::draw_faller_live(&bs, r, o.tint.unwrap_or(super::art::FALLER), h - 50); }
                 super::art::draw_faller_marker(&bs, r, tsec);
             }
             if let Some(g) = &ghost {
@@ -784,14 +784,6 @@ impl G {
                 }
             }
             super::art::pmark("objs");
-            if has_trail && !super::art::legacy() && show_player {
-                if let Some(t) = self.equipped_trails().first() {
-                    // aktueller Punkt = gezeichnete (interpolierte) Position
-                    let mut pts: Vec<Option<(f64, f64)>> = ribbon.iter().copied().collect();
-                    if let Some(Some(f)) = pts.first_mut() { *f = (dplayer.centerx() as f64 - dplayer.w as f64 * 0.3, dplayer.centery() as f64); }
-                    super::art::draw_trail_ribbon(&bs, &pts, dplayer.h as f64 * 0.5, t);
-                }
-            }
             // Spur-Partikel hinter dem Spieler (vorher darüber - verdeckte den Körper)
             if !super::art::legacy() {
                 for t in self.equipped_trails() { if let Some(l) = trails.get(&t) { draw_trail_particles(&bs, &t, l); } }

@@ -15,6 +15,7 @@
     <nav>
       <a href="#download">Download</a>
       <a href="#docker">Docker / CasaOS</a>
+      <a href="#tunnel">Tunnel</a>
       <a href="#ports"><span data-lang-de>Portweiterleitung</span><span data-lang-en>Port forwarding</span></a>
       <a href="#join"><span data-lang-de>Verbinden</span><span data-lang-en>Connect</span></a>
       <a href="#hilfe"><span data-lang-de>Hilfe</span><span data-lang-en>Help</span></a>
@@ -36,7 +37,7 @@
   <section id="download">
     <div class="wrap">
       <h2>1. Download</h2>
-      <p class="sub"><span data-lang-de>Server und Spiel müssen dieselbe Version haben – nach einem Spiel-Update auch den Server aktualisieren.</span><span data-lang-en>Server and game must have the same version – update the server after a game update.</span></p>
+      <p class="sub"><span data-lang-de>Spiel und Server müssen nur dasselbe Netzwerk-Protokoll haben. Der Server aktualisiert sich von selbst (siehe <a href="#update">Auto-Update</a>).</span><span data-lang-en>Game and server only need the same network protocol. The server updates itself (see <a href="#update">auto-update</a>).</span></p>
       <table class="dl">
         <tr><th><span data-lang-de>System</span><span data-lang-en>System</span></th><th><span data-lang-de>Datei</span><span data-lang-en>File</span></th><th></th></tr>
         <tr><td><b>Windows</b></td><td><code>JumpNDodge-Server-win-x64.zip</code></td><td><a class="btn" data-file="JumpNDodge-Server-win-x64.zip" href="#">Download</a></td></tr>
@@ -60,10 +61,13 @@
   "name": "Mein Server",        // Name in der Serverliste
   "motd": "Viel Spaß!",         // Begrüßung
   "port": 47800,                // UDP-Port
+  "ws_port": 47801,             // TCP, WebSocket (Tunnel), 0 = aus
   "bind": "0.0.0.0",            // "::" für IPv6
   "password": "",               // leer = jeder darf rein
   "max_rooms": 16,
-  "log_file": "server.log"
+  "log_file": "server.log",
+  "auto_update": true,          // neue Versionen selbst laden
+  "update_check_minutes": 60
 }</code></pre></li>
         <li><h3><span data-lang-de>Im eigenen Netz testen</span><span data-lang-en>Test on your own network</span></h3>
           <p><span data-lang-de>Im Spiel: Online → Multiplayer → „Per IP oder Hostname verbinden“ → die lokale IP des Server-Rechners eingeben (z.B. <code>192.168.178.20</code>). Klappt das, fehlt für Freunde aus dem Internet nur noch die Portweiterleitung.</span><span data-lang-en>In the game: Online → Multiplayer → “Connect by IP or hostname” → enter the local IP of the server PC (e.g. <code>192.168.178.20</code>). If that works, friends from the internet only need port forwarding.</span></p></li>
@@ -98,10 +102,46 @@ services:
         target: /data</code></pre></li>
         <li><h3><span data-lang-de>Docker (ohne CasaOS)</span><span data-lang-en>Docker (without CasaOS)</span></h3>
 <pre><code>docker run -d --name jumpndodge-server --restart unless-stopped \
-  -p 47800:47800/udp -v jnd-data:/data \
+  -p 47800:47800/udp -p 47801:47801/tcp -v jnd-data:/data \
   -e JND_SERVER_NAME="Mein Server" ghcr.io/erqf1/jumpndodge-server:latest</code></pre>
-          <p><span data-lang-de>Aktualisieren: Image neu ziehen (<code>docker pull</code>) und den Container neu erstellen – in CasaOS über „Aktualisieren“.</span><span data-lang-en>Update: pull the image again (<code>docker pull</code>) and recreate the container – in CasaOS via “Update”.</span></p></li>
+          <p><span data-lang-de>Aktualisieren musst du nichts: Der Server lädt neue Versionen selbst (siehe <a href="#update">Auto-Update</a>). Ein neues Image bekommst du trotzdem jederzeit über <code>docker pull</code> bzw. „Aktualisieren“ in CasaOS.</span><span data-lang-en>No need to update by hand: the server downloads new versions itself (see <a href="#update">auto-update</a>). You can still get a new image any time with <code>docker pull</code> or “Update” in CasaOS.</span></p></li>
       </ol>
+    </div>
+  </section>
+
+  <section id="tunnel" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>Ohne Portweiterleitung: Cloudflare Tunnel</span><span data-lang-en>No port forwarding: Cloudflare Tunnel</span></h2>
+      <p class="sub"><span data-lang-de>Der Server spricht neben UDP auch WebSocket (TCP-Port <b>47801</b>). Damit läuft er hinter einem Cloudflare Tunnel – auch bei DS-Lite/CGNAT und ohne Freigabe im Router.</span><span data-lang-en>Besides UDP the server also speaks WebSocket (TCP port <b>47801</b>). That lets it run behind a Cloudflare Tunnel – even with DS-Lite/CGNAT and without router rules.</span></p>
+      <ol class="steps">
+        <li><h3><span data-lang-de>Tunnel anlegen</span><span data-lang-en>Create a tunnel</span></h3>
+          <p><span data-lang-de>Cloudflare-Dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Den angezeigten Token kopieren (geheim halten).</span><span data-lang-en>Cloudflare dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Copy the token shown (keep it secret).</span></p></li>
+        <li><h3><span data-lang-de>cloudflared neben dem Server starten</span><span data-lang-en>Run cloudflared next to the server</span></h3>
+          <p><span data-lang-de>In CasaOS/Docker Compose als zweiten Dienst ergänzen und den Token eintragen:</span><span data-lang-en>Add it as a second service in CasaOS/Docker Compose and fill in the token:</span></p>
+<pre><code>  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "dein-token"</code></pre></li>
+        <li><h3>Public Hostname</h3>
+          <p><span data-lang-de>Im Tunnel unter <b>Public Hostnames</b> z.B. <code>spiel.deine-domain.de</code> → Service <b>HTTP</b> → <code>jumpndodge-server:47801</code> (Containername; ohne Docker <code>localhost:47801</code>).</span><span data-lang-en>Under <b>Public Hostnames</b> add e.g. <code>game.your-domain.com</code> → service <b>HTTP</b> → <code>jumpndodge-server:47801</code> (container name; without Docker <code>localhost:47801</code>).</span></p></li>
+        <li><h3><span data-lang-de>Verbinden</span><span data-lang-en>Connect</span></h3>
+          <p><span data-lang-de>Freunde tragen nur den Hostnamen ein, ohne Port. Cloudflare leitet kein UDP weiter – das Spiel merkt das und verbindet sich automatisch über <code>wss://</code>. So läuft auch der offizielle Server <code>play.mert.win</code>.</span><span data-lang-en>Friends enter just the hostname, without a port. Cloudflare doesn't forward UDP – the game notices and connects over <code>wss://</code> automatically. The official server <code>play.mert.win</code> works this way too.</span></p></li>
+      </ol>
+      <p class="hint"><span data-lang-de>Zusätzlich direkt per UDP? Dann Portweiterleitung wie unten und einen <b>eigenen</b> DNS-Namen mit „Nur DNS“ (graue Wolke) – nicht den Tunnel-Namen.</span><span data-lang-en>Also want direct UDP? Then forward the port as below and use a <b>separate</b> DNS name set to “DNS only” (grey cloud) – not the tunnel name.</span></p>
+    </div>
+  </section>
+
+  <section id="update" style="padding-top:0">
+    <div class="wrap">
+      <h2>Auto-Update</h2>
+      <p class="sub"><span data-lang-de>Der Server schaut regelmäßig ins neueste Release, lädt die passende Datei, prüft sie gegen <code>SHA256SUMS.txt</code> und startet neu, sobald niemand verbunden ist – laufende Runden werden nie unterbrochen.</span><span data-lang-en>The server regularly checks the latest release, downloads the matching file, verifies it against <code>SHA256SUMS.txt</code> and restarts once nobody is connected – running rounds are never interrupted.</span></p>
+      <div class="grid">
+        <div class="card"><div class="ic">1</div><h3>Windows / Linux / macOS</h3><p><span data-lang-de>Die Programmdatei wird ersetzt und mit denselben Einstellungen neu gestartet.</span><span data-lang-en>The program file is replaced and restarted with the same settings.</span></p></div>
+        <div class="card"><div class="ic">2</div><h3>Docker / CasaOS</h3><p><span data-lang-de>Die neue Datei landet in <code>/data/bin</code>. Beim Neustart nimmt der Container die neuere Version – startet sie nicht, läuft die aus dem Image weiter.</span><span data-lang-en>The new file goes to <code>/data/bin</code>. On restart the container picks the newer version – if it doesn't start, the image version keeps running.</span></p></div>
+        <div class="card"><div class="ic">3</div><h3><span data-lang-de>Abschalten</span><span data-lang-en>Turn off</span></h3><p><span data-lang-de><code>"auto_update": false</code> in <code>server.json</code> oder <code>JND_SERVER_AUTO_UPDATE=0</code>.</span><span data-lang-en><code>"auto_update": false</code> in <code>server.json</code> or <code>JND_SERVER_AUTO_UPDATE=0</code>.</span></p></div>
+      </div>
     </div>
   </section>
 
@@ -118,7 +158,7 @@ services:
         <li><h3><span data-lang-de>Öffentliche Adresse herausfinden</span><span data-lang-en>Find your public address</span></h3>
           <p><span data-lang-de>Deine öffentliche IPv4 zeigt z.B. der Router auf der Übersichtsseite. Da sie sich bei vielen Anschlüssen täglich ändert, lohnt sich ein kostenloser DynDNS-Name (FRITZ!Box: MyFRITZ!, sonst z.B. DuckDNS) – dann verbinden sich Freunde einfach mit <code>dein-name.duckdns.org</code>.</span><span data-lang-en>Your public IPv4 is shown on your router's overview page. It changes often on many connections, so a free dynamic DNS name (e.g. DuckDNS) is handy – friends then connect to <code>your-name.duckdns.org</code>.</span></p></li>
       </ol>
-      <p class="note" style="margin-top:16px"><span data-lang-de><b>Kein eigenes IPv4 (DS-Lite / CGNAT)?</b> Viele Kabel- und Glasfaseranschlüsse teilen sich eine IPv4-Adresse – dann geht Portweiterleitung über IPv4 nicht. Lösungen: beim Anbieter eine „echte“ IPv4 anfragen (oft kostenlos), über IPv6 verbinden (<code>"bind": "::"</code>, Freunde brauchen ebenfalls IPv6) oder einen kleinen Mietserver (VPS) nutzen. Cloudflare-Tunnel funktionieren für das Spiel nicht, weil es UDP nutzt.</span><span data-lang-en><b>No public IPv4 (DS-Lite / CGNAT)?</b> Many connections share one IPv4 address, so IPv4 port forwarding won't work. Options: ask your provider for a real IPv4, connect over IPv6 (<code>"bind": "::"</code>, friends need IPv6 too) or rent a small VPS. Cloudflare tunnels don't work for the game because it uses UDP.</span></p>
+      <p class="note" style="margin-top:16px"><span data-lang-de><b>Kein eigenes IPv4 (DS-Lite / CGNAT)?</b> Viele Kabel- und Glasfaseranschlüsse teilen sich eine IPv4-Adresse – dann geht Portweiterleitung über IPv4 nicht. Lösungen: beim Anbieter eine „echte“ IPv4 anfragen (oft kostenlos), über IPv6 verbinden (<code>"bind": "::"</code>, Freunde brauchen ebenfalls IPv6) oder einen kleinen Mietserver (VPS) nutzen. Am einfachsten: ein <a href="#tunnel">Cloudflare Tunnel</a> – der braucht gar keine Portweiterleitung.</span><span data-lang-en><b>No public IPv4 (DS-Lite / CGNAT)?</b> Many connections share one IPv4 address, so IPv4 port forwarding won't work. Options: ask your provider for a real IPv4, connect over IPv6 (<code>"bind": "::"</code>, friends need IPv6 too) or rent a small VPS. Easiest: a <a href="#tunnel">Cloudflare Tunnel</a> – it needs no port forwarding at all.</span></p>
     </div>
   </section>
 
@@ -140,7 +180,7 @@ services:
       <details><summary><span data-lang-de>„Server antwortet nicht“</span><span data-lang-en>“Server doesn't respond”</span></summary>
         <p><span data-lang-de>Läuft der Server? Stimmt die Adresse? Im eigenen Netz die lokale IP nehmen, von außen die öffentliche. Ist die Portweiterleitung auf UDP (nicht TCP) gestellt und zeigt sie auf die richtige lokale IP? Blockiert eine Firewall auf dem Server-Rechner?</span><span data-lang-en>Is the server running? Is the address right? Use the local IP at home and the public one from outside. Is the forwarding set to UDP (not TCP) and pointing to the right local IP? Is a firewall blocking it?</span></p></details>
       <details><summary><span data-lang-de>„Andere Version“</span><span data-lang-en>“Other version”</span></summary>
-        <p><span data-lang-de>Spiel und Server müssen exakt dieselbe Version haben, weil der Server die Runde berechnet. Server-Zip neu laden bzw. Docker-Image aktualisieren.</span><span data-lang-en>Game and server must have exactly the same version because the server runs the round. Download the server again or update the Docker image.</span></p></details>
+        <p><span data-lang-de>Spiel und Server brauchen dasselbe Netzwerk-Protokoll. Ist es verschieden, sagt das Spiel, ob das Spiel oder der Server zu alt ist. Mit Auto-Update holt sich der Server neue Versionen selbst; sonst Server-Zip neu laden bzw. Docker-Image aktualisieren.</span><span data-lang-en>Game and server need the same network protocol. If it differs, the game tells you whether the game or the server is too old. With auto-update the server fetches new versions itself; otherwise download the server again or update the Docker image.</span></p></details>
       <details><summary><span data-lang-de>Server mit Passwort</span><span data-lang-en>Password-protected server</span></summary>
         <p><span data-lang-de>In <code>server.json</code> ein Passwort eintragen. Spieler ohne Passwort werden abgelehnt.</span><span data-lang-en>Set a password in <code>server.json</code>. Players without it are rejected.</span></p></details>
     </div>

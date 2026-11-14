@@ -181,6 +181,28 @@ impl Surface {
         d.mask = mask;
     }
 
+    /// Blit mit Verformung (nur Optik, z.B. Wippen/Quetschen kleiner Sprites): `src` liegt unverformt mit der
+    /// linken oberen Ecke bei (x, y) und wird um den Ankerpunkt (ax, ay) mit (sx, sy) skaliert und um `rot_deg`
+    /// gedreht. Ohne Verformung der schnelle Weg wie `blit_f`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn blit_xf(&self, src: &Surface, x: f64, y: f64, sx: f32, sy: f32, rot_deg: f32, ax: f64, ay: f64, opacity: f32) {
+        if (sx - 1.0).abs() < 1e-3 && (sy - 1.0).abs() < 1e-3 && rot_deg.abs() < 0.05 { self.blit_f(src, x, y, opacity); return; }
+        if opacity <= 0.0 || Rc::ptr_eq(&self.0, &src.0) { return; }
+        let sb = src.0.borrow();
+        let mut d = self.0.borrow_mut();
+        let k = d.k;
+        let r = k / sb.k;
+        let t = Transform::from_scale(r, r)
+            .post_translate(((x - ax) as f32) * k, ((y - ay) as f32) * k)
+            .post_scale(sx, sy)
+            .post_rotate(rot_deg)
+            .post_translate(ax as f32 * k, ay as f32 * k);
+        let paint = PixmapPaint { opacity: opacity.min(1.0) * sb.alpha.map(|a| a as f32 / 255.0).unwrap_or(1.0), blend_mode: BlendMode::SourceOver, quality: FilterQuality::Bilinear };
+        let mask = d.mask.take();
+        d.pm.draw_pixmap(0, 0, sb.pm.as_ref(), &paint, t, mask.as_ref());
+        d.mask = mask;
+    }
+
     pub fn get_width(&self) -> i32 { self.0.borrow().w }
     pub fn get_height(&self) -> i32 { self.0.borrow().h }
     pub fn get_size(&self) -> (i32, i32) { let s = self.0.borrow(); (s.w, s.h) }
