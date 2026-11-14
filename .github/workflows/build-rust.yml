@@ -288,9 +288,31 @@ jobs:
           path: out/*
           retention-days: 5
 
+  # Docker-Image wie auf CasaOS testen: Datenordner gehört root, Server muss trotzdem starten,
+  # server.json anlegen und den WebSocket-Port (für den Cloudflare Tunnel) beantworten
+  server-docker-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image bauen
+        run: docker build -f rust/server/Dockerfile -t jnd-test rust
+      - name: Starten mit root-eigenem Datenordner (wie CasaOS)
+        run: |
+          sudo mkdir -p /tmp/jnd-data && sudo chown root:root /tmp/jnd-data && sudo chmod 755 /tmp/jnd-data
+          docker run -d --name jnd -p 47801:47801 -p 47800:47800/udp -e JND_SERVER_AUTO_UPDATE=0 -v /tmp/jnd-data:/data jnd-test
+          sleep 10
+          docker logs jnd
+          test "$(docker inspect -f '{{.State.Running}}' jnd)" = "true"
+          test "$(docker inspect -f '{{.RestartCount}}' jnd)" = "0"
+          docker logs jnd 2>&1 | grep -q "als Benutzer 1000"
+          sudo test -f /tmp/jnd-data/server.json
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:47801/ || true)
+          echo "WebSocket-Antwort: $code"
+          test "$code" = "101"
+
   # Docker-Image des Servers (für CasaOS) - nur beim Veröffentlichen
   server-docker:
-    needs: [version, test]
+    needs: [version, test, server-docker-test]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

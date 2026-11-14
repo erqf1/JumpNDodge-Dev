@@ -28,8 +28,8 @@ x-casaos:
   author: W-Software
   category: Games
   description:
-    de_DE: Eigener Multiplayer-Server für JumpNDodge (Online-VS und Online-Koop, je 2 Spieler pro Raum). UDP-Port 47800 im Router weiterleiten.
-    en_US: Multiplayer server for JumpNDodge (online versus and co-op, 2 players per room). Forward UDP port 47800 in your router.
+    de_DE: Eigener Multiplayer-Server für JumpNDodge (Online-VS und Online-Koop, bis zu 8 Spieler pro Raum). UDP-Port 47800 im Router weiterleiten.
+    en_US: Multiplayer server for JumpNDodge (online versus and co-op, up to 8 players per room). Forward UDP port 47800 in your router.
   tagline:
     de_DE: JumpNDodge Multiplayer-Server
     en_US: JumpNDodge multiplayer server

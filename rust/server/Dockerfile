@@ -22,8 +22,9 @@ COPY --from=build /src/target/release/JumpNDodge-Server /usr/local/bin/JumpNDodg
 COPY server/LIESMICH.txt /usr/share/doc/jumpndodge-server/LIESMICH.txt
 # Startskript: nimmt die neuere Datei (Image oder Auto-Update in /data/bin)
 COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
-USER jnd
+# Zeilenenden absichern (falls die Datei unter Windows mit CRLF ausgecheckt wurde)
+RUN sed -i 's/$//' /usr/local/bin/docker-entrypoint.sh && chmod 755 /usr/local/bin/docker-entrypoint.sh
+# Kein "USER jnd": das Startskript läuft als root, übergibt /data an jnd und wechselt dann zu jnd
 VOLUME ["/data"]
 EXPOSE 47800/udp
 EXPOSE 47801/tcp

@@ -61,7 +61,10 @@ impl Config {
         } else {
             let c = Config::default();
             let s = serde_json::to_string_pretty(&c).unwrap_or_default();
-            std::fs::write(path, s).map_err(|e| format!("{} konnte nicht angelegt werden: {}", path.display(), e))?;
+            // Nicht beschreibbar (z.B. Docker-Ordner ohne Rechte): mit Standardwerten weiterlaufen statt abzustürzen
+            if let Err(e) = std::fs::write(path, s) {
+                eprintln!("Hinweis: {} konnte nicht angelegt werden ({}) - Server läuft mit Standardwerten.", path.display(), e);
+            }
             Ok(c)
         }
     }
