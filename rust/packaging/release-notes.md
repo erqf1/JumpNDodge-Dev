@@ -1,7 +1,7 @@
-## JumpNDodge 5.7.0
+## JumpNDodge 5.8.0
 
-- **Kosmetik online:** Die anderen sehen deine Kopfbedeckung, dein Gesicht und deine Spur – im Raum und in der Runde.
-- **Zuschauen:** Laufende Runden stehen in der Raumliste mit „zuschauen“. Nach der Runde rückst du auf einen freien Platz.
-- Zuschauer sehen die Namen über den Spielern; ESC verlässt das Zuschauen.
+- **Server-Browser:** Multiplayer zeigt öffentliche Server, Server in deinem Netzwerk (LAN) und zuletzt genutzte – mit Spielern und Ping.
+- **Eigenen Server listen:** `"listed": true` und `"public_address"` in der `server.json` – der offizielle Server prüft ihn und nimmt ihn in die Liste auf.
+- **Freunde einladen:** Im Raum auf „Freunde einladen“; deine Freunde bekommen eine Nachricht und im Menü ein Banner mit „Beitreten“.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

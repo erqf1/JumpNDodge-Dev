@@ -3,6 +3,12 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.8.0
+
+- Server-Browser: öffentliche Server (Liste beim offiziellen Server), Server im eigenen Netzwerk (LAN) und zuletzt genutzte.
+- Server: `listed` + `public_address` in der server.json tragen den Server in die öffentliche Liste ein (wird geprüft).
+- Freunde einladen: im Raum Freunde auswählen; sie bekommen eine Nachricht und ein Banner mit „Beitreten“.
+
 ## JumpNDodge 5.7.0
 
 - Kosmetik online sichtbar: Kopfbedeckung, Gesicht und Spur der anderen im Raum und in der Runde.

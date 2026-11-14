@@ -422,6 +422,7 @@ impl G {
                     }
                     let mp = self.get_mouse_pos_logical();
                     if let Event::MouseButtonDown { .. } = ev {
+                        if self.mp_invite_menu_click(mp) { break; }
                         let btns: Vec<(Rect, super::menus::MenuAction)> = self.buttons.iter().map(|b| (b.rect, b.action)).collect();
                         for (r, a) in btns { if r.collidepoint(mp) { self.run_menu_action(a); } }
                         if daily.collidepoint(mp) { self.play_sound(Snd::MenuClick); self.open_daily_rewards_menu(); }

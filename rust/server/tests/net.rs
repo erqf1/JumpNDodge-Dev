@@ -1,7 +1,7 @@
 //! Integrationstests: echter Server + echte Clients über UDP auf localhost.
 
 use jnd_core::net::channel::Lossy;
-use jnd_core::net::client::{query_info, Client, ConnectOptions};
+use jnd_core::net::client::{announce, fetch_server_list, query_info, Client, ConnectOptions};
 use jnd_core::net::proto::*;
 use jnd_core::sim2p::{Input, Winner};
 use jnd_server::config::Config;
@@ -28,12 +28,17 @@ fn free_tcp_port() -> u16 {
 /// Wie start_server, zusätzlich mit WebSocket-Port (0 = aus)
 fn start_server_ws(password: &str, max_rooms: u32, loss: f64, ws_port: u16) -> TestServer {
     let cfg = Config { port: 0, ws_port, auto_update: false, bind: "127.0.0.1".into(), password: password.into(), max_rooms, log_file: String::new(), name: "Testserver".into(), ..Config::default() };
+    start_with(cfg, loss, false)
+}
+
+fn start_with(cfg: Config, loss: f64, allow_local: bool) -> TestServer {
     let stop = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::channel();
     let st = stop.clone();
     let handle = std::thread::spawn(move || {
         let mut s = Server::bind(cfg, Box::new(|l: &str| println!("[server] {l}"))).expect("bind");
         s.loss = Lossy(loss);
+        s.registry.allow_local = allow_local;
         tx.send((s.local_addr().to_string(), s.ws_addr().map(|a| format!("ws://127.0.0.1:{}", a.port())))).unwrap();
         s.run(&st);
     });
@@ -393,4 +398,32 @@ fn aussehen_und_zuschauen() {
     p.wait(2, 90, |m| matches!(m, ServerMsg::GameOver { .. }).then_some(()));
     let me = p.wait(2, 15, |m| if let ServerMsg::RoomState { you, players, .. } = m { (players.iter().flatten().count() == 3).then_some(*you) } else { None });
     assert_eq!(me, 2, "Zuschauer sitzt jetzt auf Platz 3");
+}
+
+#[test]
+fn oeffentliche_server_liste() {
+    use jnd_server::registry::clean_address;
+    // Nur öffentlich erreichbare Adressen kommen in die echte Liste
+    for (a, ok) in [("play.example.com", true), ("wss://jnd.example.com", true), ("8.8.8.8:47800", true), ("192.168.0.20", false),
+                    ("10.0.0.1:47800", false), ("127.0.0.1", false), ("localhost", false), ("[fd00::1]:47800", false), ("bad name!", false)] {
+        assert_eq!(clean_address(a, false).is_some(), ok, "{a}");
+    }
+    let free_udp = || std::net::UdpSocket::bind("127.0.0.1:0").and_then(|s| s.local_addr()).map(|a| a.port()).expect("freier Port");
+    let base = Config { port: 0, ws_port: 0, auto_update: false, bind: "127.0.0.1".into(), log_file: String::new(), ..Config::default() };
+    let reg = start_with(Config { name: "Liste".into(), ..base.clone() }, 0.0, true);
+    let port = free_udp();
+    let _srv = start_with(Config { name: "Gelistet".into(), port, listed: true, public_address: format!("127.0.0.1:{port}"), registry: reg.addr.clone(), ..base.clone() }, 0.0, false);
+    let start = Instant::now();
+    loop {
+        let l = fetch_server_list(&reg.addr, Duration::from_secs(2)).expect("Liste kommt");
+        if let Some(s) = l.iter().find(|s| s.info.name == "Gelistet") { assert_eq!(s.address, format!("127.0.0.1:{port}")); break; }
+        assert!(start.elapsed() < Duration::from_secs(20), "Server erscheint nicht in der Liste");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // Eine Adresse ohne Server wird geprüft, aber nicht aufgenommen
+    let (ok, _) = announce(&reg.addr, &format!("127.0.0.1:{}", free_udp()), Duration::from_secs(2)).expect("Antwort");
+    assert!(ok, "Anmeldung wird zur Prüfung angenommen");
+    std::thread::sleep(Duration::from_millis(4800));
+    let l = fetch_server_list(&reg.addr, Duration::from_secs(2)).expect("Liste kommt");
+    assert_eq!(l.len(), 1, "nur der echte Server steht in der Liste: {l:?}");
 }

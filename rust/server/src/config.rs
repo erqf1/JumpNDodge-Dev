@@ -31,6 +31,14 @@ pub struct Config {
     pub auto_update: bool,
     /// Wie oft nach Updates gesucht wird (Minuten)
     pub update_check_minutes: u32,
+    /// In der öffentlichen Server-Liste im Spiel erscheinen (braucht public_address)
+    pub listed: bool,
+    /// Adresse, unter der Spieler den Server erreichen (z.B. "jnd.example.com" oder "wss://jnd.example.com")
+    pub public_address: String,
+    /// Wo die Liste geführt wird (der offizielle Server)
+    pub registry: String,
+    /// Selbst eine Server-Liste führen (andere Server dürfen sich hier anmelden)
+    pub server_list: bool,
 }
 
 impl Default for Config {
@@ -48,6 +56,10 @@ impl Default for Config {
             ws_port: 47801,
             auto_update: true,
             update_check_minutes: 60,
+            listed: false,
+            public_address: String::new(),
+            registry: "play.mert.win".into(),
+            server_list: true,
         }
     }
 }

@@ -74,6 +74,8 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
                 std::process::exit(1);
             }
         };
+        // Nur für Tests: lokale Adressen in der Server-Liste zulassen
+        server.registry.allow_local = std::env::var("JND_REGISTRY_ALLOW_LOCAL").map(|v| v == "1").unwrap_or(false);
         println!("=====================================================");
         println!(" JumpNDodge-Server {GAME_VERSION} (Protokoll {PROTO_VERSION})");
         println!(" Name:   {}", server.cfg.name);

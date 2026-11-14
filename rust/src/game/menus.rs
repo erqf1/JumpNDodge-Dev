@@ -281,6 +281,7 @@ impl G {
         let ns = fit_surf(&ns, pr.w - ar.w - 20);
         bs.blit(&ns, (ar.right() + 10, pr.centery() - ns.get_height() / 2));
         self._refresh_notifications_if_due();
+        if has_online && !self.modded() { self.mp_poll_invites(); self.mp_draw_invite_banner(&bs); }
 
         if has_online {
             let or = Rect::new(w - 235, h - 118, 220, 56);

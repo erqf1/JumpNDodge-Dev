@@ -104,6 +104,10 @@ pub struct Server {
     chat_log: VecDeque<(u64, String, String)>,
     /// Datei für den Verlauf (übersteht Neustarts/Updates); None = nur im Speicher (Tests)
     chat_store: Option<std::path::PathBuf>,
+    /// Öffentliche Server-Liste (wenn cfg.server_list)
+    pub registry: crate::registry::Registry,
+    /// Eigene Anmeldung in der Liste (wenn cfg.listed)
+    announcer: Option<crate::registry::Announcer>,
 }
 
 fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
@@ -122,7 +126,13 @@ impl Server {
             }
         };
         let updater = if cfg.auto_update { Some(crate::update::Updater::new(cfg.update_check_minutes)) } else { None };
-        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log, ws, updater, restart_for_update: None, chat_log: VecDeque::new(), chat_store: None })
+        let announcer = if cfg.listed && !cfg.public_address.trim().is_empty() && !cfg.registry.trim().is_empty() {
+            Some(crate::registry::Announcer::new(&cfg.registry, &cfg.public_address))
+        } else {
+            if cfg.listed { log("listed ist an, aber public_address fehlt - Server erscheint nicht in der Liste"); }
+            None
+        };
+        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log, ws, updater, restart_for_update: None, chat_log: VecDeque::new(), chat_store: None, registry: crate::registry::Registry::new(), announcer })
     }
 
     /// Chat-Verlauf in dieser Datei aufheben (und vorhandenen laden)
@@ -179,6 +189,8 @@ impl Server {
             for a in h.take_closed() { self.drop_conn(a, "Verbindung getrennt"); }
         }
         for (from, p) in pkts { self.on_packet(from, p); }
+        for line in self.registry.poll() { (self.log)(&line); }
+        if let Some(line) = self.announcer.as_mut().and_then(|a| a.poll()) { (self.log)(&line); }
         // Auto-Update: suchen, laden, und erst neu starten, wenn niemand verbunden ist
         if let Some(u) = self.updater.as_mut() {
             for line in u.poll() { (self.log)(&line); }
@@ -232,11 +244,20 @@ impl Server {
             Packet::Reliable { seq: 0, data, .. } => matches!(decode::<ClientMsg>(data), Some(ClientMsg::Hello { .. })),
             _ => false,
         };
-        // Serverinfo (auch ohne Verbindung)
+        // Unverbundene Anfragen: Serverinfo, Server-Liste, Anmeldung für die Liste
         if let Packet::Unreliable { data, .. } = &p {
-            if let Some(ClientMsg::Info) = decode::<ClientMsg>(data) {
+            let reply = match decode::<ClientMsg>(data) {
+                Some(ClientMsg::Info) => Some(ServerMsg::Info(self.info())),
+                Some(ClientMsg::ListServers) => Some(ServerMsg::ServerList(if self.cfg.server_list { self.registry.list() } else { vec![] })),
+                Some(ClientMsg::Announce { address }) => {
+                    let (ok, text) = if self.cfg.server_list { self.registry.announce(&address) } else { (false, "Dieser Server führt keine Server-Liste".into()) };
+                    Some(ServerMsg::Announced { ok, text })
+                }
+                _ => None,
+            };
+            if let Some(m) = reply {
                 let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
-                send_raw(&wires, from, &Packet::Unreliable { ack: 0, data: encode(&ServerMsg::Info(self.info())) }, self.loss);
+                send_raw(&wires, from, &Packet::Unreliable { ack: 0, data: encode(&m) }, self.loss);
                 return;
             }
         }
@@ -311,7 +332,7 @@ impl Server {
             return;
         }
         match m {
-            ClientMsg::Hello { .. } | ClientMsg::Info => {}
+            ClientMsg::Hello { .. } | ClientMsg::Info | ClientMsg::ListServers | ClientMsg::Announce { .. } => {}
             ClientMsg::ListRooms => {
                 let list: Vec<RoomInfo> = self.rooms.values()
                     .filter(|r| !r.private)

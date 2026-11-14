@@ -9,7 +9,7 @@ use super::core::*;
 use super::state::{Snd, G};
 use crate::pg::*;
 use crate::util::*;
-use jnd_core::net::client::{query_info, Client, ConnectOptions};
+use jnd_core::net::client::{fetch_server_list, lan_scan, query_info, Client, ConnectOptions};
 use jnd_core::net::netround::{DrawPlayer, NetRound};
 use jnd_core::net::proto::*;
 use jnd_core::sim2p::{Input, ObstacleKind, SimEvent, Winner};
@@ -115,11 +115,55 @@ struct Mp {
     chat_input: String,
     /// Zuletzt an den Server gemeldete Fenstergröße (für die Feldbreite)
     sent_screen: (i32, i32),
+    /// Server-Browser: öffentliche Liste (vom offiziellen Server) und Server im eigenen Netzwerk
+    public_servers: Vec<ListedServer>,
+    lan_servers: Vec<(String, ServerInfo, u32)>,
+    list_tx: Sender<ListUpd>,
+    list_rx: Receiver<ListUpd>,
+    servers_at: Option<Instant>,
+    servers_busy: u8,
+    browser_scroll: i32,
+    /// Nach dem Verbinden diesem Raum beitreten (Einladung)
+    join_code: Option<String>,
+    /// Freunde-einladen-Fenster offen
+    invite_open: bool,
+}
+
+/// Ergebnis der Server-Suche im Hintergrund
+enum ListUpd { Public(Vec<ListedServer>), Lan(Vec<(String, ServerInfo, u32)>) }
+
+/// Einladung eines Freundes (aus einer Direktnachricht mit `[jnd-join ADRESSE CODE]`)
+#[derive(Clone)]
+struct Invite { from_user: String, from_name: String, addr: String, code: String, at: Instant }
+
+thread_local! {
+    static INVITES: std::cell::RefCell<Vec<Invite>> = const { std::cell::RefCell::new(Vec::new()) };
+    static INVITE_SEEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static INVITE_POLL: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    /// Banner im Hauptmenü: (Beitreten, Wegklicken)
+    static INVITE_RECTS: std::cell::Cell<Option<(Rect, Rect)>> = const { std::cell::Cell::new(None) };
+    /// Freundesliste fürs Einladen: None = lädt, Some(Err) = Fehler
+    static FRIENDS: std::cell::RefCell<Option<Result<Vec<(String, String)>, String>>> = const { std::cell::RefCell::new(None) };
+    /// Einladung an Benutzername: 1 sendet, 2 gesendet, 3 zu schnell, 4 Fehler
+    static INVITE_SENT: std::cell::RefCell<HashMap<String, u8>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// Einladung aus einem Nachrichtentext lesen: (Adresse, Raumcode)
+pub fn parse_invite(body: &str) -> Option<(String, String)> {
+    let i = body.find("[jnd-join ")?;
+    let rest = &body[i + 10..];
+    let end = rest.find(']')?;
+    let mut it = rest[..end].split_whitespace();
+    let (a, c) = (it.next()?, it.next()?);
+    if a.len() > 100 || !a.chars().all(|ch| ch.is_ascii_alphanumeric() || ".-:/[]_".contains(ch)) { return None; }
+    if c.is_empty() || c.len() > 8 || !c.chars().all(|ch| ch.is_ascii_alphanumeric()) { return None; }
+    Some((a.to_string(), c.to_uppercase()))
 }
 
 impl Mp {
     fn new() -> Mp {
         let (info_tx, info_rx) = channel();
+        let (list_tx, list_rx) = channel();
         let now = Instant::now();
         Mp {
             screen: Screen::Browser, client: None, connect_rx: None, connecting_addr: String::new(), connect_started: now,
@@ -129,6 +173,8 @@ impl Mp {
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
+            public_servers: vec![], lan_servers: vec![], list_tx, list_rx, servers_at: None, servers_busy: 0, browser_scroll: 0,
+            join_code: None, invite_open: false,
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -214,10 +260,22 @@ impl G {
         while let Ok((addr, res)) = mp.info_rx.try_recv() {
             mp.infos.insert(addr, match res { Some((i, p)) => InfoState::Online(i, p), None => InfoState::Offline });
         }
+        while let Ok(u) = mp.list_rx.try_recv() {
+            mp.servers_busy = mp.servers_busy.saturating_sub(1);
+            match u {
+                ListUpd::Public(l) => { mp.public_servers = l; mp.last_info_query = None; }
+                ListUpd::Lan(l) => {
+                    for (a, i, p) in &l { mp.infos.insert(a.clone(), InfoState::Online(i.clone(), *p)); }
+                    mp.lan_servers = l;
+                }
+            }
+        }
+        if mp.servers_busy == 0 && mp.servers_at.map(|t| t.elapsed() >= Duration::from_secs(30)).unwrap_or(true) { self.mp_refresh_servers(mp); }
         if mp.last_info_query.map(|t| t.elapsed() < Duration::from_secs(5)).unwrap_or(false) { return; }
         mp.last_info_query = Some(Instant::now());
         let mut addrs = vec![self.mp_official()];
         addrs.extend(self.mp_recent());
+        for s in mp.public_servers.iter().take(12) { if !addrs.iter().any(|a| a.eq_ignore_ascii_case(&s.address)) { addrs.push(s.address.clone()); } }
         for a in addrs {
             mp.infos.entry(a.clone()).or_insert(InfoState::Checking);
             let tx = mp.info_tx.clone();
@@ -316,6 +374,7 @@ impl G {
                     let look = self.mp_my_look();
                     mp.send(ClientMsg::Look(look));
                     if std::mem::take(&mut mp.auto_quick) { mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
+                    if let Some(code) = mp.join_code.take() { mp.send(ClientMsg::JoinRoom { code }); }
                     self.play_sound(Snd::Click);
                 }
                 Ok(Err(e)) => {
@@ -482,7 +541,7 @@ impl G {
                 mp.emotes.push((in_round, player as usize, id, Instant::now()));
                 self.play_sound(Snd::Click);
             }
-            ServerMsg::Welcome { .. } | ServerMsg::Info(_) => {}
+            ServerMsg::Welcome { .. } | ServerMsg::Info(_) | ServerMsg::ServerList(_) | ServerMsg::Announced { .. } => {}
         }
     }
 
@@ -590,6 +649,7 @@ impl G {
         match ev {
             Event::Quit => { if let Some(c) = mp.client.take() { c.disconnect(); } self.quit(); }
             Event::KeyDown { key, unicode, mods } => self.mp_key(mp, key, &unicode, mods),
+            Event::MouseWheel { y, .. } if mp.screen == Screen::Browser => { mp.browser_scroll = (mp.browser_scroll - y).max(0); }
             Event::MouseButtonDown { button: 1, .. } => {
                 let pos = self.get_mouse_pos_logical();
                 let hit = mp.buttons.iter().rev().find(|(r, _)| r.collidepoint(pos)).map(|(_, a)| a.clone());
@@ -652,6 +712,11 @@ impl G {
             }
             return;
         }
+        if (self.is_back_key(key) || key == K_ESCAPE) && mp.invite_open {
+            self.play_sound(Snd::ClickBack);
+            mp.invite_open = false;
+            return;
+        }
         if self.is_back_key(key) || key == K_ESCAPE {
             self.play_sound(Snd::ClickBack);
             match mp.screen {
@@ -702,6 +767,37 @@ impl G {
             "refresh" => { self.play_sound(Snd::Click); mp.last_list = Instant::now(); mp.send(ClientMsg::ListRooms); }
             "quick" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
             "spectate" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::Spectate { code: arg.to_string() }); }
+            "refresh_servers" => { self.play_sound(Snd::Click); mp.servers_at = None; if mp.servers_busy == 0 { self.mp_refresh_servers(mp); } }
+            "invite_open" => {
+                self.play_sound(Snd::MenuClick);
+                mp.invite_open = true;
+                FRIENDS.with(|f| *f.borrow_mut() = None);
+                INVITE_SENT.with(|s| s.borrow_mut().clear());
+                let Some(me) = self.current_profile_username.clone() else { FRIENDS.with(|f| *f.borrow_mut() = Some(Ok(vec![]))); return; };
+                self.fetch_friends_list(&me, Some(Box::new(|_g, r| {
+                    let res = match r {
+                        Some(v) if v.truthy("ok") => Ok(v.garr("friends").iter().map(|f| (f.gs("username", ""), f.gs("name", ""))).filter(|(u, _)| !u.is_empty()).collect()),
+                        _ => Err(String::new()),
+                    };
+                    FRIENDS.with(|f| *f.borrow_mut() = Some(res));
+                })));
+            }
+            "invite_close" => { self.play_sound(Snd::ClickBack); mp.invite_open = false; }
+            "invite_send" => {
+                let Some(room) = &mp.room else { return; };
+                let who = arg.to_string();
+                if INVITE_SENT.with(|s| s.borrow().get(&who).copied()) == Some(1) { return; }
+                self.play_sound(Snd::Click);
+                let body = format!("{} {}! [jnd-join {} {}]", self.tde("Komm in meinen JumpNDodge-Raum", "Join my JumpNDodge room"), room.code, mp.connecting_addr.trim(), room.code);
+                INVITE_SENT.with(|s| { s.borrow_mut().insert(who.clone(), 1); });
+                let w2 = who.clone();
+                self.send_chat_message_online("dm", &who, &body, Some(Box::new(move |_g, r| {
+                    let st = match &r { Some(v) if v.truthy("ok") => 2, Some(v) if v.gs("error", "") == "rate_limited" => 3, _ => 4 };
+                    INVITE_SENT.with(|s| { s.borrow_mut().insert(w2, st); });
+                })));
+            }
+            "invite_join" => { self.play_sound(Snd::MenuClick); self.mp_accept_invite(mp); }
+            "invite_dismiss" => { self.play_sound(Snd::ClickBack); self.mp_dismiss_invite(); }
             "quick_official" => { self.play_sound(Snd::MenuClick); mp.auto_quick = true; let o = self.mp_official(); self.mp_connect(mp, &o); }
             "host_start" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::HostStart); }
             "kick" => { if let Ok(i) = arg.parse::<u8>() { self.play_sound(Snd::ClickBack); mp.send(ClientMsg::Kick { slot: i }); } }
@@ -751,6 +847,26 @@ impl G {
         let p: Vec<&str> = line.split_whitespace().collect();
         match p.first().copied().unwrap_or("") {
             "connect" => { let a = p.get(1).copied().unwrap_or(""); self.mp_connect(mp, a); }
+            "invite" => {
+                let (a, c) = (p.get(1).copied().unwrap_or(""), p.get(2).copied().unwrap_or(""));
+                self.mp_join_invite(mp, a, c);
+            }
+            // Test: anderen Listen-/offiziellen Server nutzen
+            "official" => {
+                self.settings.insert("mp_official_server".into(), json!(p.get(1).copied().unwrap_or("")));
+                mp.servers_at = None; mp.last_info_query = None;
+            }
+            // Test: Einladung anzeigen (ohne Online-Konto)
+            "fakeinvite" => {
+                let (n, a, c) = (p.get(1).copied().unwrap_or("Anna"), p.get(2).copied().unwrap_or(""), p.get(3).copied().unwrap_or("ABCD"));
+                INVITES.with(|v| v.borrow_mut().push(Invite { from_user: n.to_lowercase(), from_name: n.into(), addr: a.into(), code: c.to_uppercase(), at: Instant::now() }));
+            }
+            // Test: Freundesliste fürs Einladen setzen, z.B. fakefriends anna:Anna,ben:Ben
+            "fakefriends" => {
+                let l = p.get(1).copied().unwrap_or("").split(',').filter_map(|e| e.split_once(':')).map(|(u, n)| (u.to_string(), n.to_string())).collect();
+                FRIENDS.with(|f| *f.borrow_mut() = Some(Ok(l)));
+            }
+            "act" => { let a = p.get(1).copied().unwrap_or(""); self.mp_action(mp, a); }
             "create" => {
                 mp.create_mode = if p.get(1).map(|m| m.eq_ignore_ascii_case("coop")).unwrap_or(false) { Mode::Coop } else { Mode::Vs };
                 if let Some(i) = p.get(2).and_then(|d| DIFFICULTIES.iter().position(|x| x.eq_ignore_ascii_case(d))) { mp.create_diff = i; }
@@ -833,6 +949,15 @@ impl G {
             Screen::Playing => self.mp_draw_round(mp),
             Screen::Result => self.mp_draw_result(mp),
         }
+        if mp.invite_open && matches!(mp.screen, Screen::Room) { self.mp_draw_invite_window(mp); } else { mp.invite_open = false; }
+        if mp.screen != Screen::Playing {
+            self.mp_poll_invites();
+            let bs = self.base_surface.clone();
+            if let Some((j, d)) = self.mp_draw_invite_banner(&bs) {
+                mp.buttons.push((j, "invite_join".into()));
+                mp.buttons.push((d, "invite_dismiss".into()));
+            }
+        }
         // Meldung oben
         if !mp.message.is_empty() && Instant::now() < mp.message_until {
             let bs = self.base_surface.clone();
@@ -868,7 +993,7 @@ impl G {
         let sf = self.small_font.clone();
         let mf = self.menu_font.clone();
         let tc = self.get_text_color();
-        let sub = self.tde("Online gegen oder mit einem Freund (2 Spieler)", "Play online against or with a friend (2 players)");
+        let sub = self.tde("Online gegen- oder miteinander – bis zu 8 Spieler", "Play online against or with each other – up to 8 players");
         self.mp_text(&bs, &sf, &sub, (150, 150, 180), w / 2, 82, true);
         let cx = w / 2 - 300;
         // Offizieller Server
@@ -893,26 +1018,8 @@ impl G {
         self.mp_text_field(&bs, mp, field, &ai, &ph, foc, "focus_addr");
         self.mp_button(&bs, mp, Rect::new(cx + 452, 224, 148, 44), &self.tde("Verbinden", "Connect"), "connect_input", (100, 160, 220), None);
         self.mp_text(&bs, &self.badge_font.clone(), &self.tde("Standard-Port 47800 (UDP). Strg+V zum Einfügen.", "Default port 47800 (UDP). Ctrl+V to paste."), (130, 130, 150), cx + 4, 272, false);
-        // Zuletzt genutzt
-        let recent = self.mp_recent();
-        let mut y = 300;
-        if !recent.is_empty() {
-            self.mp_text(&bs, &sf, &self.tde("Zuletzt genutzt", "Recent servers"), tc, cx, y, false);
-            y += 26;
-            for a in recent.iter().take(((h - 90 - y) / 40).max(0) as usize) {
-                let r = Rect::new(cx, y, 556, 36);
-                let hov = r.collidepoint(self.mouse_logical_peek());
-                draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, r, 0, 8);
-                self.mp_text(&bs, &sf, a, tc, r.x + 12, r.y + 8, false);
-                let (st, sc) = self.mp_status_line(mp.infos.get(a));
-                let stw = sf.size(&st).0.min(300);
-                let sts = sf.render(&st, true, sc);
-                bs.blit_area(&sts, (r.right() - 12 - stw, r.y + 8), Some(Rect::new(sts.get_width() - stw, 0, stw, sts.get_height())));
-                mp.buttons.push((r, format!("connect:{}", a)));
-                self.mp_button(&bs, mp, Rect::new(cx + 564, y, 36, 36), "x", &format!("forget:{}", a), (150, 100, 110), None);
-                y += 40;
-            }
-        }
+        // Server-Liste: öffentlich (vom offiziellen Server), im eigenen Netzwerk, zuletzt genutzt
+        self.mp_draw_server_list(&bs, mp, Rect::new(cx, 296, 600, (h - 96 - 296).max(0)));
         let host = format!("{} {}", self.tde("Eigenen Server hosten:", "Host your own server:"), HOST_INFO_URL);
         self.mp_text(&bs, &self.badge_font.clone(), &host, (140, 140, 170), w / 2, h - 82, true);
         self.mp_button(&bs, mp, Rect::new(w / 2 - 90, h - 58, 180, 44), &self.get_text("back"), "back", (150, 150, 150), None);
@@ -1065,6 +1172,10 @@ impl G {
         if room.players.iter().any(|p| p.is_none()) {
             let t = format!("{} {}", self.tde("Gib deinen Freunden den Code", "Give your friends the code"), room.code);
             self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, below + 2, true);
+        }
+        if self.current_profile_username.is_some() && room.players.iter().any(|p| p.is_none()) {
+            let ir = Rect::new(16, 20, 190, 36);
+            self.mp_button(&bs, mp, ir, &self.tde("Freunde einladen", "Invite friends"), "invite_open", (100, 160, 220), Some(self.small_font.clone()));
         }
         let chat_top = below + 32;
         let chat_r = Rect::new(w / 2 - 300, chat_top, 600, (h - 132 - chat_top).max(0));
@@ -1377,3 +1488,231 @@ impl G {
 }
 
 const DIFFICULTIES: [&str; 8] = jnd_core::net::proto::DIFFICULTIES;
+
+// ----------------------------------------------------------------------
+// Server-Browser und Freunde einladen
+// ----------------------------------------------------------------------
+impl G {
+    /// Öffentliche Liste beim offiziellen Server holen und im eigenen Netzwerk suchen (im Hintergrund)
+    fn mp_refresh_servers(&mut self, mp: &mut Mp) {
+        mp.servers_at = Some(Instant::now());
+        mp.servers_busy = 2;
+        let reg = self.mp_official();
+        let tx = mp.list_tx.clone();
+        std::thread::spawn(move || { let _ = tx.send(ListUpd::Public(fetch_server_list(&reg, Duration::from_secs(3)).unwrap_or_default())); });
+        let tx = mp.list_tx.clone();
+        std::thread::spawn(move || {
+            let l = lan_scan(Duration::from_millis(1200)).into_iter().map(|(a, i, d)| (a, i, d.as_millis() as u32)).collect();
+            let _ = tx.send(ListUpd::Lan(l));
+        });
+    }
+
+    fn mp_draw_server_list(&mut self, bs: &Surface, mp: &mut Mp, area: Rect) {
+        let sf = self.small_font.clone();
+        let bf = self.badge_font.clone();
+        let tc = self.get_text_color();
+        self.mp_text(bs, &sf, &self.tde("Server", "Servers"), tc, area.x, area.y + 4, false);
+        let busy = mp.servers_busy > 0;
+        let rb = Rect::new(area.right() - 150, area.y, 150, 30);
+        let rt = if busy { self.tde("Suche …", "Searching …") } else { self.tde("Aktualisieren", "Refresh") };
+        self.mp_button(bs, mp, rb, &rt, "refresh_servers", (110, 110, 130), Some(bf.clone()));
+        // Einträge: (Art, Adresse, Name aus der Liste, vergessen möglich)
+        let off = self.mp_official();
+        let mut rows: Vec<(u8, String, String, bool)> = vec![];
+        let seen = |rows: &Vec<(u8, String, String, bool)>, a: &str| a.eq_ignore_ascii_case(&off) || rows.iter().any(|r| r.1.eq_ignore_ascii_case(a));
+        for s in &mp.public_servers { if !seen(&rows, &s.address) { rows.push((0, s.address.clone(), s.info.name.clone(), false)); } }
+        for (a, i, _) in &mp.lan_servers { if !seen(&rows, a) { rows.push((1, a.clone(), i.name.clone(), false)); } }
+        for a in self.mp_recent() { if !seen(&rows, &a) { rows.push((2, a.clone(), String::new(), true)); } }
+        let top = area.y + 38;
+        if rows.is_empty() {
+            let t = if busy { self.tde("Suche Server …", "Looking for servers …") } else { self.tde("Keine weiteren Server gefunden", "No other servers found") };
+            self.mp_text(bs, &sf, &t, (140, 140, 160), area.centerx(), top + 10, true);
+            let hint = self.tde("Eigene Server erscheinen hier mit \"listed\": true in der server.json", "Your own servers show up here with \"listed\": true in server.json");
+            self.mp_text(bs, &bf, &hint, (120, 120, 145), area.centerx(), top + 40, true);
+            return;
+        }
+        let row_h = 44;
+        let fit = ((area.bottom() - top) / row_h).max(1) as usize;
+        let max_scroll = rows.len().saturating_sub(fit) as i32;
+        mp.browser_scroll = mp.browser_scroll.min(max_scroll);
+        let mouse = self.mouse_logical_peek();
+        let mut y = top;
+        for (kind, addr, name, forget) in rows.iter().skip(mp.browser_scroll as usize).take(fit) {
+            let w = if *forget { area.w - 44 } else { area.w };
+            let r = Rect::new(area.x, y, w, row_h - 6);
+            let info = mp.infos.get(addr);
+            let usable = !matches!(info, Some(InfoState::Online(i, _)) if i.proto != PROTO_VERSION);
+            let hov = usable && r.collidepoint(mouse);
+            draw::rect(bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, r, 0, 8);
+            let (tag, tcol) = match kind {
+                0 => (self.tde("Öffentlich", "Public"), (100, 160, 220)),
+                1 => ("LAN".to_string(), (139, 108, 240)),
+                _ => (self.tde("Zuletzt", "Recent"), (130, 130, 150)),
+            };
+            let tw = bf.size(&tag).0 + 14;
+            let tr = Rect::new(r.x + 8, r.centery() - 10, tw, 20);
+            draw::rect(bs, tcol, tr, 0, 6);
+            self.mp_text(bs, &bf, &tag, (255, 255, 255), tr.centerx(), tr.y + 2, true);
+            let shown = match info { Some(InfoState::Online(i, _)) if !i.name.is_empty() => i.name.clone(), _ if !name.is_empty() => name.clone(), _ => addr.clone() };
+            let nx = tr.right() + 10;
+            self.mp_text(bs, &sf, &shown, tc, nx, r.y + 2, false);
+            if shown != *addr { self.mp_text(bs, &bf, addr, (130, 130, 150), nx, r.y + 22, false); }
+            let (st, sc) = self.mp_status_line(info);
+            let stw = bf.size(&st).0.min(280);
+            let sts = bf.render(&st, true, sc);
+            bs.blit_area(&sts, (r.right() - 12 - stw, r.centery() - sts.get_height() / 2), Some(Rect::new(sts.get_width() - stw, 0, stw, sts.get_height())));
+            if usable { mp.buttons.push((r, format!("connect:{}", addr))); }
+            if *forget { self.mp_button(bs, mp, Rect::new(area.right() - 38, y, 38, row_h - 6), "x", &format!("forget:{}", addr), (150, 100, 110), None); }
+            y += row_h;
+        }
+        if max_scroll > 0 {
+            let t = format!("{}–{} / {} · {}", mp.browser_scroll + 1, (mp.browser_scroll as usize + fit).min(rows.len()), rows.len(), self.tde("Mausrad zum Blättern", "scroll for more"));
+            self.mp_text(bs, &bf, &t, (120, 120, 145), area.centerx(), area.bottom() + 2, true);
+        }
+    }
+
+    /// Einladungen in Direktnachrichten suchen (alle 10 s, nur mit Online-Profil)
+    pub fn mp_poll_invites(&mut self) {
+        if self.current_profile_username.is_none() { return; }
+        let now = self.get_ticks();
+        let last = INVITE_POLL.with(|c| c.get());
+        if last != 0 && now.saturating_sub(last) < 10_000 { return; }
+        INVITE_POLL.with(|c| c.set(now.max(1)));
+        // Alte Einladungen (älter als 2 Minuten) verschwinden von selbst
+        INVITES.with(|v| v.borrow_mut().retain(|i| i.at.elapsed() < Duration::from_secs(120)));
+        self.fetch_conversations_list(Some(Box::new(|_g, r| {
+            let Some(r) = r else { return; };
+            if !r.truthy("ok") { return; }
+            for c in r.garr("conversations") {
+                if c.gs("conversation_type", "") != "dm" || !c.truthy("unread") { continue; }
+                let Some((addr, code)) = parse_invite(&c.gs("last_body", "")) else { continue; };
+                let from_user = c.gs("target", "");
+                let key = format!("{}|{}|{}", from_user, addr, code);
+                let new = INVITE_SEEN.with(|s| { let mut s = s.borrow_mut(); if s.contains(&key) { false } else { s.push(key); true } });
+                if !new { continue; }
+                let from_name = { let n = c.gs("label", ""); if n.is_empty() { from_user.clone() } else { n } };
+                INVITES.with(|v| v.borrow_mut().push(Invite { from_user, from_name, addr, code, at: Instant::now() }));
+            }
+        })));
+    }
+
+    /// Banner für die neueste Einladung oben in der Mitte; liefert (Beitreten, Wegklicken)
+    pub fn mp_draw_invite_banner(&mut self, bs: &Surface) -> Option<(Rect, Rect)> {
+        let inv = INVITES.with(|v| v.borrow().last().cloned());
+        let Some(inv) = inv else { INVITE_RECTS.with(|c| c.set(None)); return None; };
+        let w = self.WIDTH;
+        let bw = 600.min(w - 32);
+        let r = Rect::new(w / 2 - bw / 2, 8, bw, 52);
+        let veil = Surface::new_alpha(r.w, r.h);
+        let dark = self.is_dark_mode();
+        veil.fill(if dark { (34, 32, 48, 245) } else { (250, 250, 255, 245) });
+        bs.blit(&veil, (r.x, r.y));
+        draw::rect(bs, super::ui_c::ACCENT, r, 2, 10);
+        let sf = self.small_font.clone();
+        let bf = self.badge_font.clone();
+        let t = format!("{} {}", inv.from_name, self.tde("lädt dich in einen Raum ein", "invites you to a room"));
+        self.mp_text(bs, &sf, &t, self.get_text_color(), r.x + 14, r.y + 6, false);
+        self.mp_text(bs, &bf, &format!("{} {} · {}", self.tde("Raum", "Room"), inv.code, inv.addr), (130, 130, 160), r.x + 14, r.y + 30, false);
+        let jr = Rect::new(r.right() - 182, r.y + 9, 124, 34);
+        let dr = Rect::new(r.right() - 50, r.y + 9, 38, 34);
+        let mouse = self.mouse_logical_peek();
+        self.draw_ui_button(bs, jr, &self.tde("Beitreten", "Join"), BtnOpts { font: Some(bf.clone()), hovered: jr.collidepoint(mouse), base_color: Some(super::ui_c::ACCENT), hover_color: Some(super::art::lighten(super::ui_c::ACCENT, 0.12)), text_color: Some((255, 255, 255)), ..Default::default() });
+        self.draw_ui_button(bs, dr, "x", BtnOpts { font: Some(bf), hovered: dr.collidepoint(mouse), ..Default::default() });
+        INVITE_RECTS.with(|c| c.set(Some((jr, dr))));
+        Some((jr, dr))
+    }
+
+    /// Klick im Hauptmenü auf das Einladungs-Banner; true = verbraucht
+    pub fn mp_invite_menu_click(&mut self, pos: (i32, i32)) -> bool {
+        let Some((jr, dr)) = INVITE_RECTS.with(|c| c.get()) else { return false; };
+        if jr.collidepoint(pos) {
+            let Some(inv) = INVITES.with(|v| v.borrow_mut().pop()) else { return true; };
+            self.mark_chat_read_online("dm", &inv.from_user, None);
+            self.open_multiplayer();
+            self.in_menu = false;
+            self._mp_dev_cmds.push(format!("invite {} {}", inv.addr, inv.code));
+            INVITE_RECTS.with(|c| c.set(None));
+            return true;
+        }
+        if dr.collidepoint(pos) { self.play_sound(Snd::ClickBack); self.mp_dismiss_invite(); return true; }
+        false
+    }
+
+    fn mp_dismiss_invite(&mut self) {
+        if let Some(inv) = INVITES.with(|v| v.borrow_mut().pop()) { self.mark_chat_read_online("dm", &inv.from_user, None); }
+        INVITE_RECTS.with(|c| c.set(None));
+    }
+
+    fn mp_accept_invite(&mut self, mp: &mut Mp) {
+        let Some(inv) = INVITES.with(|v| v.borrow_mut().pop()) else { return; };
+        self.mark_chat_read_online("dm", &inv.from_user, None);
+        self.mp_join_invite(mp, &inv.addr, &inv.code);
+    }
+
+    /// Zum Server der Einladung (falls nötig) und in den Raum
+    fn mp_join_invite(&mut self, mp: &mut Mp, addr: &str, code: &str) {
+        if addr.is_empty() || code.is_empty() { return; }
+        let same = mp.client.is_some() && mp.connecting_addr.trim().eq_ignore_ascii_case(addr.trim());
+        if same {
+            if mp.room.is_some() { mp.send(ClientMsg::LeaveRoom); }
+            mp.send(ClientMsg::JoinRoom { code: code.to_uppercase() });
+        } else {
+            mp.join_code = Some(code.to_uppercase());
+            self.mp_connect(mp, addr);
+        }
+    }
+
+    /// Fenster "Freunde einladen" über dem Raum
+    fn mp_draw_invite_window(&mut self, mp: &mut Mp) {
+        let bs = self.base_surface.clone();
+        let (w, h) = (self.WIDTH, self.HEIGHT);
+        // Alles darunter ist gesperrt, solange das Fenster offen ist
+        mp.buttons.clear();
+        mp.buttons.push((Rect::new(0, 0, w, h), "noop".into()));
+        let veil = Surface::new_alpha(w, h);
+        veil.fill((0, 0, 0, 140));
+        bs.blit(&veil, (0, 0));
+        let pw = 460.min(w - 32);
+        let ph = 420.min(h - 40);
+        let p = Rect::new(w / 2 - pw / 2, h / 2 - ph / 2, pw, ph);
+        self.draw_panel(&bs, p, 14, super::ui_c::ACCENT, 2);
+        let sf = self.small_font.clone();
+        let bf = self.badge_font.clone();
+        let mf = self.menu_font.clone();
+        let tc = self.get_text_color();
+        self.mp_text(&bs, &mf, &self.tde("Freunde einladen", "Invite friends"), tc, p.centerx(), p.y + 14, true);
+        let code = mp.room.as_ref().map(|r| r.code.clone()).unwrap_or_default();
+        self.mp_text(&bs, &bf, &format!("{} {} · {}", self.tde("Raum", "Room"), code, self.tde("sie bekommen eine Nachricht", "they get a message")), (130, 130, 160), p.centerx(), p.y + 52, true);
+        let list = FRIENDS.with(|f| f.borrow().clone());
+        let mut y = p.y + 82;
+        match list {
+            None => { self.mp_text(&bs, &sf, &self.tde("Lade Freunde …", "Loading friends …"), (140, 140, 160), p.centerx(), y + 20, true); }
+            Some(Err(_)) => { self.mp_text(&bs, &sf, &self.tde("Freunde konnten nicht geladen werden", "Could not load friends"), (200, 110, 120), p.centerx(), y + 20, true); }
+            Some(Ok(l)) if l.is_empty() => {
+                self.mp_text(&bs, &sf, &self.tde("Noch keine Freunde", "No friends yet"), (140, 140, 160), p.centerx(), y + 20, true);
+                self.mp_text(&bs, &bf, &self.tde("Freunde fügst du unter Online > Freunde hinzu", "Add friends under Online > Friends"), (120, 120, 145), p.centerx(), y + 50, true);
+            }
+            Some(Ok(l)) => {
+                let fit = ((p.bottom() - 70 - y) / 44).max(1) as usize;
+                for (user, name) in l.iter().take(fit) {
+                    let r = Rect::new(p.x + 16, y, p.w - 32, 38);
+                    draw::rect(&bs, self.get_button_color(), r, 0, 8);
+                    let shown = if name.is_empty() { user.clone() } else { name.clone() };
+                    self.mp_text(&bs, &sf, &shown, tc, r.x + 12, r.y + 8, false);
+                    let st = INVITE_SENT.with(|s| s.borrow().get(user).copied()).unwrap_or(0);
+                    let br = Rect::new(r.right() - 132, r.y + 4, 126, 30);
+                    match st {
+                        0 | 3 | 4 => {
+                            let t = match st { 3 => self.tde("Zu schnell – nochmal", "Too fast – retry"), 4 => self.tde("Fehler – nochmal", "Failed – retry"), _ => self.tde("Einladen", "Invite") };
+                            self.mp_button(&bs, mp, br, &t, &format!("invite_send:{}", user), if st == 0 { (100, 160, 220) } else { (180, 100, 110) }, Some(bf.clone()));
+                        }
+                        1 => { self.mp_text(&bs, &bf, &self.tde("sende …", "sending …"), (140, 140, 160), br.centerx(), br.y + 7, true); }
+                        _ => { self.mp_text(&bs, &bf, &self.tde("eingeladen ✓", "invited ✓"), (90, 190, 140), br.centerx(), br.y + 7, true); }
+                    }
+                    y += 44;
+                }
+            }
+        }
+        self.mp_button(&bs, mp, Rect::new(p.centerx() - 80, p.bottom() - 56, 160, 42), &self.tde("Schließen", "Close"), "invite_close", (150, 150, 150), None);
+    }
+}

@@ -84,7 +84,17 @@ pub enum ClientMsg {
     Look(PlayerLook),
     /// Einer laufenden Runde zuschauen; danach rückt man auf einen freien Platz
     Spectate { code: String },
+    /// Unverbunden: Liste öffentlicher Server abfragen (beim offiziellen Server)
+    ListServers,
+    /// Unverbunden: ein Server meldet sich für die öffentliche Liste an
+    Announce { address: String },
 }
+
+/// Eintrag der öffentlichen Server-Liste
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListedServer { pub address: String, pub info: ServerInfo }
+/// Höchstens so viele Server pro Antwort (passt noch gut in ein Paket)
+pub const SERVER_LIST_MAX: usize = 40;
 
 /// Aussehen eines Spielers (Schlüssel der Kosmetik, leer = nichts)
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -195,6 +205,10 @@ pub enum ServerMsg {
     Emote { player: u8, id: u8, in_round: bool },
     /// Aussehen aller Spieler: im Raum nach Platz, in der Runde nach Spielernummer
     Looks { in_round: bool, looks: Vec<PlayerLook> },
+    /// Antwort auf ListServers
+    ServerList(Vec<ListedServer>),
+    /// Antwort auf Announce
+    Announced { ok: bool, text: String },
 }
 
 /// Texte der Schnell-Nachrichten (Tasten 1-4)

@@ -68,7 +68,9 @@
   "max_rooms": 16,
   "log_file": "server.log",
   "auto_update": true,          // neue Versionen selbst laden
-  "update_check_minutes": 60
+  "update_check_minutes": 60,
+  "listed": false,              // in der Server-Liste im Spiel zeigen
+  "public_address": ""          // so erreichen Spieler den Server
 }</code></pre></li>
         <li><h3><span data-lang-de>Im eigenen Netz testen</span><span data-lang-en>Test on your own network</span></h3>
           <p><span data-lang-de>Im Spiel: Online → Multiplayer → „Per IP oder Hostname verbinden“ → die lokale IP des Server-Rechners eingeben (z.B. <code>192.168.178.20</code>). Klappt das, fehlt für Freunde aus dem Internet nur noch die Portweiterleitung.</span><span data-lang-en>In the game: Online → Multiplayer → “Connect by IP or hostname” → enter the local IP of the server PC (e.g. <code>192.168.178.20</code>). If that works, friends from the internet only need port forwarding.</span></p></li>
@@ -142,6 +144,18 @@ services:
         <div class="card"><div class="ic">1</div><h3>Windows / Linux / macOS</h3><p><span data-lang-de>Die Programmdatei wird ersetzt und mit denselben Einstellungen neu gestartet.</span><span data-lang-en>The program file is replaced and restarted with the same settings.</span></p></div>
         <div class="card"><div class="ic">2</div><h3>Docker / CasaOS</h3><p><span data-lang-de>Die neue Datei landet in <code>/data/bin</code>. Beim Neustart nimmt der Container die neuere Version – startet sie nicht, läuft die aus dem Image weiter.</span><span data-lang-en>The new file goes to <code>/data/bin</code>. On restart the container picks the newer version – if it doesn't start, the image version keeps running.</span></p></div>
         <div class="card"><div class="ic">3</div><h3><span data-lang-de>Abschalten</span><span data-lang-en>Turn off</span></h3><p><span data-lang-de><code>"auto_update": false</code> in <code>server.json</code> oder <code>JND_SERVER_AUTO_UPDATE=0</code>.</span><span data-lang-en><code>"auto_update": false</code> in <code>server.json</code> or <code>JND_SERVER_AUTO_UPDATE=0</code>.</span></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="liste" style="padding-top:0">
+    <div class="wrap">
+      <h2><span data-lang-de>In der Server-Liste erscheinen</span><span data-lang-en>Show up in the server list</span></h2>
+      <p class="sub"><span data-lang-de>Im Spiel zeigt Multiplayer alle öffentlichen Server, Server im eigenen Netzwerk (LAN) und zuletzt genutzte.</span><span data-lang-en>In the game, Multiplayer lists all public servers, servers on your network (LAN) and recently used ones.</span></p>
+      <div class="grid">
+        <div class="card"><div class="ic">1</div><h3><span data-lang-de>Anmelden</span><span data-lang-en>Sign up</span></h3><p><span data-lang-de>In <code>server.json</code>: <code>"listed": true</code> und <code>"public_address": "spiel.deine-domain.de"</code> (bei Cloudflare Tunnel einfach den Hostnamen).</span><span data-lang-en>In <code>server.json</code>: <code>"listed": true</code> and <code>"public_address": "game.your-domain.com"</code> (with Cloudflare Tunnel just the hostname).</span></p></div>
+        <div class="card"><div class="ic">2</div><h3><span data-lang-de>Geprüft</span><span data-lang-en>Checked</span></h3><p><span data-lang-de>Der offizielle Server fragt deinen Server unter dieser Adresse selbst ab. Nur erreichbare, öffentliche Adressen kommen in die Liste – keine privaten IPs.</span><span data-lang-en>The official server queries your server at that address itself. Only reachable public addresses get listed – no private IPs.</span></p></div>
+        <div class="card"><div class="ic">3</div><h3><span data-lang-de>Von selbst aktuell</span><span data-lang-en>Stays current</span></h3><p><span data-lang-de>Dein Server meldet sich alle 2 Minuten. Ist er 5 Minuten weg, verschwindet er aus der Liste. Das Log zeigt, ob es geklappt hat.</span><span data-lang-en>Your server checks in every 2 minutes. Gone for 5 minutes, it drops off the list. The log shows whether it worked.</span></p></div>
       </div>
     </div>
   </section>

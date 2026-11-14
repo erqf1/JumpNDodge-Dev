@@ -58,38 +58,83 @@ impl Link {
     }
 }
 
-fn info_over(link: &Link, timeout: Duration) -> Option<(ServerInfo, Duration)> {
+/// Unverbundene Anfrage schicken (alle 250 ms wiederholt), bis `pick` eine Antwort erkennt
+fn ask_over<T>(link: &Link, msg: &[u8], timeout: Duration, pick: &mut dyn FnMut(ServerMsg) -> Option<T>) -> Option<(T, Duration)> {
     let start = Instant::now();
     let mut last = start - Duration::from_secs(1);
     while start.elapsed() < timeout {
         if last.elapsed() >= Duration::from_millis(250) {
-            send_raw(link.wire(), link.peer_addr(), &Packet::Unreliable { ack: 0, data: encode(&ClientMsg::Info) }, Lossy::default());
+            send_raw(link.wire(), link.peer_addr(), &Packet::Unreliable { ack: 0, data: msg.to_vec() }, Lossy::default());
             last = Instant::now();
         }
         let mut res = None;
         link.recv(|p| if let Packet::Unreliable { data, .. } = p {
-            if let Some(ServerMsg::Info(i)) = decode::<ServerMsg>(&data) { res = Some(i); }
+            if res.is_none() { if let Some(m) = decode::<ServerMsg>(&data) { res = pick(m); } }
         });
-        if let Some(i) = res { return Some((i, start.elapsed())); }
+        if let Some(v) = res { return Some((v, start.elapsed())); }
         if let Link::Ws(w) = link { if w.is_closed() { return None; } }
         std::thread::sleep(Duration::from_millis(5));
     }
     None
 }
 
-/// Serverinfo für die Serverliste abfragen (ohne Verbindung)
-pub fn query_info(addr: &str, timeout: Duration) -> Result<(ServerInfo, Duration), String> {
+/// Unverbundene Anfrage mit Ausweichweg über wss:// (wie beim Verbinden)
+fn ask<T>(addr: &str, msg: &ClientMsg, timeout: Duration, mut pick: impl FnMut(ServerMsg) -> Option<T>) -> Result<(T, Duration), String> {
+    let data = encode(msg);
     let link = Link::open(addr, timeout)?;
-    if let Some(r) = info_over(&link, timeout) { if let Link::Ws(w) = &link { w.close(); } return Ok(r); }
+    let r = ask_over(&link, &data, timeout, &mut pick);
+    if let Link::Ws(w) = &link { w.close(); }
+    if let Some(r) = r { return Ok(r); }
     if let (Link::Udp(..), Some(url)) = (&link, ws_fallback(addr)) {
         let start = Instant::now();
         if let Ok(l) = Link::open(&url, timeout) {
-            let r = info_over(&l, timeout);
+            let r = ask_over(&l, &data, timeout, &mut pick);
             if let Link::Ws(w) = &l { w.close(); }
-            if let Some((i, _)) = r { return Ok((i, start.elapsed())); }
+            if let Some((v, _)) = r { return Ok((v, start.elapsed())); }
         }
     }
     Err("Server antwortet nicht".into())
+}
+
+/// Serverinfo für die Serverliste abfragen (ohne Verbindung)
+pub fn query_info(addr: &str, timeout: Duration) -> Result<(ServerInfo, Duration), String> {
+    ask(addr, &ClientMsg::Info, timeout, |m| if let ServerMsg::Info(i) = m { Some(i) } else { None })
+}
+
+/// Öffentliche Server-Liste beim Listen-Server (normalerweise der offizielle) abfragen
+pub fn fetch_server_list(registry: &str, timeout: Duration) -> Result<Vec<ListedServer>, String> {
+    ask(registry, &ClientMsg::ListServers, timeout, |m| if let ServerMsg::ServerList(l) = m { Some(l) } else { None }).map(|(l, _)| l)
+}
+
+/// Einen Server in der öffentlichen Liste anmelden; Antwort (angenommen?, Text)
+pub fn announce(registry: &str, address: &str, timeout: Duration) -> Result<(bool, String), String> {
+    ask(registry, &ClientMsg::Announce { address: address.into() }, timeout, |m| if let ServerMsg::Announced { ok, text } = m { Some((ok, text)) } else { None }).map(|(r, _)| r)
+}
+
+/// Server im eigenen Netzwerk suchen (Broadcast auf den Standard-Port): (Adresse, Info, Ping)
+pub fn lan_scan(timeout: Duration) -> Vec<(String, ServerInfo, Duration)> {
+    let Ok(s) = UdpSocket::bind("0.0.0.0:0") else { return vec![]; };
+    let _ = s.set_broadcast(true);
+    let _ = s.set_nonblocking(true);
+    let data = super::channel::encode_packet(&Packet::Unreliable { ack: 0, data: encode(&ClientMsg::Info) });
+    let start = Instant::now();
+    let mut last = start - Duration::from_secs(1);
+    let mut found: Vec<(String, ServerInfo, Duration)> = vec![];
+    let mut buf = [0u8; 2048];
+    while start.elapsed() < timeout {
+        if last.elapsed() >= Duration::from_millis(400) {
+            let _ = s.send_to(&data, ("255.255.255.255", DEFAULT_PORT));
+            last = Instant::now();
+        }
+        while let Ok((n, from)) = s.recv_from(&mut buf) {
+            let Some(Packet::Unreliable { data, .. }) = super::channel::decode_packet(&buf[..n]) else { continue; };
+            let Some(ServerMsg::Info(i)) = decode::<ServerMsg>(&data) else { continue; };
+            let a = if from.port() == DEFAULT_PORT { from.ip().to_string() } else { from.to_string() };
+            if !found.iter().any(|f| f.0 == a) { found.push((a, i, start.elapsed())); }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    found
 }
 
 #[derive(Clone, Debug)]
