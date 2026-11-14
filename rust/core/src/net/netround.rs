@@ -66,6 +66,14 @@ impl NetRound {
 
     pub fn latest(&self) -> Option<&Snapshot> { self.history.back() }
 
+    /// Zuschauen: keine eigene Figur, alle Spieler werden wie "andere" gezeichnet
+    pub fn spectate(mode: Mode, difficulty: &str, field_w: i32, field_h: i32) -> NetRound {
+        let mut r = NetRound::new(mode, difficulty, 0, field_w, field_h);
+        r.you = usize::MAX;
+        r
+    }
+    pub fn is_spectator(&self) -> bool { self.you == usize::MAX }
+
     /// Zeit vergeht (ms) - für die Schätzung der Server-Frame
     pub fn advance(&mut self, ms: f64) {
         if !self.history.is_empty() { self.server_frame += ms * TICK_HZ as f64 / 1000.0; }

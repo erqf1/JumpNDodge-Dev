@@ -3,7 +3,21 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
-## JumpNDodge 5.4.1 (noch nicht veröffentlicht)
+## JumpNDodge 5.7.0
+
+- Kosmetik online sichtbar: Kopfbedeckung, Gesicht und Spur der anderen im Raum und in der Runde.
+- Zuschauen: laufende Runden aus der Raumliste anschauen, danach auf einen freien Platz rücken.
+
+## JumpNDodge 5.6.0
+
+- Schnell spielen, Raum-Chef (starten, rauswerfen, privat), Schnell-Nachrichten (Tasten 1–4).
+- Server auf CasaOS startet zuverlässig (Rechte im Datenordner), offizielles Paket ohne Tunnel-Container.
+
+## JumpNDodge 5.5.0
+
+- Bis zu 8 Spieler pro Raum; Server-Chat bleibt 24 Stunden.
+
+## JumpNDodge 5.4.1 – 5.4.6
 
 - Updater: Fehler beim Aktualisieren behoben.
 - Pop-ups entfernt; alle Überschriften und Knöpfe im selben Stil.
@@ -12,6 +26,8 @@ Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächst
 - Bewegung: federnde Spielfigur (Strecken im Sprung, Quetschen und Nachwippen beim Landen),
   wippende Bodenhindernisse, Kristalle strecken sich im Fall und zerdrücken beim Aufprall.
 - Spuren: das Band hinter dem Spieler ist weg, die Partikel ziehen sauber hinter dem Spieler heraus.
+- Online-Feld in echter Bildschirmgröße (kleinster Bildschirm), Einstellungsknopf wieder im Menü,
+  Desktop-Verknüpfung wird beim Update nicht neu angelegt.
 
 ## JumpNDodge 5.4.0
 

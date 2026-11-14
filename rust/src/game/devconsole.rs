@@ -259,6 +259,8 @@ impl G {
                 let Some(key) = args.first().map(|s| s.to_string()) else { println!("[DEV] equip braucht einen Kosmetik-Schlüssel"); return true; };
                 let cat = super::cosmetics_inv::cosmetic_category(&key);
                 if cat.is_empty() { println!("[DEV] equip: unbekannt: {}", key); return true; }
+                let mut owned = self.cosmetics_state.gstrs("owned");
+                if !owned.contains(&key) { owned.push(key.clone()); self.cosmetics_state.insert("owned".into(), json!(owned)); }
                 if cat == "trail" { self.cosmetics_state.insert("equipped".into(), json!([key])); }
                 else { self.cosmetics_state.insert(format!("equipped_{}", cat), json!(key)); }
                 self.save_section("cosmetics", None);

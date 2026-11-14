@@ -23,7 +23,7 @@ fn wind_roll_phase() -> (f64, i64) {
     else { (uniform(0.6, 1.0) * choice(&[-1.0, 1.0]), randint(1200, 2800)) }
 }
 
-fn trail_particle_count(t: &str) -> i32 {
+pub fn trail_particle_count(t: &str) -> i32 {
     match t { "fire_trail" => 5, "ice_trail" => 4, "shadow_trail" => 3, "sparkle_trail" => 6, "toxic_trail" => 4, "electric_trail" => 5,
               "rainbow_trail" => 6, "star_trail" => 4, "smoke_trail" => 3, "blood_trail" => 4, "heart_trail" => 4, _ => 3 }
 }

@@ -80,7 +80,25 @@ pub enum ClientMsg {
     SetPrivate(bool),
     /// Schnell-Nachricht (Tasten 1-4): 0 GG, 1 Knapp!, 2 Nochmal?, 3 Haha
     Emote(u8),
+    /// Eigenes Aussehen (Kosmetik) - die anderen sehen es im Raum und in der Runde
+    Look(PlayerLook),
+    /// Einer laufenden Runde zuschauen; danach rückt man auf einen freien Platz
+    Spectate { code: String },
 }
+
+/// Aussehen eines Spielers (Schlüssel der Kosmetik, leer = nichts)
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlayerLook { pub headwear: String, pub eyes: String, pub nose: String, pub mouth: String, pub trail: String }
+impl PlayerLook {
+    /// Nur harmlose Schlüssel (a-z, 0-9, _), höchstens 40 Zeichen
+    pub fn clean(&self) -> PlayerLook {
+        let c = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(40).collect::<String>().to_lowercase();
+        PlayerLook { headwear: c(&self.headwear), eyes: c(&self.eyes), nose: c(&self.nose), mouth: c(&self.mouth), trail: c(&self.trail) }
+    }
+}
+/// Spielernummer in `Start`, die "du schaust nur zu" bedeutet
+pub const SPECTATOR: u8 = u8::MAX;
+
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ServerInfo {
@@ -175,6 +193,8 @@ pub enum ServerMsg {
     RoomExtra { host: u8, private: bool },
     /// Schnell-Nachricht eines Spielers: `player` = Nummer in der Runde (während einer Runde) bzw. Platz im Raum
     Emote { player: u8, id: u8, in_round: bool },
+    /// Aussehen aller Spieler: im Raum nach Platz, in der Runde nach Spielernummer
+    Looks { in_round: bool, looks: Vec<PlayerLook> },
 }
 
 /// Texte der Schnell-Nachrichten (Tasten 1-4)

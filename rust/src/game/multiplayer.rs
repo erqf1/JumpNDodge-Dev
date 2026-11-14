@@ -84,6 +84,13 @@ struct Mp {
     /// Schnell spielen gesendet (für den Hinweis bei alten Servern); nach dem Verbinden gleich losspielen
     quick_sent: Option<Instant>,
     auto_quick: bool,
+    /// Aussehen der anderen: im Raum nach Platz, in der Runde nach Spielernummer
+    room_looks: Vec<PlayerLook>,
+    round_looks: Vec<PlayerLook>,
+    /// Spur-Partikel je Spieler (Runde)
+    trails: HashMap<usize, Vec<super::gameplay::Particle>>,
+    /// Test/Dev: dem ersten laufenden Raum zuschauen
+    auto_spectate: bool,
     room: Option<RoomView>,
     countdown: Option<u8>,
     round: Option<NetRound>,
@@ -118,7 +125,7 @@ impl Mp {
             screen: Screen::Browser, client: None, connect_rx: None, connecting_addr: String::new(), connect_started: now,
             addr_input: String::new(), code_input: String::new(), focus: Field::None, infos: HashMap::new(), info_tx, info_rx,
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
-            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
+            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room_looks: vec![], round_looks: vec![], trails: HashMap::new(), auto_spectate: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
@@ -306,6 +313,8 @@ impl G {
                     self.settings.insert("mp_last_addr".into(), json!(a));
                     self.mp_remember(&a);
                     println!("[MP] verbunden mit {} ({})", mp.server_name, a);
+                    let look = self.mp_my_look();
+                    mp.send(ClientMsg::Look(look));
                     if std::mem::take(&mut mp.auto_quick) { mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
                     self.play_sound(Snd::Click);
                 }
@@ -352,6 +361,11 @@ impl G {
 
     fn mp_message(&mut self, mp: &mut Mp, m: ServerMsg) {
         match m {
+            ServerMsg::RoomList(l) if mp.auto_spectate && l.iter().any(|r| r.playing) => {
+                mp.auto_spectate = false;
+                if let Some(r) = l.iter().find(|r| r.playing) { mp.send(ClientMsg::Spectate { code: r.code.clone() }); }
+                mp.rooms = l;
+            }
             ServerMsg::RoomList(l) => {
                 mp.rooms = l;
                 if mp.auto_join.map(|t| t.elapsed() < Duration::from_secs(30)).unwrap_or(false) && mp.room.is_none() {
@@ -402,10 +416,12 @@ impl G {
             }
             ServerMsg::Start { mode, difficulty, width, height, you, names, .. } => {
                 if mp.focus == Field::Chat { mp.focus = Field::None; }
+                let spectator = you == SPECTATOR;
                 let you = you as usize;
                 mp.round_names = names;
+                mp.trails.clear();
                 FIELD.with(|f| f.set((width.max(100), height.max(100))));
-                mp.round = Some(NetRound::new(mode, &difficulty, you, width, height));
+                mp.round = Some(if spectator { NetRound::spectate(mode, &difficulty, width, height) } else { NetRound::new(mode, &difficulty, you, width, height) });
                 mp.round_started = Instant::now();
                 mp.acc_ms = 0.0;
                 mp.countdown = None;
@@ -444,7 +460,7 @@ impl G {
                 println!("[MP] Runde vorbei: Sieger {:?}, Score {}, {} Frames", winner, score, frames);
                 let you = mp.round.as_ref().map(|r| r.you).or(mp.room.as_ref().map(|r| r.you)).unwrap_or(0);
                 let mode = mp.round.as_ref().map(|r| r.mode).unwrap_or(Mode::Vs);
-                self.mp_record_stats(mode, winner, you, frames);
+                if !mp.round.as_ref().map(|r| r.is_spectator()).unwrap_or(false) { self.mp_record_stats(mode, winner, you, frames); }
                 mp.result = Some((winner, score, reason, frames));
                 mp.screen = Screen::Result;
                 if self.mixer_playing_ingame { self.stop_music(); self.mixer_playing_ingame = false; }
@@ -460,6 +476,7 @@ impl G {
                 mp.chat_push(from, text, own, from_id == 0);
             }
             ServerMsg::RoomExtra { host, private } => { mp.room_host = host as usize; mp.room_private = private; }
+            ServerMsg::Looks { in_round, looks } => { if in_round { mp.round_looks = looks; } else { mp.room_looks = looks; } }
             ServerMsg::Emote { player, id, in_round } => {
                 mp.emotes.retain(|e| !(e.0 == in_round && e.1 == player as usize));
                 mp.emotes.push((in_round, player as usize, id, Instant::now()));
@@ -520,9 +537,50 @@ impl G {
             };
             mp.jump_latch = false;
             mp.fx.update(LOGIC_TICK_MS);
-            let (f, inp) = r.tick(raw);
-            if let Some(c) = mp.client.as_mut() { c.send_input(f, inp); }
+            if !r.is_spectator() {
+                let (f, inp) = r.tick(raw);
+                if let Some(c) = mp.client.as_mut() { c.send_input(f, inp); }
+            }
+            // Spuren der Spieler (aus ihrem Aussehen): in der Luft Partikel hinten raus
+            let n = r.player_count();
+            let floor_y = r.floor_y;
+            for i in 0..n {
+                let trail = if i == r.you { self.mp_my_look().trail } else { mp.round_looks.get(i).map(|l| l.trail.clone()).unwrap_or_default() };
+                if trail.is_empty() || super::art::legacy() { continue; }
+                let d = if i == r.you { Some(r.own_draw(1.0)) } else { r.other_draw(i) };
+                let Some(d) = d else { continue; };
+                if !d.alive || d.rect.bottom() >= floor_y - 1 { continue; }
+                let fr = self.mp_field_rect(d.rect);
+                let list = mp.trails.entry(i).or_default();
+                for _ in 0..super::gameplay::trail_particle_count(&trail) {
+                    let sx = fr.centerx() as f64 + crate::util::uniform(-(fr.w as f64) * 0.35, fr.w as f64 * 0.2);
+                    list.push(super::gameplay::spawn_trail_particle(&trail, sx, crate::util::uniform(-1.2, -0.2), fr.centery() as f64));
+                }
+                if list.len() > 400 { let cut = list.len() - 400; list.drain(0..cut); }
+            }
+            for list in mp.trails.values_mut() { super::gameplay::update_particles(list); }
         }
+    }
+
+    /// Eigenes Aussehen (für die anderen)
+    fn mp_my_look(&self) -> PlayerLook {
+        let c = &self.cosmetics_state;
+        PlayerLook {
+            headwear: c.gos("equipped_headwear").unwrap_or_default(), eyes: c.gos("equipped_eyes").unwrap_or_default(),
+            nose: c.gos("equipped_nose").unwrap_or_default(), mouth: c.gos("equipped_mouth").unwrap_or_default(),
+            trail: self.equipped_trails().first().cloned().unwrap_or_default(),
+        }.clean()
+    }
+
+    /// Kosmetik eines anderen Spielers auf ein Rechteck zeichnen
+    fn mp_draw_look(&self, bs: &Surface, r: Rect, look: &PlayerLook) {
+        if look.headwear.is_empty() && look.eyes.is_empty() && look.nose.is_empty() && look.mouth.is_empty() { return; }
+        let mut m = serde_json::Map::new();
+        m.insert("equipped_headwear".into(), json!(look.headwear));
+        m.insert("equipped_eyes".into(), json!(look.eyes));
+        m.insert("equipped_nose".into(), json!(look.nose));
+        m.insert("equipped_mouth".into(), json!(look.mouth));
+        self.draw_player_cosmetics(bs, r, Some(&m));
     }
 
     // ------------------------------------------------------------------
@@ -552,6 +610,10 @@ impl G {
         }
         if mp.screen == Screen::Playing {
             if self.action_matches_key(key, "jump") { mp.jump_latch = true; }
+            if (key == K_ESCAPE || self.is_back_key(key)) && mp.round.as_ref().map(|r| r.is_spectator()).unwrap_or(false) {
+                mp.send(ClientMsg::LeaveRoom);
+                return;
+            }
             if key == K_ESCAPE || self.action_matches_key(key, "pause") {
                 // Online gibt es keine Pause: zweimal ESC = Runde verlassen
                 if mp.leave_confirm_until.map(|t| Instant::now() < t).unwrap_or(false) {
@@ -639,6 +701,7 @@ impl G {
             "disconnect" => { self.play_sound(Snd::ClickBack); self.mp_disconnect(mp, None); }
             "refresh" => { self.play_sound(Snd::Click); mp.last_list = Instant::now(); mp.send(ClientMsg::ListRooms); }
             "quick" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
+            "spectate" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::Spectate { code: arg.to_string() }); }
             "quick_official" => { self.play_sound(Snd::MenuClick); mp.auto_quick = true; let o = self.mp_official(); self.mp_connect(mp, &o); }
             "host_start" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::HostStart); }
             "kick" => { if let Ok(i) = arg.parse::<u8>() { self.play_sound(Snd::ClickBack); mp.send(ClientMsg::Kick { slot: i }); } }
@@ -707,6 +770,12 @@ impl G {
             "list" => mp.send(ClientMsg::ListRooms),
             "chat" => { let t = p[1..].join(" "); mp.send(ClientMsg::Chat { text: t }); }
             "quick" => self.mp_action(mp, "quick"),
+            "spectate" => {
+                match p.get(1).copied() {
+                    Some("first") | None => { mp.auto_spectate = true; mp.send(ClientMsg::ListRooms); }
+                    Some(c) => { let a = format!("spectate:{}", c); self.mp_action(mp, &a); }
+                }
+            }
             "start" => self.mp_action(mp, "host_start"),
             "kick" => { let a = format!("kick:{}", p.get(1).copied().unwrap_or("1")); self.mp_action(mp, &a); }
             "private" => { let on = p.get(1).map(|v| *v != "off").unwrap_or(true); mp.send(ClientMsg::SetPrivate(on)); }
@@ -881,16 +950,18 @@ impl G {
             if y + 40 > list.bottom() - 6 { break; }
             let row = Rect::new(list.x + 10, y, list.w - 20, 34);
             let open = r.players < r.max && !r.playing;
-            let hov = open && row.collidepoint(self.mouse_logical_peek());
+            let watch = r.playing;
+            let hov = (open || watch) && row.collidepoint(self.mouse_logical_peek());
             draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, row, 0, 8);
             let col = if open { tc } else { (130, 130, 140) };
             self.mp_text(&bs, &sf, &r.code, (120, 180, 255), row.x + 10, row.y + 6, false);
             let info = format!("{} · {} · {}", mode_name(self, r.mode), self.get_difficulty_name(&r.difficulty), r.host);
             self.mp_text(&bs, &bf, &info, col, row.x + 80, row.y + 9, false);
-            let st = if r.playing { self.tde("läuft", "playing") } else { format!("{}/{}", r.players, r.max) };
+            let st = if r.playing { self.tde("läuft · zuschauen", "playing · watch") } else { format!("{}/{}", r.players, r.max) };
             let sw = bf.size(&st).0;
             self.mp_text(&bs, &bf, &st, col, row.right() - 10 - sw, row.y + 9, false);
             if open { mp.buttons.push((row, format!("join:{}", r.code))); }
+            if watch { mp.buttons.push((row, format!("spectate:{}", r.code))); }
             y += 38;
         }
         self.mp_draw_chat(&bs, mp, Rect::new(lx, 312, 430, h - 80 - 312));
@@ -953,7 +1024,12 @@ impl G {
             draw::rect(&bs, if room.players[i].is_some() { col } else { (90, 90, 110) }, r, 2, 14);
             let big = n <= 2;
             let ps = if big { 40 } else { 26 };
-            super::art::draw_player(&bs, Rect::new(r.x + 12, r.y + 12, ps, ps), col);
+            let icon = Rect::new(r.x + 12, r.y + 12, ps, ps);
+            super::art::draw_player(&bs, icon, col);
+            if room.players[i].is_some() {
+                if i == room.you { self.draw_player_cosmetics(&bs, icon, None); }
+                else if let Some(l) = mp.room_looks.get(i) { self.mp_draw_look(&bs, icon, l); }
+            }
             let tx = r.x + 20 + ps;
             self.mp_text(&bs, &sf, &format!("P{}", i + 1), col, tx, r.y + if big { 18 } else { 12 }, false);
             if room.players[i].is_some() && i == mp.room_host {
@@ -1057,7 +1133,7 @@ impl G {
         bs.blit(&ts, (r.x + 10, r.y + 4));
     }
 
-    fn mp_draw_player(&self, bs: &Surface, i: usize, p: &DrawPlayer, label: &str) {
+    fn mp_draw_player(&self, bs: &Surface, i: usize, p: &DrawPlayer, label: &str, hat: bool) {
         if !p.alive { return; }
         let r = self.mp_field_rect(p.rect);
         if p.invuln == 0 || (self.get_ticks() / 80) % 2 == 0 {
@@ -1066,7 +1142,7 @@ impl G {
         let sf = &self.small_font;
         let l = sf.render(label, true, WHITE);
         let ls = sf.render(label, true, (0, 0, 0));
-        let (lx, ly) = (r.centerx() - l.get_width() / 2, r.top() - 18);
+        let (lx, ly) = (r.centerx() - l.get_width() / 2, r.top() - 18 - if hat { 14 } else { 0 });
         bs.blit(&ls, (lx + 1, ly + 1));
         bs.blit(&l, (lx, ly));
     }
@@ -1099,9 +1175,23 @@ impl G {
         let you = r.you;
         mp.fx.draw(&bs);
         let n = r.player_count().max(2);
-        for (o, d) in r.others_draw() { self.mp_draw_player(&bs, o, &d, &format!("P{}", o + 1)); }
+        let spectator = r.is_spectator();
+        for (i, list) in mp.trails.iter() {
+            let t = if *i == you { self.mp_my_look().trail } else { mp.round_looks.get(*i).map(|l| l.trail.clone()).unwrap_or_default() };
+            if !t.is_empty() { super::gameplay::draw_trail_particles(&bs, &t, list); }
+        }
+        for (o, d) in r.others_draw() {
+            let label = mp.round_names.get(o).filter(|n| !n.is_empty() && spectator).cloned().unwrap_or_else(|| format!("P{}", o + 1));
+            let hat = mp.round_looks.get(o).map(|l| !l.headwear.is_empty()).unwrap_or(false);
+            self.mp_draw_player(&bs, o, &d, &label, hat);
+            if d.alive { if let Some(l) = mp.round_looks.get(o) { let fr = self.mp_field_rect(d.rect); self.mp_draw_look(&bs, fr, l); } }
+        }
         let me = r.own_draw(alpha);
-        self.mp_draw_player(&bs, you, &me, &self.tde("Du", "You"));
+        if !spectator {
+            let hat = !self.mp_my_look().headwear.is_empty();
+            self.mp_draw_player(&bs, you, &me, &self.tde("Du", "You"), hat);
+            if me.alive { let fr = self.mp_field_rect(me.rect); self.draw_player_cosmetics(&bs, fr, None); }
+        }
         for (_, pl, id, _) in mp.emotes.iter().filter(|e| e.0) {
             let pr = if *pl == you { Some(me.rect) } else { r.other_draw(*pl).map(|d| d.rect) };
             if let Some(pr) = pr {
@@ -1150,14 +1240,17 @@ impl G {
         let ss = mf.render(&format!("{}: {}", self.get_text("score"), r.score), true, self.get_text_color());
         bs.blit(&ss, (w / 2 - ss.get_width() / 2, 10));
         let ping = mp.ping_ms.map(|p| format!("  ·  {} ms", p)).unwrap_or_default();
-        let info = format!("Online-{}  ·  {}s  ·  {}{}", mode_name(self, r.mode), secs, self.get_difficulty_name(&r.difficulty), ping);
+        let watch = if spectator { format!("  ·  {}", self.tde("Zuschauer", "Spectating")) } else { String::new() };
+        let info = format!("Online-{}  ·  {}s  ·  {}{}{}", mode_name(self, r.mode), secs, self.get_difficulty_name(&r.difficulty), ping, watch);
         let is = sf.render(&info, true, (140, 90, 210));
         bs.blit(&is, (w / 2 - is.get_width() / 2, 12 + ss.get_height()));
         if !me.alive {
             let t = if r.mode == Mode::Coop { self.tde("Ausgeschieden - dein Partner kann dich mit einem 1-UP wiederbeleben", "Eliminated - your partner can revive you with a 1-UP") } else { self.tde("Ausgeschieden", "Eliminated") };
             self.mp_text(&bs, &sf, &t, (220, 90, 100), w / 2, h / 2 - 40, true);
         }
-        let hint = if mp.leave_confirm_until.map(|t| Instant::now() < t).unwrap_or(false) {
+        let hint = if spectator {
+            (self.tde("Du schaust zu - nach der Runde spielst du mit, wenn ein Platz frei ist  ·  ESC: zurück", "You're watching - you join after the round if there's room  ·  ESC: back"), (150, 150, 180))
+        } else if mp.leave_confirm_until.map(|t| Instant::now() < t).unwrap_or(false) {
             (self.tde("Nochmal ESC = Runde verlassen (online gibt es keine Pause)", "Press ESC again to leave (no pause online)"), (230, 120, 130))
         } else { (self.tde("ESC: Runde verlassen  ·  1-4: Schnell-Nachricht", "ESC: leave round  ·  1-4: quick message"), (90, 90, 110)) };
         self.mp_text(&bs, &sf, &hint.0, hint.1, w / 2, h - 20, true);
@@ -1240,11 +1333,12 @@ impl G {
         let you = mp.round.as_ref().map(|r| r.you).or(mp.room.as_ref().map(|r| r.you)).unwrap_or(0);
         let mode = mp.round.as_ref().map(|r| r.mode).or(mp.room.as_ref().map(|r| r.mode)).unwrap_or(Mode::Vs);
         let n_round = mp.round_names.len().max(2);
+        let spectator = mp.round.as_ref().map(|r| r.is_spectator()).unwrap_or(false);
         let (title, col) = match (mode, winner) {
             (Mode::Coop, _) => (self.tde("Runde vorbei", "Round over"), (120, 180, 255)),
             (_, Some(Winner::Draw)) => (self.tde("Unentschieden!", "Draw!"), (200, 200, 220)),
             (_, Some(w)) if w.index() == Some(you) => (self.tde("Gewonnen!", "You win!"), (90, 200, 140)),
-            (_, Some(w)) if n_round > 2 => {
+            (_, Some(w)) if n_round > 2 || spectator => {
                 let i = w.index().unwrap_or(0);
                 let name = mp.round_names.get(i).cloned().unwrap_or_else(|| format!("P{}", i + 1));
                 (format!("{} {}", name, self.tde("gewinnt!", "wins!")), pcol(i))

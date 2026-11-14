@@ -366,3 +366,31 @@ fn schnell_spielen_chef_und_nachrichten() {
     let (you, names) = p.wait(1, 15, |m| if let ServerMsg::Start { you, names, .. } = m { Some((*you, names.clone())) } else { None });
     assert_eq!((you, names.len()), (1, 2), "Runde mit Anna und Ben");
 }
+
+#[test]
+fn aussehen_und_zuschauen() {
+    let srv = start_server("", 8, 0.0);
+    let mut p = Pool::new(["Anna", "Ben", "Cem"].iter().map(|n| Client::connect(&srv.addr, opts(n, 0.0)).expect("verbindet")).collect());
+    p.send(0, ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Hölle".into(), max_players: 3 });
+    let code = p.wait(0, 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    // Aussehen wird gesäubert und an alle im Raum geschickt
+    p.send(0, ClientMsg::Look(PlayerLook { headwear: "Yellow_Crown!<>".into(), trail: "fire_trail".into(), ..Default::default() }));
+    p.send(1, ClientMsg::JoinRoom { code: code.clone() });
+    let looks = p.wait(1, 10, |m| if let ServerMsg::Looks { in_round: false, looks } = m { (looks.first().map(|l| l.headwear.as_str()) == Some("yellow_crown")).then(|| looks.clone()) } else { None });
+    assert_eq!(looks.len(), 3, "ein Aussehen pro Platz");
+    assert_eq!(looks[0].trail, "fire_trail");
+    p.send(0, ClientMsg::Ready(true));
+    p.send(1, ClientMsg::Ready(true));
+    p.wait(0, 15, |m| matches!(m, ServerMsg::Start { .. }).then_some(()));
+    // Cem schaut der laufenden Runde zu
+    p.send(2, ClientMsg::Spectate { code: code.clone() });
+    let (you, names) = p.wait(2, 10, |m| if let ServerMsg::Start { you, names, .. } = m { Some((*you, names.clone())) } else { None });
+    assert_eq!((you, names.len()), (SPECTATOR, 2), "Zuschauer bekommt Start mit beiden Namen");
+    let rl = p.wait(2, 10, |m| if let ServerMsg::Looks { in_round: true, looks } = m { Some(looks.clone()) } else { None });
+    assert_eq!(rl[0].headwear, "yellow_crown");
+    p.wait(2, 10, |m| if let ServerMsg::Snapshot(s) = m { (s.players.len() == 2).then_some(()) } else { None });
+    // Nach der Runde rückt Cem auf den freien dritten Platz
+    p.wait(2, 90, |m| matches!(m, ServerMsg::GameOver { .. }).then_some(()));
+    let me = p.wait(2, 15, |m| if let ServerMsg::RoomState { you, players, .. } = m { (players.iter().flatten().count() == 3).then_some(*you) } else { None });
+    assert_eq!(me, 2, "Zuschauer sitzt jetzt auf Platz 3");
+}

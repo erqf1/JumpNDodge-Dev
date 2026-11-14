@@ -26,6 +26,8 @@ struct Conn {
     remove_after: Option<Instant>,
     /// Fenstergröße des Spielers (Pixel), falls gemeldet
     screen: Option<(u32, u32)>,
+    /// Aussehen (Kosmetik)
+    look: PlayerLook,
     /// Chat-Spamschutz (Token-Eimer): verfügbare Nachrichten und letzter Stand
     chat_tokens: f64,
     chat_at: Instant,
@@ -39,6 +41,9 @@ struct Game {
     frame: u64,
     /// Platz im Raum für jede Spielernummer der Runde (Runde zählt nur besetzte Plätze)
     order: Vec<usize>,
+    /// Für Zuschauer, die mittendrin kommen
+    names: Vec<String>,
+    looks: Vec<PlayerLook>,
     inputs: Vec<Input>,
     input_frame: Vec<u64>,
     events: VecDeque<(u64, SimEvent)>,
@@ -56,6 +61,8 @@ struct Room {
     host: usize,
     /// Privat: nicht in der Raumliste und nicht bei Schnell spielen
     private: bool,
+    /// Schauen gerade zu (rücken nach der Runde auf freie Plätze)
+    spectators: Vec<SocketAddr>,
     ready: Vec<bool>,
     phase: Phase,
 }
@@ -257,7 +264,7 @@ impl Server {
         peer.loss = self.loss;
         let id = self.next_id;
         self.next_id += 1;
-        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, screen: None, chat_tokens: CHAT_BURST, chat_at: Instant::now() });
+        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, screen: None, look: PlayerLook::default(), chat_tokens: CHAT_BURST, chat_at: Instant::now() });
     }
 
     fn reject(&mut self, a: SocketAddr, reason: String) {
@@ -354,6 +361,29 @@ impl Server {
                 if r.slot_of(a) != Some(r.host) { return; }
                 r.private = on;
                 self.broadcast_room(&code);
+            }
+            ClientMsg::Look(look) => {
+                if let Some(c) = self.conns.get_mut(&a) { c.look = look.clean(); }
+                if let Some(code) = self.conns[&a].room.clone() { self.broadcast_room(&code); }
+            }
+            ClientMsg::Spectate { code } => {
+                let code = code.trim().to_uppercase();
+                let Some(r) = self.rooms.get(&code) else { return self.send(a, &ServerMsg::Error(format!("Raum {} gibt es nicht", code))); };
+                if r.private { return self.send(a, &ServerMsg::Error("Der Raum ist privat".into())); }
+                if !matches!(r.phase, Phase::Playing(_)) { return self.handle(a, ClientMsg::JoinRoom { code }); }
+                if r.spectators.len() >= 16 { return self.send(a, &ServerMsg::Error("Zu viele Zuschauer".into())); }
+                self.leave_room(a, "hat den Raum verlassen");
+                let Some(r) = self.rooms.get_mut(&code) else { return; };
+                r.spectators.push(a);
+                let start = match &r.phase {
+                    Phase::Playing(g) => Some(ServerMsg::Start { seed: 0, mode: r.mode, difficulty: r.difficulty.clone(), width: g.fw, height: g.fh, you: SPECTATOR, names: g.names.clone() }),
+                    _ => None,
+                };
+                let looks = match &r.phase { Phase::Playing(g) => g.looks.clone(), _ => vec![] };
+                if let Some(c) = self.conns.get_mut(&a) { c.room = Some(code.clone()); }
+                let n = self.conns[&a].name.clone();
+                self.logf(&format!("{} schaut in Raum {} zu", n, code));
+                if let Some(m) = start { self.send(a, &m); self.send(a, &ServerMsg::Looks { in_round: true, looks }); }
             }
             ClientMsg::Emote(id) => {
                 if id as usize >= EMOTES.len() { return; }
@@ -480,7 +510,7 @@ impl Server {
         let max = (max_players as usize).clamp(2, sim2p::MAX_PLAYERS);
         let mut slots = vec![None; max];
         slots[0] = Some(a);
-        self.rooms.insert(code.clone(), Room { code: code.clone(), mode, difficulty: difficulty.clone(), slots, host: 0, private: false, ready: vec![false; max], phase: Phase::Lobby });
+        self.rooms.insert(code.clone(), Room { code: code.clone(), mode, difficulty: difficulty.clone(), slots, host: 0, private: false, spectators: vec![], ready: vec![false; max], phase: Phase::Lobby });
         if let Some(c) = self.conns.get_mut(&a) { c.room = Some(code.clone()); }
         let n = self.conns[&a].name.clone();
         self.logf(&format!("Raum {} erstellt von {} ({:?}, {}, {} Plätze)", code, n, mode, difficulty, max));
@@ -502,7 +532,8 @@ impl Server {
             code: r.code.clone(), mode: r.mode, difficulty: r.difficulty.clone(), you: i as u8, players: players.clone(),
         }))).collect();
         let extra = ServerMsg::RoomExtra { host: r.host as u8, private: r.private };
-        for (a, m) in msgs { self.send(a, &m); self.send(a, &extra); }
+        let looks = ServerMsg::Looks { in_round: false, looks: r.slots.iter().map(|s| s.and_then(|a| self.conns.get(&a)).map(|c| c.look.clone()).unwrap_or_default()).collect() };
+        for (a, m) in msgs { self.send(a, &m); self.send(a, &extra); self.send(a, &looks); }
     }
 
     /// Spieler verlässt seinen Raum (freiwillig oder Verbindung weg)
@@ -510,6 +541,7 @@ impl Server {
         let Some(code) = self.conns.get_mut(&a).and_then(|c| c.room.take()) else { return; };
         let name = self.conns.get(&a).map(|c| c.name.clone()).unwrap_or_default();
         let Some(r) = self.rooms.get_mut(&code) else { return; };
+        if let Some(k) = r.spectators.iter().position(|s| *s == a) { r.spectators.remove(k); return; }
         let Some(i) = r.slot_of(a) else { return; };
         r.slots[i] = None;
         // Chef geht -> der nächste Anwesende übernimmt
@@ -534,7 +566,12 @@ impl Server {
         if end_round { r.phase = Phase::Lobby; }
         if !matches!(r.phase, Phase::Playing(_)) { r.unready_all(); }
         let empty = r.count() == 0;
+        let orphans: Vec<SocketAddr> = if empty { std::mem::take(&mut r.spectators) } else { vec![] };
         if empty { self.rooms.remove(&code); self.logf(&format!("Raum {} geschlossen", code)); }
+        for s in orphans {
+            if let Some(c) = self.conns.get_mut(&s) { c.room = None; }
+            self.send(s, &ServerMsg::LeftRoom { reason: "Die Runde ist vorbei, alle sind gegangen".into() });
+        }
         if let Some(m) = game_over { for o in others { self.send(o, &m); } }
         if !empty { self.broadcast_room(&code); }
     }
@@ -558,8 +595,9 @@ impl Server {
         let mut out: Vec<(SocketAddr, ServerMsg, bool)> = vec![];
         let mut log_line = None;
         let mut back_to_lobby = false;
+        let mut kicked_spectators: Vec<SocketAddr> = vec![];
         // Feldgröße aus den Fenstern aller Spieler (kleinster gemeinsamer) und Namen - vor dem veränderlichen Zugriff
-        let (fw, fh, names) = self.rooms.get(code).map(|r| {
+        let (fw, fh, names, looks) = self.rooms.get(code).map(|r| {
             let present: Vec<SocketAddr> = r.slots.iter().flatten().copied().collect();
             let screens: Vec<Option<(u32, u32)>> = present.iter().map(|a| self.conns.get(a).and_then(|c| c.screen)).collect();
             let size = screens.iter().skip(1).fold(screens.first().copied().flatten(), |acc, s| match (acc, *s) {
@@ -568,11 +606,13 @@ impl Server {
             });
             let (w, h) = field_size_for(size, size);
             let names: Vec<String> = present.iter().map(|a| self.conns.get(a).map(|c| c.name.clone()).unwrap_or_default()).collect();
-            (w, h, names)
-        }).unwrap_or((FIELD_W, FIELD_H, vec![]));
+            let looks: Vec<PlayerLook> = present.iter().map(|a| self.conns.get(a).map(|c| c.look.clone()).unwrap_or_default()).collect();
+            (w, h, names, looks)
+        }).unwrap_or((FIELD_W, FIELD_H, vec![], vec![]));
         {
             let Some(r) = self.rooms.get_mut(code) else { return; };
             let slots = r.slots.clone();
+            let spectators = r.spectators.clone();
             match &mut r.phase {
                 Phase::Lobby => {}
                 Phase::Countdown { ends, shown } => {
@@ -586,9 +626,10 @@ impl Server {
                         for (k, &slot) in order.iter().enumerate() {
                             if let Some(a) = slots[slot] {
                                 out.push((a, ServerMsg::Start { seed, mode: r.mode, difficulty: r.difficulty.clone(), width: fw, height: fh, you: k as u8, names: names.clone() }, true));
+                                out.push((a, ServerMsg::Looks { in_round: true, looks: looks.clone() }, true));
                             }
                         }
-                        r.phase = Phase::Playing(Box::new(Game { sim: Sim2p::new_n(cfg, n, fw, fh), fw, fh, frame: 0, order, inputs: vec![Input::default(); n], input_frame: vec![0; n], events: VecDeque::new() }));
+                        r.phase = Phase::Playing(Box::new(Game { sim: Sim2p::new_n(cfg, n, fw, fh), fw, fh, frame: 0, order, names: names.clone(), looks: looks.clone(), inputs: vec![Input::default(); n], input_frame: vec![0; n], events: VecDeque::new() }));
                         log_line = Some(format!("Raum {}: Runde gestartet ({} Spieler, Feld {}x{})", code, n, fw, fh));
                     } else if secs != *shown {
                         *shown = secs;
@@ -607,9 +648,13 @@ impl Server {
                                 out.push((a, ServerMsg::Snapshot(s), false));
                             }
                         }
+                        if !spectators.is_empty() {
+                            let s = Snapshot::from_sim(&g.sim, g.frame, g.events.iter().copied().collect(), 0);
+                            for a in &spectators { out.push((*a, ServerMsg::Snapshot(s.clone()), false)); }
+                        }
                     }
                     if res.game_over {
-                        for a in slots.iter().flatten() {
+                        for a in slots.iter().flatten().chain(spectators.iter()) {
                             out.push((*a, ServerMsg::GameOver { winner: res.winner, score: g.sim.score, frames: g.frame, reason: String::new() }, true));
                         }
                         log_line = Some(format!("Raum {}: Runde vorbei (Score {}, Sieger {:?})", code, g.sim.score, res.winner));
@@ -617,10 +662,24 @@ impl Server {
                     }
                 }
             }
-            if back_to_lobby { r.phase = Phase::Lobby; r.unready_all(); }
+            if back_to_lobby {
+                r.phase = Phase::Lobby;
+                r.unready_all();
+                // Zuschauer rücken auf freie Plätze; wer keinen bekommt, geht zurück in die Lobby
+                for a in std::mem::take(&mut r.spectators) {
+                    match r.slots.iter().position(|s| s.is_none()) {
+                        Some(free) => r.slots[free] = Some(a),
+                        None => kicked_spectators.push(a),
+                    }
+                }
+            }
         }
         for (a, m, reliable) in out { if reliable { self.send(a, &m) } else { self.send_u(a, &m) } }
         if let Some(l) = log_line { self.logf(&l); }
+        for a in kicked_spectators {
+            if let Some(c) = self.conns.get_mut(&a) { c.room = None; }
+            self.send(a, &ServerMsg::LeftRoom { reason: "Der Raum ist voll - vielleicht beim nächsten Mal".into() });
+        }
         if back_to_lobby { self.broadcast_room(code); }
     }
 }
