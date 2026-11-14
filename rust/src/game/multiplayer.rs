@@ -23,8 +23,14 @@ pub const OFFICIAL_SERVER: &str = "play.mert.win";
 /// Wo es den Server zum Selbsthosten gibt
 pub const HOST_INFO_URL: &str = "mert.win/jump/server";
 
-/// Farben der Spieler online (kein Orange neben dem grünen 1-UP)
-pub const MP_COLORS: [(i32, i32, i32); 2] = [(70, 130, 255), (225, 80, 170)];
+/// Farben der Spieler (P1 bis P8). Kein Grün (1-UP ist grün, und nie Orange neben Grün), kein Rot (Hindernisse).
+pub const PLAYER_COLORS: [(i32, i32, i32); 8] = [
+    (70, 130, 255), (225, 80, 170), (245, 200, 50), (60, 200, 225),
+    (150, 105, 240), (245, 140, 55), (225, 225, 240), (185, 135, 95),
+];
+/// Die ersten zwei (lokaler 2-Spieler-Modus)
+pub const MP_COLORS: [(i32, i32, i32); 2] = [PLAYER_COLORS[0], PLAYER_COLORS[1]];
+fn pcol(i: usize) -> (i32, i32, i32) { PLAYER_COLORS[i % PLAYER_COLORS.len()] }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Screen { Browser, Connecting, Lobby, Room, Playing, Result }
@@ -39,7 +45,12 @@ struct ChatLine { from: String, text: String, own: bool, system: bool, at: Insta
 const CHAT_KEEP: usize = 60;
 
 #[derive(Clone)]
-struct RoomView { code: String, mode: Mode, difficulty: String, you: usize, players: [Option<LobbyPlayer>; 2] }
+struct RoomView { code: String, mode: Mode, difficulty: String, you: usize, players: Vec<Option<LobbyPlayer>> }
+impl RoomView {
+    fn present(&self) -> usize { self.players.iter().filter(|p| p.is_some()).count() }
+    fn all_ready(&self) -> bool { self.present() >= 2 && self.players.iter().flatten().all(|p| p.ready) }
+    fn me_ready(&self) -> bool { self.players.get(self.you).and_then(|p| p.as_ref()).map(|p| p.ready).unwrap_or(false) }
+}
 
 struct Mp {
     screen: Screen,
@@ -61,6 +72,10 @@ struct Mp {
     last_list: Instant,
     create_mode: Mode,
     create_diff: usize,
+    /// Plätze für einen neuen Raum (2 bis 8)
+    create_max: usize,
+    /// Namen der Spieler in der laufenden Runde (Rundenreihenfolge)
+    round_names: Vec<String>,
     room: Option<RoomView>,
     countdown: Option<u8>,
     round: Option<NetRound>,
@@ -95,7 +110,7 @@ impl Mp {
             screen: Screen::Browser, client: None, connect_rx: None, connecting_addr: String::new(), connect_started: now,
             addr_input: String::new(), code_input: String::new(), focus: Field::None, infos: HashMap::new(), info_tx, info_rx,
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
-            create_mode: Mode::Vs, create_diff: 1, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
+            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
@@ -275,7 +290,7 @@ impl G {
                     mp.screen = Screen::Lobby;
                     mp.chat.clear();
                     mp.chat_input.clear();
-                    let hint = self.tde("Verbunden. Den Chat siehst du nur, solange du hier bist - nichts wird gespeichert.", "Connected. You only see chat while you're here - nothing is stored.");
+                    let hint = self.tde("Verbunden. Chat der letzten 24 Stunden:", "Connected. Chat from the last 24 hours:");
                     mp.chat_push(String::new(), hint, false, true);
                     mp.rooms.clear();
                     mp.last_list = Instant::now() - Duration::from_secs(10);
@@ -326,7 +341,7 @@ impl G {
             ServerMsg::RoomList(l) => {
                 mp.rooms = l;
                 if mp.auto_join.map(|t| t.elapsed() < Duration::from_secs(30)).unwrap_or(false) && mp.room.is_none() {
-                    if let Some(r) = mp.rooms.iter().find(|r| r.players == 1 && !r.playing) {
+                    if let Some(r) = mp.rooms.iter().find(|r| r.players >= 1 && r.players < r.max && !r.playing) {
                         let c = r.code.clone();
                         mp.auto_join = None;
                         mp.send(ClientMsg::JoinRoom { code: c });
@@ -341,14 +356,14 @@ impl G {
                 if matches!(mp.screen, Screen::Lobby | Screen::Connecting) { mp.screen = Screen::Room; }
                 if mp.auto_ready {
                     if let Some(r) = &mp.room {
-                        if r.players.iter().all(|p| p.is_some()) && !r.players[r.you].as_ref().map(|p| p.ready).unwrap_or(false) {
+                        if r.players.iter().all(|p| p.is_some()) && !r.me_ready() {
                             mp.auto_ready = false;
                             mp.send(ClientMsg::Ready(true));
                         }
                     }
                 }
-                let both_ready = mp.room.as_ref().map(|r| r.players.iter().all(|p| p.as_ref().map(|p| p.ready).unwrap_or(false))).unwrap_or(false);
-                if !both_ready { mp.countdown = None; }
+                let all_ready = mp.room.as_ref().map(|r| r.all_ready()).unwrap_or(false);
+                if !all_ready { mp.countdown = None; }
             }
             ServerMsg::LeftRoom { reason } => {
                 mp.room = None;
@@ -365,9 +380,10 @@ impl G {
                 mp.screen = Screen::Room;
                 self.play_sound(Snd::Click);
             }
-            ServerMsg::Start { mode, difficulty, width, height, .. } => {
+            ServerMsg::Start { mode, difficulty, width, height, you, names, .. } => {
                 if mp.focus == Field::Chat { mp.focus = Field::None; }
-                let you = mp.room.as_ref().map(|r| r.you).unwrap_or(0);
+                let you = you as usize;
+                mp.round_names = names;
                 FIELD.with(|f| f.set((width.max(100), height.max(100))));
                 mp.round = Some(NetRound::new(mode, &difficulty, you, width, height));
                 mp.round_started = Instant::now();
@@ -390,7 +406,7 @@ impl G {
                         self.mp_event_fx(mp, e, you);
                         if self.effects_on() {
                             let Some(r) = mp.round.as_ref() else { continue; };
-                            let at = |i: usize| -> Option<Rect> { if i == r.you { Some(r.own_draw(1.0).rect) } else { r.other_draw().map(|p| p.rect) } };
+                            let at = |i: usize| -> Option<Rect> { if i == r.you { Some(r.own_draw(1.0).rect) } else { r.other_draw(i).map(|p| p.rect) } };
                             match e {
                                 SimEvent::Hit(i) | SimEvent::Died(i) => {
                                     if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.burst(x as f64, y as f64, super::art::HAZARD, 20); }
@@ -433,7 +449,7 @@ impl G {
         s.insert("total_rounds".into(), json!(tr));
         let r = s.gi("mp_rounds", 0) + 1;
         s.insert("mp_rounds".into(), json!(r));
-        let won = mode == Mode::Vs && matches!((winner, you), (Some(Winner::P1), 0) | (Some(Winner::P2), 1));
+        let won = mode == Mode::Vs && winner.and_then(|w| w.index()) == Some(you);
         if won { let w = s.gi("mp_wins", 0) + 1; s.insert("mp_wins".into(), json!(w)); }
         let ttp = s.gf("total_time_played", 0.0) + frames as f64 / TICK_HZ as f64;
         s.insert("total_time_played".into(), Value::from(ttp));
@@ -442,17 +458,20 @@ impl G {
 
     fn mp_event_fx(&mut self, mp: &Mp, e: SimEvent, you: usize) {
         let du = self.tde("Du", "You");
-        let who = |i: usize| if i == you { du.clone() } else { format!("P{}", i + 1) };
+        let who = |i: usize| if i == you { du.clone() } else { mp.round_names.get(i).filter(|n| !n.is_empty()).cloned().unwrap_or_else(|| format!("P{}", i + 1)) };
         let pos = |g: &G, i: usize| -> Option<(i32, i32)> {
             let r = mp.round.as_ref()?;
-            let p = if i == r.you { r.own_draw(1.0) } else { r.other_draw()? };
+            let p = if i == r.you { r.own_draw(1.0) } else { r.other_draw(i)? };
             Some(g.mp_field_point(p.rect.centerx(), p.rect.top() - 20))
         };
+        // Ab 3 Spielern würden sich die Texte über den Köpfen stapeln: für die anderen nur Effekt, kein Text/Ton
+        let crowded = mp.round.as_ref().map(|r| r.player_count() > 2).unwrap_or(false);
+        if crowded && matches!(e, SimEvent::Hit(i) | SimEvent::OneUp(i) if i != you) { return; }
         let (snd, text, col, at) = match e {
-            SimEvent::Hit(i) => (Snd::Hit, format!("{} {}!", who(i), self.tde("getroffen", "hit")), MP_COLORS[i], pos(self, i)),
+            SimEvent::Hit(i) => (Snd::Hit, format!("{} {}!", who(i), self.tde("getroffen", "hit")), pcol(i), pos(self, i)),
             SimEvent::Died(i) => (Snd::Hit, format!("{} {}", who(i), self.tde("ausgeschieden", "eliminated")), (220, 70, 70), None),
             SimEvent::OneUp(i) => (Snd::OneUp, format!("1-UP ({})", who(i)), super::art::ONEUP, pos(self, i)),
-            SimEvent::Revived(i) => (Snd::OneUp, format!("{} {}", who(i), self.tde("wiederbelebt!", "revived!")), MP_COLORS[i], pos(self, i)),
+            SimEvent::Revived(i) => (Snd::OneUp, format!("{} {}", who(i), self.tde("wiederbelebt!", "revived!")), pcol(i), pos(self, i)),
         };
         if snd == Snd::Hit { self.play_sound_v(Snd::Hit, "hit_volume"); } else { self.play_sound(snd); }
         self.push_overlay(&text, col, 1.5, at);
@@ -589,6 +608,10 @@ impl G {
             "disconnect" => { self.play_sound(Snd::ClickBack); self.mp_disconnect(mp, None); }
             "refresh" => { self.play_sound(Snd::Click); mp.last_list = Instant::now(); mp.send(ClientMsg::ListRooms); }
             "mode" => { self.play_sound(Snd::Click); mp.create_mode = if arg == "coop" { Mode::Coop } else { Mode::Vs }; }
+            "max" => {
+                self.play_sound(Snd::Click);
+                mp.create_max = if arg == "-" { if mp.create_max <= 2 { 8 } else { mp.create_max - 1 } } else if mp.create_max >= 8 { 2 } else { mp.create_max + 1 };
+            }
             "diff" => {
                 self.play_sound(Snd::Click);
                 let n = DIFFICULTIES.len();
@@ -597,7 +620,7 @@ impl G {
             "create" => {
                 self.play_sound(Snd::MenuClick);
                 let d = DIFFICULTIES[mp.create_diff].to_string();
-                mp.send(ClientMsg::CreateRoom { mode: mp.create_mode, difficulty: d });
+                mp.send(ClientMsg::CreateRoom { mode: mp.create_mode, difficulty: d, max_players: mp.create_max as u8 });
             }
             "join" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::JoinRoom { code: arg.to_string() }); }
             "join_code" => {
@@ -607,7 +630,7 @@ impl G {
             }
             "ready" => {
                 self.play_sound(Snd::Click);
-                let me_ready = mp.room.as_ref().and_then(|r| r.players[r.you].as_ref().map(|p| p.ready)).unwrap_or(false);
+                let me_ready = mp.room.as_ref().map(|r| r.me_ready()).unwrap_or(false);
                 mp.send(ClientMsg::Ready(!me_ready));
             }
             "rematch" => {
@@ -631,6 +654,7 @@ impl G {
             "create" => {
                 mp.create_mode = if p.get(1).map(|m| m.eq_ignore_ascii_case("coop")).unwrap_or(false) { Mode::Coop } else { Mode::Vs };
                 if let Some(i) = p.get(2).and_then(|d| DIFFICULTIES.iter().position(|x| x.eq_ignore_ascii_case(d))) { mp.create_diff = i; }
+                if let Some(n) = p.get(3).and_then(|n| n.parse::<usize>().ok()) { mp.create_max = n.clamp(2, 8); }
                 self.mp_action(mp, "create");
             }
             "join" => {
@@ -812,14 +836,14 @@ impl G {
         for r in mp.rooms.clone() {
             if y + 40 > list.bottom() - 6 { break; }
             let row = Rect::new(list.x + 10, y, list.w - 20, 34);
-            let open = r.players < 2 && !r.playing;
+            let open = r.players < r.max && !r.playing;
             let hov = open && row.collidepoint(self.mouse_logical_peek());
             draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_button_color() }, row, 0, 8);
             let col = if open { tc } else { (130, 130, 140) };
             self.mp_text(&bs, &sf, &r.code, (120, 180, 255), row.x + 10, row.y + 6, false);
             let info = format!("{} · {} · {}", mode_name(self, r.mode), self.get_difficulty_name(&r.difficulty), r.host);
             self.mp_text(&bs, &bf, &info, col, row.x + 80, row.y + 9, false);
-            let st = if r.playing { self.tde("läuft", "playing") } else { format!("{}/2", r.players) };
+            let st = if r.playing { self.tde("läuft", "playing") } else { format!("{}/{}", r.players, r.max) };
             let sw = bf.size(&st).0;
             self.mp_text(&bs, &bf, &st, col, row.right() - 10 - sw, row.y + 9, false);
             if open { mp.buttons.push((row, format!("join:{}", r.code))); }
@@ -828,7 +852,7 @@ impl G {
         self.mp_draw_chat(&bs, mp, Rect::new(lx, 312, 430, h - 80 - 312));
         // Raum erstellen
         let rx = w / 2 + 60;
-        let panel = Rect::new(rx, 110, 325, 200);
+        let panel = Rect::new(rx, 110, 325, 246);
         self.draw_panel(&bs, panel, 12, (110, 110, 150), 2);
         self.mp_text(&bs, &sf, &self.tde("Raum erstellen", "Create room"), tc, panel.x + 14, panel.y + 10, false);
         let vs_sel = mp.create_mode == Mode::Vs;
@@ -839,9 +863,13 @@ impl G {
         self.mp_button(&bs, mp, Rect::new(rx + 271, panel.y + 92, 40, 38), ">", "diff:+", (110, 110, 130), None);
         let dn = self.get_difficulty_name(DIFFICULTIES[mp.create_diff]);
         self.mp_text(&bs, &sf, &dn, tc, rx + 162, panel.y + 101, true);
-        self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 144, 297, 42), &self.tde("Erstellen", "Create"), "create", (90, 190, 140), None);
+        self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 140, 40, 38), "<", "max:-", (110, 110, 130), None);
+        self.mp_button(&bs, mp, Rect::new(rx + 271, panel.y + 140, 40, 38), ">", "max:+", (110, 110, 130), None);
+        let mt = format!("{} {}", mp.create_max, self.tde("Spieler", "players"));
+        self.mp_text(&bs, &sf, &mt, tc, rx + 162, panel.y + 149, true);
+        self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 190, 297, 42), &self.tde("Erstellen", "Create"), "create", (90, 190, 140), None);
         // Code
-        let jp = Rect::new(rx, 322, 325, 104);
+        let jp = Rect::new(rx, 366, 325, 104);
         self.draw_panel(&bs, jp, 12, (110, 110, 150), 2);
         self.mp_text(&bs, &sf, &self.tde("Mit Code beitreten", "Join with code"), tc, jp.x + 14, jp.y + 10, false);
         let ci = mp.code_input.clone();
@@ -865,29 +893,44 @@ impl G {
         self.draw_title_shadow(&bs, &format!("{} {}", self.tde("Raum", "Room"), room.code), 14);
         let sub = format!("{} · {}", mode_name(self, room.mode), self.get_difficulty_name(&room.difficulty));
         self.mp_text(&bs, &sf, &sub, (150, 150, 180), w / 2, 82, true);
-        for i in 0..2 {
-            let r = Rect::new(w / 2 - 300 + i as i32 * 310, 120, 290, 130);
+        let n = room.players.len();
+        // 2 Plätze: zwei große Karten; mehr: Raster mit bis zu 4 pro Reihe
+        let (cols, cw, chh, gap) = if n <= 2 { (2usize, 290, 130, 20) } else { (4usize, 145, 92, 10) };
+        let rows = n.div_ceil(cols).max(1);
+        let total_w = cols as i32 * cw + (cols as i32 - 1) * gap;
+        for i in 0..n {
+            let (cx, cy) = ((i % cols) as i32, (i / cols) as i32);
+            let r = Rect::new(w / 2 - total_w / 2 + cx * (cw + gap), 118 + cy * (chh + 10), cw, chh);
+            let col = pcol(i);
             draw::rect(&bs, self.get_panel_color(), r, 0, 14);
-            draw::rect(&bs, MP_COLORS[i], r, 2, 14);
-            super::art::draw_player(&bs, Rect::new(r.x + 20, r.y + 20, 40, 40), MP_COLORS[i]);
-            self.mp_text(&bs, &sf, &format!("P{}", i + 1), MP_COLORS[i], r.x + 74, r.y + 18, false);
+            draw::rect(&bs, if room.players[i].is_some() { col } else { (90, 90, 110) }, r, 2, 14);
+            let big = n <= 2;
+            let ps = if big { 40 } else { 26 };
+            super::art::draw_player(&bs, Rect::new(r.x + 12, r.y + 12, ps, ps), col);
+            let tx = r.x + 20 + ps;
+            self.mp_text(&bs, &sf, &format!("P{}", i + 1), col, tx, r.y + if big { 18 } else { 12 }, false);
             match &room.players[i] {
                 Some(p) => {
                     let me = if i == room.you { format!(" ({})", self.tde("du", "you")) } else { String::new() };
-                    self.mp_text(&bs, &sf, &format!("{}{}", p.name, me), tc, r.x + 74, r.y + 42, false);
+                    let name = format!("{}{}", p.name, me);
+                    let ns = sf.render_fit(&name, r.w - 24, tc);
+                    bs.blit(&ns, (if big { tx } else { r.x + 12 }, r.y + if big { 42 } else { 44 }));
                     let (t, c) = if p.ready { (self.tde("Bereit", "Ready"), (90, 190, 140)) } else { (self.tde("Wartet …", "Not ready"), (180, 150, 90)) };
-                    self.mp_text(&bs, &sf, &t, c, r.x + 20, r.y + 90, false);
+                    self.mp_text(&bs, &sf, &t, c, r.x + 12, r.y + if big { 90 } else { 66 }, false);
                 }
                 None => {
-                    self.mp_text(&bs, &sf, &self.tde("frei - warte auf Mitspieler", "free - waiting for player"), (140, 140, 160), r.x + 20, r.y + 90, false);
+                    let t = if big { self.tde("frei - warte auf Mitspieler", "free - waiting for player") } else { self.tde("frei", "free") };
+                    self.mp_text(&bs, &sf, &t, (140, 140, 160), r.x + 12, r.y + if big { 90 } else { 56 }, false);
                 }
             }
         }
+        let below = 118 + rows as i32 * (chh + 10);
         if room.players.iter().any(|p| p.is_none()) {
-            let t = format!("{} {}", self.tde("Gib deinem Freund den Code", "Give your friend the code"), room.code);
-            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 258, true);
+            let t = format!("{} {}", self.tde("Gib deinen Freunden den Code", "Give your friends the code"), room.code);
+            self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, below + 2, true);
         }
-        let chat_r = Rect::new(w / 2 - 300, 290, 600, h - 132 - 290);
+        let chat_top = below + 32;
+        let chat_r = Rect::new(w / 2 - 300, chat_top, 600, (h - 132 - chat_top).max(0));
         self.mp_draw_chat(&bs, mp, chat_r);
         if let Some(c) = mp.countdown {
             thread_local! { static BIG: Font = Font::new(140); }
@@ -898,7 +941,7 @@ impl G {
             let bh = big.size("0").1;
             self.mp_text(&bs, &big, &c.to_string(), (120, 180, 255), w / 2, chat_r.centery() - bh / 2, true);
         }
-        let me_ready = room.players[room.you].as_ref().map(|p| p.ready).unwrap_or(false);
+        let me_ready = room.me_ready();
         let rt = if me_ready { self.tde("Nicht mehr bereit", "Not ready") } else { self.tde("Bereit!", "Ready!") };
         self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 120, 380, 50), &rt, "ready", if me_ready { (180, 150, 90) } else { (90, 190, 140) }, Some(self.menu_font.clone()));
         self.mp_button(&bs, mp, Rect::new(w / 2 - 90, h - 60, 180, 44), &self.tde("Verlassen", "Leave"), "leave_room", (150, 150, 150), None);
@@ -926,7 +969,7 @@ impl G {
         if !p.alive { return; }
         let r = self.mp_field_rect(p.rect);
         if p.invuln == 0 || (self.get_ticks() / 80) % 2 == 0 {
-            super::art::draw_player(bs, r, MP_COLORS[i]);
+            super::art::draw_player(bs, r, pcol(i));
         }
         let sf = &self.small_font;
         let l = sf.render(label, true, WHITE);
@@ -962,9 +1005,9 @@ impl G {
             }
         }
         let you = r.you;
-        let other = 1 - you;
         mp.fx.draw(&bs);
-        if let Some(o) = r.other_draw() { self.mp_draw_player(&bs, other, &o, &format!("P{}", other + 1)); }
+        let n = r.player_count().max(2);
+        for (o, d) in r.others_draw() { self.mp_draw_player(&bs, o, &d, &format!("P{}", o + 1)); }
         let me = r.own_draw(alpha);
         self.mp_draw_player(&bs, you, &me, &self.tde("Du", "You"));
         // HUD: Leben P1 links, P2 rechts
@@ -972,18 +1015,36 @@ impl G {
         let sf = self.small_font.clone();
         let full = self.mp_field_rect(Rect::new(0, 0, field().0, field().1));
         let (hud_l, hud_r) = (full.left().max(0), full.right().min(w));
-        for i in 0..2 {
+        // HUD am Rand des Spielfelds: zu zweit P1 links, P2 rechts; mit mehr Spielern je eine Spalte links und rechts
+        let (hl, hr) = (hud_l + 12, hud_r - 12);
+        let left_n = n.div_ceil(2);
+        for i in 0..n {
             let (alive, lives) = if i == you { (me.alive, me.lives) } else { r.server_player(i).map(|p| (p.alive, p.lives)).unwrap_or((true, 3)) };
-            let col = if alive { MP_COLORS[i] } else { (70, 70, 70) };
-            let lbl = mf.render(&format!("P{}", i + 1), true, col);
+            let col = if alive { pcol(i) } else { (70, 70, 70) };
+            let left = i < left_n;
+            let row = if left { i } else { i - left_n } as i32;
             let cnt = 3.max(lives);
-            // HUD am Rand des Spielfelds, nicht des Fensters
-            let (hl, hr) = (hud_l + 12, hud_r - 12);
-            if i == 0 { bs.blit(&lbl, (hl, 10)); } else { bs.blit(&lbl, (hr - lbl.get_width(), 10)); }
-            for k in 0..cnt {
-                let c = if k < lives { col } else { (55, 55, 55) };
-                let x = if i == 0 { hl + k as i32 * 15 } else { hr - (cnt - k) as i32 * 15 };
-                draw::rect(&bs, c, Rect::new(x, 10 + lbl.get_height() + 3, 11, 11), 0, 3);
+            if n <= 2 {
+                let lbl = mf.render(&format!("P{}", i + 1), true, col);
+                if left { bs.blit(&lbl, (hl, 10)); } else { bs.blit(&lbl, (hr - lbl.get_width(), 10)); }
+                for k in 0..cnt {
+                    let c = if k < lives { col } else { (55, 55, 55) };
+                    let x = if left { hl + k as i32 * 15 } else { hr - (cnt - k) as i32 * 15 };
+                    draw::rect(&bs, c, Rect::new(x, 10 + lbl.get_height() + 3, 11, 11), 0, 3);
+                }
+            } else {
+                // kompakt: "P3 ■■■" pro Zeile
+                let lbl = sf.render(&format!("P{}", i + 1), true, col);
+                let y = 10 + row * 26;
+                let boxes = cnt as i32 * 14;
+                if left {
+                    bs.blit(&lbl, (hl, y));
+                    for k in 0..cnt { draw::rect(&bs, if k < lives { col } else { (55, 55, 55) }, Rect::new(hl + lbl.get_width() + 8 + k as i32 * 14, y + 6, 10, 10), 0, 3); }
+                } else {
+                    let x0 = hr - boxes;
+                    bs.blit(&lbl, (x0 - 8 - lbl.get_width(), y));
+                    for k in 0..cnt { draw::rect(&bs, if k < lives { col } else { (55, 55, 55) }, Rect::new(x0 + k as i32 * 14, y + 6, 10, 10), 0, 3); }
+                }
             }
         }
         let secs = mp.round_started.elapsed().as_secs();
@@ -1015,7 +1076,7 @@ impl G {
         let tc = self.get_text_color();
         let dim = if dark { (140, 136, 170) } else { (110, 106, 140) };
         self.mp_text(bs, &bf, "Server-Chat", dim, r.x + 14, r.y + 9, false);
-        let note = self.tde("nur live · nichts wird gespeichert", "live only · nothing is stored");
+        let note = self.tde("Verlauf: letzte 24 Stunden", "History: last 24 hours");
         let nw = bf.size(&note).0;
         self.mp_text(bs, &bf, &note, dim, r.right() - 14 - nw, r.y + 9, false);
         // Eingabe
@@ -1079,11 +1140,16 @@ impl G {
         let Some((winner, score, reason, frames)) = mp.result.clone() else { return; };
         let you = mp.round.as_ref().map(|r| r.you).or(mp.room.as_ref().map(|r| r.you)).unwrap_or(0);
         let mode = mp.round.as_ref().map(|r| r.mode).or(mp.room.as_ref().map(|r| r.mode)).unwrap_or(Mode::Vs);
+        let n_round = mp.round_names.len().max(2);
         let (title, col) = match (mode, winner) {
             (Mode::Coop, _) => (self.tde("Runde vorbei", "Round over"), (120, 180, 255)),
             (_, Some(Winner::Draw)) => (self.tde("Unentschieden!", "Draw!"), (200, 200, 220)),
-            (_, Some(Winner::P1)) if you == 0 => (self.tde("Gewonnen!", "You win!"), (90, 200, 140)),
-            (_, Some(Winner::P2)) if you == 1 => (self.tde("Gewonnen!", "You win!"), (90, 200, 140)),
+            (_, Some(w)) if w.index() == Some(you) => (self.tde("Gewonnen!", "You win!"), (90, 200, 140)),
+            (_, Some(w)) if n_round > 2 => {
+                let i = w.index().unwrap_or(0);
+                let name = mp.round_names.get(i).cloned().unwrap_or_else(|| format!("P{}", i + 1));
+                (format!("{} {}", name, self.tde("gewinnt!", "wins!")), pcol(i))
+            }
             (_, Some(_)) => (self.tde("Verloren", "You lose"), (220, 90, 100)),
             (_, None) => (self.tde("Runde vorbei", "Round over"), (200, 200, 220)),
         };
@@ -1096,16 +1162,20 @@ impl G {
         self.mp_text(&bs, &sf, &format!("{} s", frames / TICK_HZ), (150, 150, 180), w / 2, 222, true);
         if !reason.is_empty() { self.mp_text(&bs, &sf, &reason, (200, 170, 110), w / 2, 252, true); }
         if let Some(room) = &mp.room {
-            let other = &room.players[1 - room.you];
-            let t = match other {
-                Some(p) if p.ready => format!("{} {}", p.name, self.tde("will nochmal!", "wants a rematch!")),
-                Some(p) => format!("{}: {}", self.tde("Mitspieler", "Opponent"), p.name),
-                None => self.tde("Dein Mitspieler hat den Raum verlassen", "The other player left the room"),
+            let others: Vec<&LobbyPlayer> = room.players.iter().enumerate().filter(|(i, _)| *i != room.you).filter_map(|(_, p)| p.as_ref()).collect();
+            let t = if others.is_empty() {
+                self.tde("Alle anderen haben den Raum verlassen", "Everyone else left the room")
+            } else if others.len() == 1 {
+                let p = others[0];
+                if p.ready { format!("{} {}", p.name, self.tde("will nochmal!", "wants a rematch!")) } else { format!("{}: {}", self.tde("Mitspieler", "Opponent"), p.name) }
+            } else {
+                let r = others.iter().filter(|p| p.ready).count();
+                format!("{} {} {} {}", r, self.tde("von", "of"), others.len(), self.tde("wollen nochmal", "want a rematch"))
             };
             self.mp_text(&bs, &sf, &t, (150, 150, 180), w / 2, 282, true);
         }
         self.mp_draw_chat(&bs, mp, Rect::new(w / 2 - 300, 316, 600, h - 142 - 316));
-        let can_rematch = mp.room.as_ref().map(|r| r.players.iter().all(|p| p.is_some())).unwrap_or(false);
+        let can_rematch = mp.room.as_ref().map(|r| r.present() >= 2).unwrap_or(false);
         if can_rematch {
             self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 130, 380, 54), &self.tde("Nochmal!", "Rematch!"), "rematch", (90, 190, 140), Some(mf.clone()));
         }

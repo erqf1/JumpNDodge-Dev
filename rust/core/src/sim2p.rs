@@ -1,5 +1,7 @@
-//! 2-Spieler-Simulation (Koop/VS) - die Regeln aus run_game_2p() (Python 15739-16153),
-//! ohne Zeichnen. Ein Aufruf von `step()` = ein Frame.
+//! Mehrspieler-Simulation (Koop/VS, 2 bis 8 Spieler) - die Regeln aus run_game_2p() (Python 15739-16153),
+//! ohne Zeichnen. Ein Aufruf von `step()` = ein Frame. Mit 2 Spielern exakt wie das Original.
+//! VS: der Letzte, der übrig bleibt, gewinnt (scheiden alle übrigen im selben Frame aus: Unentschieden).
+//! Koop: ein 1-UP belebt den ersten ausgeschiedenen Mitspieler wieder; vorbei, wenn alle raus sind.
 
 use crate::rect::{addf, Rect};
 use rand::rngs::StdRng;
@@ -15,6 +17,11 @@ pub const MOVE_SPEED: i32 = 8;
 pub const POWERUP_CHANCE: f64 = 0.015;
 /// Startpositionen (x) von P1 und P2
 pub const START_X: [i32; 2] = [60, 140];
+/// Höchstens so viele Spieler pro Runde
+pub const MAX_PLAYERS: usize = 8;
+
+/// Startposition (x) von Spieler i (P1 60, P2 140, dann je 80 weiter)
+pub fn start_x(i: usize) -> i32 { 60 + 80 * i as i32 }
 
 /// Schwierigkeiten, bei denen zusätzlich Hindernisse von oben fallen
 const TOP_DIFFICULTIES: [&str; 4] = ["Hardcore", "Unmöglich", "Albtraum", "Hölle"];
@@ -93,9 +100,14 @@ pub enum ObstacleKind { Ground, Top }
 pub struct Obstacle { pub rect: Rect, pub kind: ObstacleKind }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Winner { P1, P2, Draw }
+pub enum Winner { P1, P2, Draw, /// Spieler 3 bis 8 (Index ab 0)
+    Other(u8) }
 impl Winner {
-    pub fn as_str(self) -> &'static str { match self { Winner::P1 => "p1", Winner::P2 => "p2", Winner::Draw => "draw" } }
+    pub fn as_str(self) -> &'static str { match self { Winner::P1 => "p1", Winner::P2 => "p2", Winner::Draw => "draw", Winner::Other(_) => "other" } }
+    /// Gewinner = Spieler i
+    pub fn of(i: usize) -> Winner { match i { 0 => Winner::P1, 1 => Winner::P2, _ => Winner::Other(i as u8) } }
+    /// Index des Gewinners (None = Unentschieden)
+    pub fn index(self) -> Option<usize> { match self { Winner::P1 => Some(0), Winner::P2 => Some(1), Winner::Draw => None, Winner::Other(i) => Some(i as usize) } }
 }
 
 /// Was in einem Frame passiert ist (für Overlays/Sounds/Statistik beim Client)
@@ -132,7 +144,7 @@ pub struct Config {
 pub struct Sim2p {
     pub cfg: Config,
     pub floor_y: i32,
-    pub players: [Player; 2],
+    pub players: Vec<Player>,
     pub obstacles: Vec<Obstacle>,
     pub top_obstacles: Vec<Obstacle>,
     pub powerups: Vec<Rect>,
@@ -150,15 +162,18 @@ pub struct Sim2p {
 }
 
 impl Sim2p {
-    /// Neue Runde auf einem Feld der Größe (width, height)
-    pub fn new(cfg: Config, width: i32, height: i32) -> Sim2p {
+    /// Neue Runde (2 Spieler) auf einem Feld der Größe (width, height)
+    pub fn new(cfg: Config, width: i32, height: i32) -> Sim2p { Sim2p::new_n(cfg, 2, width, height) }
+
+    /// Neue Runde mit n Spielern (1 bis MAX_PLAYERS)
+    pub fn new_n(cfg: Config, n: usize, width: i32, height: i32) -> Sim2p {
         let floor_y = height - 50;
         let (min_delay, max_delay) = difficulty_obstacle_interval(&cfg.difficulty);
         let speed = difficulty_speed(&cfg.difficulty) as f64;
         let rng = StdRng::seed_from_u64(cfg.seed);
         let mut s = Sim2p {
             floor_y,
-            players: [Player::new(START_X[0], floor_y), Player::new(START_X[1], floor_y)],
+            players: (0..n.clamp(1, MAX_PLAYERS)).map(|i| Player::new(start_x(i), floor_y)).collect(),
             obstacles: vec![], top_obstacles: vec![], powerups: vec![],
             score: 0, speed, min_delay, max_delay,
             obs_timer: 0, obs_delay: 0, top_timer: 0, top_delay: 0, dynamic_timer: 0, frame: 0,
@@ -218,14 +233,15 @@ impl Sim2p {
     }
 
     /// Ein Frame. `dt_ms` = vergangene Zeit, `width`/`height` = aktuelle Spielfeldgröße.
-    pub fn step(&mut self, dt_ms: i64, inputs: [Input; 2], width: i32, height: i32) -> StepResult {
+    pub fn step(&mut self, dt_ms: i64, inputs: &[Input], width: i32, height: i32) -> StepResult {
         let mut out = StepResult::default();
         self.frame += 1;
         let floor_y = self.floor_y;
 
         // Bewegung
-        for (p, inp) in self.players.iter_mut().zip(inputs.iter()) {
-            if move_player(p, *inp, width, floor_y) { out.jumps += 1; }
+        for (i, p) in self.players.iter_mut().enumerate() {
+            let inp = inputs.get(i).copied().unwrap_or_default();
+            if move_player(p, inp, width, floor_y) { out.jumps += 1; }
         }
         for p in self.players.iter_mut() { if p.invuln > 0 { p.invuln -= 1; } }
 
@@ -267,11 +283,13 @@ impl Sim2p {
         // 1-UP einsammeln (höchstens eins pro Frame)
         for i in 0..self.powerups.len() {
             let pu = self.powerups[i];
-            let picker = (0..2).find(|&k| self.players[k].alive && self.players[k].rect.colliderect(&pu));
+            let n = self.players.len();
+            let picker = (0..n).find(|&k| self.players[k].alive && self.players[k].rect.colliderect(&pu));
             if let Some(k) = picker {
-                let other = 1 - k;
-                if !self.players[other].alive {
-                    self.players[other].revive(START_X[other], floor_y);
+                // Koop/VS wie im Original: ein ausgeschiedener Mitspieler wird wiederbelebt (der erste), sonst +1 Leben
+                let dead = (0..n).find(|&o| o != k && !self.players[o].alive);
+                if let Some(other) = dead {
+                    self.players[other].revive(start_x(other), floor_y);
                     out.events.push(SimEvent::Revived(other));
                 } else {
                     self.players[k].lives += 1;
@@ -283,8 +301,9 @@ impl Sim2p {
         }
 
         // Treffer: pro Spieler höchstens ein Boden- und ein Top-Hindernis
-        let mut died = [false, false];
-        for pl in 0..2 {
+        let n = self.players.len();
+        let mut died = vec![false; n];
+        for pl in 0..n {
             for top in [false, true] {
                 let p = &self.players[pl];
                 let (alive, inv, pr) = (p.alive, p.invuln, p.rect);
@@ -317,18 +336,21 @@ impl Sim2p {
         }
 
         // Rundenende
-        if self.cfg.vs {
-            out.winner = match (died[0], died[1]) {
-                (true, true) => Some(Winner::Draw),
-                (true, false) => Some(Winner::P2),
-                (false, true) => Some(Winner::P1),
-                _ => None,
-            };
-            out.game_over = out.winner.is_some();
-        } else {
-            out.game_over = !self.players[0].alive && !self.players[1].alive;
-        }
+        out.winner = self.check_winner(died.iter().any(|d| *d));
+        out.game_over = if self.cfg.vs { out.winner.is_some() } else { self.players.iter().all(|p| !p.alive) };
         out
+    }
+
+    /// VS: wenn höchstens noch einer übrig ist -> Gewinner (oder Unentschieden). `changed` = in diesem Frame
+    /// ist jemand ausgeschieden (sonst kein Ende - z.B. eine Runde zu zweit, in der einer schon fehlt).
+    pub fn check_winner(&self, changed: bool) -> Option<Winner> {
+        if !self.cfg.vs || !changed { return None; }
+        let alive: Vec<usize> = (0..self.players.len()).filter(|&i| self.players[i].alive).collect();
+        match alive.len() {
+            0 => Some(Winner::Draw),
+            1 => Some(Winner::of(alive[0])),
+            _ => None,
+        }
     }
 }
 
@@ -349,7 +371,7 @@ mod tests {
             for f in 0..3000u64 {
                 let a = Input { jump: f % 37 < 3, left: f % 200 < 50, right: f % 200 > 120 };
                 let b = Input { jump: f % 23 < 2, left: false, right: f % 90 < 30 };
-                let r = s.step(16, [a, b], 800, 600);
+                let r = s.step(16, &[a, b], 800, 600);
                 log.push((s.score, s.players[0].rect, s.players[1].rect, s.obstacles.len(), r.events.clone()));
                 if r.game_over { break; }
             }
@@ -361,14 +383,14 @@ mod tests {
     #[test]
     fn springen_und_landen() {
         let mut s = Sim2p::new(cfg("Leicht", false, 1), 800, 600);
-        let r = s.step(16, [Input { jump: true, ..Default::default() }, Input::default()], 800, 600);
+        let r = s.step(16, &[Input { jump: true, ..Default::default() }, Input::default()], 800, 600);
         assert_eq!(r.jumps, 1);
         assert!(s.players[0].rect.bottom() < s.floor_y);
         // Taste weiter gedrückt: in der Luft kein zweiter Sprung
-        let r2 = s.step(16, [Input { jump: true, ..Default::default() }, Input::default()], 800, 600);
+        let r2 = s.step(16, &[Input { jump: true, ..Default::default() }, Input::default()], 800, 600);
         assert_eq!(r2.jumps, 0);
         // loslassen -> landet wieder auf dem Boden
-        for _ in 0..60 { s.step(16, [Input::default(); 2], 800, 600); }
+        for _ in 0..60 { s.step(16, &[Input::default(); 2], 800, 600); }
         assert_eq!(s.players[0].rect.bottom(), s.floor_y);
         assert!(!s.players[0].jumping);
     }
@@ -378,7 +400,7 @@ mod tests {
         let mut s = Sim2p::new(cfg("Hölle", true, 7), 800, 600);
         // P1 springt dauernd im Takt, P2 steht still -> irgendwann scheidet jemand aus
         for f in 0..20000u64 {
-            let r = s.step(16, [Input { jump: f % 40 == 0, ..Default::default() }, Input::default()], 800, 600);
+            let r = s.step(16, &[Input { jump: f % 40 == 0, ..Default::default() }, Input::default()], 800, 600);
             if r.game_over { assert!(r.winner.is_some()); return; }
         }
         panic!("Runde ist nie zu Ende gegangen");
@@ -391,10 +413,39 @@ mod tests {
         s.players[1].lives = 0;
         let p1 = s.players[0].rect;
         s.powerups.push(Rect::new(p1.x + 4, p1.y, 38, 38));
-        let r = s.step(16, [Input::default(); 2], 800, 600);
+        let r = s.step(16, &[Input::default(); 2], 800, 600);
         assert!(r.events.contains(&SimEvent::Revived(1)));
         assert!(s.players[1].alive);
         assert_eq!(s.players[1].lives, 1);
         assert_eq!(s.players[1].invuln, REVIVE_INVULN);
+    }
+
+    /// 4 Spieler VS: einer nach dem anderen scheidet aus, der Letzte gewinnt
+    #[test]
+    fn acht_spieler_vs() {
+        let mut s = Sim2p::new_n(cfg("Leicht", true, 3), 4, 800, 600);
+        assert_eq!(s.players.len(), 4);
+        s.eliminate(0);
+        s.eliminate(2);
+        assert_eq!(s.check_winner(true), None);
+        s.eliminate(3);
+        assert_eq!(s.check_winner(true), Some(Winner::of(1)));
+        let mut t = Sim2p::new_n(cfg("Leicht", true, 3), 8, 1600, 600);
+        for i in 0..8 { if i != 6 { t.eliminate(i); } }
+        assert_eq!(t.check_winner(true), Some(Winner::Other(6)));
+        assert_eq!(Winner::Other(6).index(), Some(6));
+    }
+
+    /// Koop mit 3: 1-UP belebt den ersten Ausgeschiedenen wieder
+    #[test]
+    fn koop_drei_wiederbeleben() {
+        let mut s = Sim2p::new_n(cfg("Leicht", false, 5), 3, 800, 600);
+        s.eliminate(2);
+        s.eliminate(1);
+        let p0 = s.players[0].rect;
+        s.powerups.push(Rect::new(p0.x, p0.y, 38, 38));
+        let r = s.step(16, &[Input::default(); 3], 800, 600);
+        assert!(r.events.contains(&SimEvent::Revived(1)));
+        assert!(s.players[1].alive && !s.players[2].alive);
     }
 }

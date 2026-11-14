@@ -1,7 +1,7 @@
-## JumpNDodge 5.4.6
+## JumpNDodge 5.5.0
 
-- **Online in normaler Größe:** Das Spielfeld ist so groß wie der kleinere Bildschirm der beiden Spieler und wird nicht mehr hochskaliert – Figuren und Hindernisse sind so groß wie im Einzelspieler.
-- Dafür braucht auch der Server 5.4.6 (Server ab 5.4.1 aktualisieren sich selbst).
-- Mit 5.3.0 oder 5.4.0 dieses Update bitte **einmal von Hand** installieren (deren Updater startet die Installation nicht).
+- **Online bis zu 8 Spieler:** Beim Raum-Erstellen 2 bis 8 Plätze wählen. VS: Wer als Letzter übrig ist, gewinnt. Koop: ein 1-UP belebt einen ausgeschiedenen Mitspieler wieder.
+- **Chat 24 Stunden:** Der Server hebt den Chat einen Tag lang auf – wer neu reinkommt, sieht, was geschrieben wurde.
+- Dafür brauchen Spiel **und** Server 5.5.0 (Server ab 5.4.1 aktualisieren sich selbst). Ältere Spiele bekommen „bitte aktualisieren“.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

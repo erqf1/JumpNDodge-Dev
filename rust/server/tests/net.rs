@@ -66,7 +66,7 @@ fn wait_pump<T>(c: &mut Client, mut other: Option<&mut Client>, secs: u64, mut f
 fn setup_round(srv: &TestServer, mode: Mode, diff: &str, loss: f64) -> (Client, Client, u64) {
     let mut a = Client::connect(&srv.addr, opts("Alice", loss)).expect("Alice verbindet");
     let mut b = Client::connect(&srv.addr, opts("Bob", loss)).expect("Bob verbindet");
-    a.send(&ClientMsg::CreateRoom { mode, difficulty: diff.into() });
+    a.send(&ClientMsg::CreateRoom { mode, difficulty: diff.into(), max_players: 2 });
     let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
     b.send(&ClientMsg::ListRooms);
     let list = wait_pump(&mut b, Some(&mut a), 10, |m| if let ServerMsg::RoomList(l) = m { Some(l.clone()) } else { None });
@@ -195,37 +195,36 @@ fn raum_voll_und_unbekannt() {
     c.send(&ClientMsg::JoinRoom { code: "ZZZZ".into() });
     let e = wait_for(&mut c, 10, |m| if let ServerMsg::Error(e) = m { Some(e.clone()) } else { None });
     assert!(e.contains("gibt es nicht"), "{e}");
-    c.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into() });
+    c.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: 2 });
     let e = wait_for(&mut c, 10, |m| if let ServerMsg::Error(e) = m { Some(e.clone()) } else { None });
     assert!(e.contains("voll"), "{e}");
 }
 
 #[test]
-fn chat_nur_live_und_mit_spamschutz() {
+fn chat_mit_verlauf_und_spamschutz() {
     let srv = start_server("", 4, 0.0);
     let mut a = Client::connect(&srv.addr, opts("Alice", 0.0)).expect("Alice verbindet");
-    // Nachricht, bevor Bob da ist: Bob darf sie nie sehen (kein Verlauf)
+    // Nachricht, bevor Bob da ist: Bob bekommt sie beim Beitreten aus dem Verlauf (24 Stunden)
     a.send(&ClientMsg::Chat { text: "vorher".into() });
     wait_for(&mut a, 5, |m| matches!(m, ServerMsg::Chat { text, .. } if text == "vorher").then_some(()));
     let mut b = Client::connect(&srv.addr, opts("Bob", 0.0)).expect("Bob verbindet");
+    let hist = wait_pump(&mut b, Some(&mut a), 5, |m| match m {
+        ServerMsg::Chat { from_id, from, text } if *from_id == CHAT_HISTORY_ID => Some((from.clone(), text.clone())),
+        _ => None,
+    });
+    assert_eq!((hist.0.as_str(), hist.1.as_str()), ("Alice", "vorher"), "Verlauf beim Beitreten");
     // Alice bekommt den Hinweis "Bob ist da"
     wait_pump(&mut a, Some(&mut b), 5, |m| matches!(m, ServerMsg::Chat { from_id: 0, text, .. } if text.contains("Bob")).then_some(()));
-    a.send(&ClientMsg::Chat { text: "  hallo\n  Bob  ".into() });
+    a.send(&ClientMsg::Chat { text: "  hallo
+  Bob  ".into() });
     let (from, text) = wait_pump(&mut b, Some(&mut a), 5, |m| match m {
-        ServerMsg::Chat { from_id, from, text } if *from_id != 0 => Some((from.clone(), text.clone())),
+        ServerMsg::Chat { from_id, from, text } if *from_id != 0 && *from_id != CHAT_HISTORY_ID => Some((from.clone(), text.clone())),
         _ => None,
     });
     assert_eq!((from.as_str(), text.as_str()), ("Alice", "hallo Bob"), "bereinigt und mit Absender");
     // Spam: nach CHAT_BURST Nachrichten kommt der Hinweis an den Absender
     for i in 0..8 { b.send(&ClientMsg::Chat { text: format!("spam {i}") }); }
     wait_pump(&mut b, Some(&mut a), 5, |m| matches!(m, ServerMsg::Chat { from_id: 0, text, .. } if text.contains("schnell")).then_some(()));
-    // Bob hat "vorher" nie bekommen
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_millis(300) {
-        a.pump();
-        for m in b.poll() { assert!(!matches!(m, ServerMsg::Chat { ref text, .. } if text == "vorher"), "kein Verlauf für Neue"); }
-        std::thread::sleep(Duration::from_millis(3));
-    }
 }
 
 /// WebSocket-Weg (wie hinter einem Cloudflare Tunnel): Serverinfo, Verbinden, Raum und Chat über ws://
@@ -241,7 +240,7 @@ fn websocket_raum_und_chat() {
     // gemischt: Bob kommt per UDP, beide landen auf demselben Server
     let mut b = Client::connect(&srv.addr, opts("Bob", 0.0)).expect("Bob per UDP");
     assert!(!b.via_websocket());
-    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into() });
+    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: 2 });
     let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
     b.send(&ClientMsg::JoinRoom { code: code.clone() });
     wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { players, .. } = m { (players[0].is_some() && players[1].is_some()).then_some(()) } else { None });
@@ -269,7 +268,7 @@ fn feldbreite_nach_bildschirmen() {
     let mut b = Client::connect(&srv.addr, opts("Normal", 0.0)).expect("B verbindet");
     a.send(&ClientMsg::Screen { w: 2560, h: 1080 });
     b.send(&ClientMsg::Screen { w: 1920, h: 1080 });
-    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into() });
+    a.send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: 2 });
     let code = wait_pump(&mut a, Some(&mut b), 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
     b.send(&ClientMsg::JoinRoom { code });
     wait_pump(&mut b, Some(&mut a), 10, |m| if let ServerMsg::RoomState { players, .. } = m { (players[0].is_some() && players[1].is_some()).then_some(()) } else { None });
@@ -280,3 +279,38 @@ fn feldbreite_nach_bildschirmen() {
     assert_eq!((w, h), (1920, 1080));
 }
 
+
+#[test]
+fn vier_spieler_ein_raum() {
+    let srv = start_server("", 4, 0.0);
+    let mut cs: Vec<Client> = ["Anna", "Ben", "Cem", "Dana"].iter().map(|n| Client::connect(&srv.addr, opts(n, 0.0)).expect("verbindet")).collect();
+    cs[0].send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: 4 });
+    let code = {
+        let (a, rest) = cs.split_at_mut(1);
+        wait_pump(&mut a[0], Some(&mut rest[0]), 10, |m| if let ServerMsg::RoomState { code, players, .. } = m { (players.len() == 4).then(|| code.clone()) } else { None })
+    };
+    for i in 1..4 { cs[i].send(&ClientMsg::JoinRoom { code: code.clone() }); }
+    // warten, bis alle vier drin sind (alle Clients am Leben halten)
+    let start = Instant::now();
+    let mut full = false;
+    while start.elapsed() < Duration::from_secs(10) && !full {
+        for c in cs.iter_mut() {
+            for m in c.poll() { if let ServerMsg::RoomState { players, .. } = m { if players.iter().all(|p| p.is_some()) { full = true; } } }
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert!(full, "alle vier im Raum");
+    for c in cs.iter_mut() { c.send(&ClientMsg::Ready(true)); }
+    let mut starts: Vec<Option<(u8, usize)>> = vec![None; 4];
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(15) && starts.iter().any(|s| s.is_none()) {
+        for (i, c) in cs.iter_mut().enumerate() {
+            for m in c.poll() { if let ServerMsg::Start { you, names, .. } = m { starts[i] = Some((you, names.len())); } }
+        }
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    let mut yous: Vec<u8> = starts.iter().map(|s| s.expect("Start bekommen").0).collect();
+    assert!(starts.iter().all(|s| s.unwrap().1 == 4), "vier Namen");
+    yous.sort();
+    assert_eq!(yous, vec![0, 1, 2, 3], "jeder hat seine eigene Nummer");
+}

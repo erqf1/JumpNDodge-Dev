@@ -87,7 +87,7 @@ impl G {
                 let mut inputs = [self.input_2p("p1"), self.input_2p("p2")];
                 for i in 0..2 { inputs[i].jump |= jump_latch[i]; jump_latch[i] = false; }
                 let was_jumping = [sim.players[0].jumping, sim.players[1].jumping];
-                let res = sim.step(dt, inputs, w, h);
+                let res = sim.step(dt, &inputs, w, h);
                 fx.update(dt as f64);
                 if fx_on {
                     let dark = self.is_dark_mode();

@@ -74,3 +74,10 @@ docker-compose.yml einfügen. server.json liegt dann in /DATA/AppData/jumpndodge
 Umgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,
 JND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_MAX_ROOMS, JND_SERVER_WS_PORT,
 JND_SERVER_AUTO_UPDATE.
+
+Chat
+----
+Spieler können auf dem Server chatten. Nachrichten werden 24 Stunden aufgehoben (Datei chat.json
+neben der server.json) und neuen Spielern beim Verbinden gezeigt. In der server.json:
+  "chat": false               -> Chat aus
+  "chat_history_hours": 0     -> nur live, nichts wird gespeichert

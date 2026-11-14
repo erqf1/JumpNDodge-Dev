@@ -148,10 +148,12 @@ impl Client {
             let mut got = vec![];
             link.recv(|p| got.extend(peer.on_packet(p)));
             peer.update(link.wire());
+            let mut welcome = None;
             for d in got {
                 match decode::<ServerMsg>(&d) {
-                    Some(ServerMsg::Welcome { client_id, server_name, motd }) => {
-                        return Try::Ok(Client { link, peer, client_id, server_name, motd, pending });
+                    // Was im selben Schwung nach dem Willkommen kam (z.B. der Chat-Verlauf), nicht verwerfen
+                    Some(ServerMsg::Welcome { client_id, server_name, motd }) if welcome.is_none() => {
+                        welcome = Some((client_id, server_name, motd));
                     }
                     Some(ServerMsg::Reject { reason }) => {
                         // Bestätigung schicken, damit der Server nicht weiter wiederholt
@@ -161,6 +163,9 @@ impl Client {
                     Some(m) => pending.push(m),
                     None => {}
                 }
+            }
+            if let Some((client_id, server_name, motd)) = welcome {
+                return Try::Ok(Client { link, peer, client_id, server_name, motd, pending });
             }
             if let Link::Ws(w) = &link { if w.is_closed() { break; } }
             std::thread::sleep(Duration::from_millis(5));

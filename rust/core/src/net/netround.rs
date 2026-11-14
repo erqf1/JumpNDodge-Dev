@@ -5,13 +5,13 @@
 //!   Kommt ein Snapshot, wird auf den Serverstand zurückgesetzt und alle Eingaben, die der
 //!   Server noch nicht kannte, werden erneut angewendet. Kleine Abweichungen werden weich
 //!   ausgeglichen statt zu springen.
-//! - Der **andere Spieler** wird zwischen zwei Snapshots interpoliert (leicht verzögert, dafür flüssig).
+//! - Die **anderen Spieler** werden zwischen zwei Snapshots interpoliert (leicht verzögert, dafür flüssig).
 //! - **Hindernisse/1-UPs** bewegen sich gleichmäßig und werden ab dem letzten Snapshot
 //!   weitergerechnet.
 
 use super::proto::*;
 use crate::rect::Rect;
-use crate::sim2p::{move_player, Input, ObstacleKind, Player, SimEvent, PLAYER_SIZE, START_X};
+use crate::sim2p::{move_player, start_x, Input, ObstacleKind, Player, SimEvent, PLAYER_SIZE};
 use std::collections::VecDeque;
 
 /// Wie viele Frames hinter dem Server der andere Spieler gezeichnet wird
@@ -53,8 +53,8 @@ pub struct NetRound {
 impl NetRound {
     pub fn new(mode: Mode, difficulty: &str, you: usize, field_w: i32, field_h: i32) -> NetRound {
         let floor_y = field_h - 50;
-        let you = you.min(1);
-        let rect = Rect::new(START_X[you], floor_y - PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE);
+        let you = you.min(crate::sim2p::MAX_PLAYERS - 1);
+        let rect = Rect::new(start_x(you), floor_y - PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE);
         NetRound {
             mode, difficulty: difficulty.into(), you, field_w, field_h, floor_y,
             history: VecDeque::new(), server_frame: 0.0, local_frame: 0, inputs: VecDeque::new(),
@@ -114,7 +114,7 @@ impl NetRound {
     }
 
     fn reconcile(&mut self, s: &Snapshot) {
-        let ps = &s.players[self.you];
+        let Some(ps) = s.players.get(self.you) else { return; };
         let old = (self.pred.rect.x as f64 + self.corr.0, self.pred.rect.y as f64 + self.corr.1);
         let was_alive = self.pred.alive;
         let ack = s.input_ack;
@@ -150,24 +150,32 @@ impl NetRound {
         DrawPlayer { rect: Rect::new(x.round() as i32, y.round() as i32, PLAYER_SIZE, PLAYER_SIZE), alive: self.pred.alive, lives: self.pred.lives, invuln: self.pred.invuln }
     }
 
-    /// Anderer Spieler zum Zeichnen (zwischen zwei Snapshots interpoliert)
-    pub fn other_draw(&self) -> Option<DrawPlayer> {
-        let o = 1 - self.you;
+    /// Wie viele Spieler die Runde hat (laut Server)
+    pub fn player_count(&self) -> usize { self.history.back().map(|s| s.players.len()).unwrap_or(0) }
+
+    /// Alle anderen Spieler zum Zeichnen: (Nummer, Spieler)
+    pub fn others_draw(&self) -> Vec<(usize, DrawPlayer)> {
+        (0..self.player_count()).filter(|&o| o != self.you).filter_map(|o| self.other_draw(o).map(|d| (o, d))).collect()
+    }
+
+    /// Anderer Spieler o zum Zeichnen (zwischen zwei Snapshots interpoliert)
+    pub fn other_draw(&self, o: usize) -> Option<DrawPlayer> {
         let latest = self.history.back()?;
+        latest.players.get(o)?;
         let rf = self.server_frame - INTERP_DELAY_FRAMES;
         let mk = |p: &PlayerSnap, x: f64, y: f64| DrawPlayer { rect: Rect::new(x.round() as i32, y.round() as i32, PLAYER_SIZE, PLAYER_SIZE), alive: p.alive, lives: p.lives, invuln: p.invuln };
         let snaps: Vec<&Snapshot> = self.history.iter().collect();
         for w in snaps.windows(2) {
             let (a, b) = (w[0], w[1]);
             if (a.frame as f64) <= rf && rf <= b.frame as f64 {
-                let (pa, pb) = (&a.players[o], &b.players[o]);
+                let (Some(pa), Some(pb)) = (a.players.get(o), b.players.get(o)) else { continue; };
                 let t = (rf - a.frame as f64) / (b.frame - a.frame).max(1) as f64;
                 // Wiederbelebung/Teleport nicht verschmieren
                 if !pa.alive || (pa.x - pb.x).abs() > 100 || (pa.y - pb.y).abs() > 150 { return Some(mk(pb, pb.x as f64, pb.y as f64)); }
                 return Some(mk(pb, pa.x as f64 + (pb.x - pa.x) as f64 * t, pa.y as f64 + (pb.y - pa.y) as f64 * t));
             }
         }
-        let p = &latest.players[o];
+        let p = latest.players.get(o)?;
         Some(mk(p, p.x as f64, p.y as f64))
     }
 
@@ -197,7 +205,7 @@ impl NetRound {
     }
 
     /// Spielerstand laut Server (Leben/lebendig) für die Anzeige
-    pub fn server_player(&self, i: usize) -> Option<&PlayerSnap> { self.history.back().map(|s| &s.players[i.min(1)]) }
+    pub fn server_player(&self, i: usize) -> Option<&PlayerSnap> { self.history.back().and_then(|s| s.players.get(i)) }
 }
 
 #[cfg(test)]
@@ -218,7 +226,7 @@ mod tests {
             let sent = nr.tick(raw);
             if loss_every == 0 || f % loss_every != 0 { to_server.push_back(sent); }
             while to_server.len() > delay_frames { let (fr, i) = to_server.pop_front().unwrap(); if fr > ack { srv_inp = i; ack = fr; } }
-            sim.step(16, [srv_inp, Input::default()], FIELD_W, FIELD_H);
+            sim.step(16, &[srv_inp, Input::default()], FIELD_W, FIELD_H);
             if f % SNAPSHOT_EVERY == 0 { to_client.push_back(Snapshot::from_sim(&sim, f, vec![], ack)); }
             while to_client.len() > delay_frames / 2 { let s = to_client.pop_front().unwrap(); nr.on_snapshot(s); }
             nr.advance(1000.0 / 60.0);

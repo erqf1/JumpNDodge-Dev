@@ -83,6 +83,7 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
             None if ws_port != 0 => println!(" Web:    aus (Port {ws_port} belegt)"),
             None => {}
         }
+        println!(" Chat:   {}", if !server.cfg.chat { "aus".to_string() } else if server.cfg.chat_history_hours == 0 { "nur live".to_string() } else { format!("Verlauf {} Stunden (chat.json)", server.cfg.chat_history_hours) });
         println!(" Update: {}", if server.cfg.auto_update { "automatisch (neu starten, wenn niemand verbunden ist)" } else { "aus" });
         println!(" Config: {}", cfg_path.display());
         println!("-----------------------------------------------------");
@@ -91,6 +92,10 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
         println!(" an diesen PC weiterleiten und deine öffentliche IP teilen.");
         println!(" Beenden: Strg+C");
         println!("=====================================================");
+        if server.cfg.chat && server.cfg.chat_history_hours > 0 {
+            let store = cfg_path.parent().map(|d| d.join("chat.json")).unwrap_or_else(|| PathBuf::from("chat.json"));
+            server.set_chat_store(store);
+        }
         let stop = AtomicBool::new(false);
         server.run(&stop);
         let Some(ready) = server.restart_for_update.take() else { break; };

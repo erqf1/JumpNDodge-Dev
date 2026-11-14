@@ -37,6 +37,11 @@ Letzte Aktualisierung: 2026-11-14 · Branch: `main`
 - **Updater-Fix (nach 5.3.0):** Portable Windows-Installationen luden das Server-Zip statt des Spiels (beide endeten auf
   `-windows-x64.zip`). Im Release 5.3.0 heißt die Server-Datei jetzt `JumpNDodge-Server-win-x64.zip` (damit klappt es auch
   für alte 5.2.1), der Updater sucht ab 5.3.1 nur noch exakte Spiel-Dateinamen und gibt PowerShell normale Pfade.
+- **5.5.0:** Online bis 8 Spieler (Protokoll 3): `Sim2p::new_n`, `players: Vec`, `Winner::Other(u8)`/`of`/`index`,
+  `check_winner` (VS: Letzter übrig gewinnt). Räume mit 2–8 Plätzen, Start wenn ≥2 da und alle bereit; `Start` schickt
+  `you` + `names`. Online-Feld in echten Pixeln = kleinster Bildschirm aller Spieler (5.4.6). Chat-Verlauf 24 h im Server
+  (`chat_history_hours`, Datei `chat.json` neben der `server.json`, beim Beitreten mit `CHAT_HISTORY_ID` nachgeschickt).
+  Test mit mehreren Clients: Skript-Muster in `tests/mp_e2e.sh`, Raum per `run mp create vs Hölle 4`.
 - **5.4.0:** Menüs überall im Startmenü-Look (`ui_c.rs`, `G::draw_panel`/`draw_tab`), Einstellungen neu sortiert
   (`settings_ui.rs`), Übergänge mit Herkunft und **Pop-ups** (`transitions.rs`: Einstellungen, Belohnungen, Profil, Online,
   Anleitung, Code, Mods, Schwierigkeit als Karte über dem Menü; direkt in Kartengröße gezeichnet), Einstellungen als Zahnrad

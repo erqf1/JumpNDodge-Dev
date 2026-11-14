@@ -9,7 +9,7 @@
 use crate::sim2p::{Input, ObstacleKind, SimEvent, Sim2p, Winner};
 use serde::{Deserialize, Serialize};
 
-pub const PROTO_VERSION: u32 = 2;
+pub const PROTO_VERSION: u32 = 3;
 /// Spielversion (nur zur Anzeige; ob es passt, entscheidet PROTO_VERSION)
 pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 47800;
@@ -42,6 +42,10 @@ pub const MAX_CHAT_LEN: usize = 120;
 /// Server-Chat: so viele Nachrichten am Stück, danach eine pro CHAT_REFILL_SECS
 pub const CHAT_BURST: f64 = 5.0;
 pub const CHAT_REFILL_SECS: f64 = 2.0;
+/// Absender-ID für Nachrichten aus dem gespeicherten Verlauf (beim Beitreten nachgeschickt)
+pub const CHAT_HISTORY_ID: u32 = u32::MAX;
+/// Höchstens so viele Nachrichten im Verlauf
+pub const CHAT_HISTORY_MAX: usize = 300;
 pub const DIFFICULTIES: [&str; 8] = ["Leicht", "Mittel", "Schwer", "Hardcore", "Unmöglich", "Albtraum", "Hölle", "Dynamisch"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,7 +57,8 @@ pub enum ClientMsg {
     Info,
     Hello { proto: u32, game_version: String, name: String, password: String },
     ListRooms,
-    CreateRoom { mode: Mode, difficulty: String },
+    /// `max_players` = Plätze im Raum (2 bis 8)
+    CreateRoom { mode: Mode, difficulty: String, max_players: u8 },
     JoinRoom { code: String },
     LeaveRoom,
     Ready(bool),
@@ -85,6 +90,8 @@ pub struct RoomInfo {
     pub mode: Mode,
     pub difficulty: String,
     pub players: u8,
+    /// Plätze im Raum
+    pub max: u8,
     pub host: String,
     pub playing: bool,
 }
@@ -111,7 +118,7 @@ pub struct Snapshot {
     pub frame: u64,
     pub score: i64,
     pub speed: f64,
-    pub players: [PlayerSnap; 2],
+    pub players: Vec<PlayerSnap>,
     pub obstacles: Vec<ObstacleSnap>,
     pub powerups: Vec<(i32, i32)>,
     /// (Frame, Ereignis) der letzten EVENT_HISTORY_FRAMES Frames - Client filtert Doppelte
@@ -129,7 +136,7 @@ impl Snapshot {
         let obstacles = sim.obstacles.iter().chain(sim.top_obstacles.iter())
             .map(|o| ObstacleSnap { x: o.rect.x, y: o.rect.y, w: o.rect.w, h: o.rect.h, kind: o.kind }).collect();
         Snapshot {
-            frame, score: sim.score, speed: sim.speed, players: [ps(0), ps(1)], obstacles,
+            frame, score: sim.score, speed: sim.speed, players: (0..sim.players.len()).map(ps).collect(), obstacles,
             powerups: sim.powerups.iter().map(|p| (p.x, p.y)).collect(), events, input_ack,
         }
     }
@@ -142,16 +149,17 @@ pub enum ServerMsg {
     /// Verbindung abgelehnt (falsche Version, falsches Passwort, Server voll ...)
     Reject { reason: String },
     RoomList(Vec<RoomInfo>),
-    /// Aktueller Raum: `you` = eigener Platz (0 = P1, 1 = P2)
-    RoomState { code: String, mode: Mode, difficulty: String, you: u8, players: [Option<LobbyPlayer>; 2] },
+    /// Aktueller Raum: `you` = eigener Platz; `players` hat so viele Einträge wie der Raum Plätze hat
+    RoomState { code: String, mode: Mode, difficulty: String, you: u8, players: Vec<Option<LobbyPlayer>> },
     LeftRoom { reason: String },
     Countdown { seconds: u8 },
-    Start { seed: u64, mode: Mode, difficulty: String, width: i32, height: i32 },
+    /// Rundenstart: `you` = eigene Nummer in der Runde, `names` = alle Mitspieler in Rundenreihenfolge
+    Start { seed: u64, mode: Mode, difficulty: String, width: i32, height: i32, you: u8, names: Vec<String> },
     Snapshot(Snapshot),
     GameOver { winner: Option<Winner>, score: i64, frames: u64, reason: String },
     Error(String),
     Pong { t: u64 },
-    /// Chat live weitergereicht. `from_id` 0 = Hinweis vom Server (beigetreten, zu schnell ...)
+    /// Chat. `from_id` 0 = Hinweis vom Server (beigetreten, zu schnell ...), CHAT_HISTORY_ID = aus dem Verlauf
     Chat { from_id: u32, from: String, text: String },
 }
 
