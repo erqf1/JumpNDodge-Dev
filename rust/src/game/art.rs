@@ -644,3 +644,44 @@ pub fn pmark(tag: &'static str) {
         }
     });
 }
+
+// ---------------- Neue Hindernisse (Beta) ----------------
+pub const BOUNCER: Col = (225, 70, 170);
+pub const DASHER: Col = (150, 160, 186);
+const LASER: Col = (250, 205, 60);
+
+/// Hüpfball mit Schatten am Boden (je höher, desto kleiner)
+pub fn draw_bouncer(bs: &Surface, r: Rect, floor_y: i32) {
+    let lift = (floor_y - r.bottom()).max(0) as f64;
+    let sw = ((r.w as f64) * (1.0 - (lift / 220.0).min(0.6))) as i32;
+    draw::ellipse(bs, (0, 0, 0, 70), Rect::new(r.centerx() - sw / 2, floor_y - 5, sw, 8), 0);
+    let rad = r.w / 2;
+    draw::circle(bs, darken(BOUNCER, 0.35), (r.centerx() + 2, r.centery() + 3), rad, 0);
+    draw::circle(bs, BOUNCER, (r.centerx(), r.centery()), rad, 0);
+    draw::circle(bs, lighten(BOUNCER, 0.45), (r.centerx() - rad / 3, r.centery() - rad / 3), (rad / 4).max(3), 0);
+    draw::circle(bs, darken(BOUNCER, 0.45), (r.centerx(), r.centery()), rad, 2);
+}
+
+/// Laser-Balken in Kopfhöhe: Halter an den Enden, flackernder heller Kern
+pub fn draw_laser_bar(bs: &Surface, r: Rect, t: f64) {
+    let a = (90.0 + 60.0 * (t * 9.0).sin()) as u8;
+    draw::rect(bs, (LASER.0 as u8, LASER.1 as u8, LASER.2 as u8, a), Rect::new(r.x - 5, r.y - 5, r.w + 10, r.h + 10), 3, 10);
+    draw::rect(bs, darken(LASER, 0.35), Rect::new(r.x + 2, r.y + 3, r.w, r.h), 0, 6);
+    draw::rect(bs, LASER, r, 0, 6);
+    let core_h = (r.h / 3).max(4);
+    draw::rect(bs, (255, 248, 210), Rect::new(r.x + 10, r.centery() - core_h / 2, r.w - 20, core_h), 0, 3);
+    for x in [r.x, r.right() - 12] {
+        draw::rect(bs, (70, 70, 92), Rect::new(x, r.y - 4, 12, r.h + 8), 0, 3);
+    }
+}
+
+/// Warnpfeile vor dem Sprinter, solange er noch langsam ist
+pub fn draw_dash_warning(bs: &Surface, r: Rect, t: f64) {
+    if (t * 6.0).sin() < -0.2 { return; }
+    let cy = r.centery();
+    for k in 0..2 {
+        let x = r.x - 14 - k * 14;
+        let pts = [(x + 8, cy - 9), (x, cy), (x + 8, cy + 9)];
+        draw::polygon(bs, (235, 80, 100), &pts, 3);
+    }
+}

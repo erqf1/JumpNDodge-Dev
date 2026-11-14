@@ -56,6 +56,7 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("language_select", "Sprachauswahl öffnen"),
     ("game", "Direkt eine Standard-Runde starten"),
     ("game2p", "Direkt eine 2-Spieler-Runde starten"),
+    ("game_custom", "Direkt eine Custom-Runde starten (Einstellungen der Custom-Schwierigkeit)"),
     ("add_coins", "Coins hinzufügen, z.B.: run add_coins 500"),
     ("set_coins", "Coins setzen, z.B.: run set_coins 0"),
     ("unlock_all_powers", "Alle Powers freischalten"),
@@ -222,6 +223,10 @@ impl G {
         let powers_list: Vec<String> = d("POWERS_DB").as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
         match cmd {
             "game" => { self._dev_goto("game_running", Some("{'current_game_mode': 'standard'}")); self.current_game_mode = "standard".into(); }
+            "game_custom" => {
+                if let Some(i) = DIFFICULTIES.iter().position(|d| *d == "Custom") { self.difficulty_index = i; self.settings.insert("difficulty".into(), json!("Custom")); }
+                self._dev_goto("game_running", Some("{'current_game_mode': 'custom'}")); self.current_game_mode = "custom".into();
+            }
             "game2p" => { self._dev_goto("game_running", Some("{'current_game_mode': '2player'}")); self.current_game_mode = "2player".into(); }
             "add_coins" => {
                 let n = parse_int(args, 0, 100);

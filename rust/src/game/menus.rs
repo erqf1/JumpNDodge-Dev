@@ -558,13 +558,14 @@ impl G {
     }
 }
 
-pub fn custom_toggle_defs() -> [(&'static str, bool, &'static str); 5] {
+pub fn custom_toggle_defs() -> [(&'static str, bool, &'static str); 6] {
     [
         ("custom_oneups", true, "1-Ups"),
         ("custom_vertical_obstacles", false, "Vert. Hindernisse"),
         ("custom_wind_sides", false, "Wind (Seiten)"),
         ("custom_wind_all", false, "Wind (Allseitig)"),
         ("custom_free_roam", false, "Freie Bewegung (Beta)"),
+        ("custom_beta_obstacles", false, "Neue Hindernisse (Beta)"),
     ]
 }
 

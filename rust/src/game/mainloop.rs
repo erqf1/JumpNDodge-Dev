@@ -9,9 +9,10 @@ use crate::pg::*;
 use crate::util::*;
 use serde_json::{json, Value};
 
-const DS_TOGGLE_DEFS: [(&str, bool); 5] = [
+const DS_TOGGLE_DEFS: [(&str, bool); 6] = [
     ("custom_oneups", true), ("custom_vertical_obstacles", false),
     ("custom_wind_sides", false), ("custom_wind_all", false), ("custom_free_roam", false),
+    ("custom_beta_obstacles", false),
 ];
 const BG_TOGGLE_DEFS: [(&str, bool); 5] = [
     ("bg_stars", true), ("bg_rings_enabled", true), ("bg_animated", true), ("mono_bg", false), ("show_floor_line", true),

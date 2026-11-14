@@ -784,6 +784,18 @@ impl G {
         }
     }
 
+    /// Neue Hindernisse (Beta, nur Custom-Modus): hoher Block, Hüpfball, Sprinter, Laser-Balken
+    pub fn make_beta_obstacle(&self, spawn_x: i32) -> Obstacle {
+        let floor = self.HEIGHT - 50;
+        match choice(&["tall", "bouncer", "dasher", "bar"]) {
+            "tall" => Obstacle::new(spawn_x, floor - 92, 46, 92, "tall"),
+            "bouncer" => { let mut o = Obstacle::new(spawn_x, floor - 40, 40, 40, "bouncer"); o.fy = (floor - 40) as f64; o.fx = 0.0; o }
+            "dasher" => Obstacle::new(spawn_x, floor - 40, 62, 40, "dasher"),
+            // Balken in Kopfhöhe: stehend passt man drunter durch, wer springt, stößt an
+            _ => Obstacle::new(spawn_x, floor - 50 - 62, 170, 26, "bar"),
+        }
+    }
+
     pub fn make_top_obstacle(&self) -> Obstacle {
         let rx = randint(60, (self.WIDTH - 110) as i64) as i32;
         Obstacle::new(rx, -55, 50, 50, "floating")

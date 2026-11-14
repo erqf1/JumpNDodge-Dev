@@ -313,6 +313,7 @@ impl G {
         let wind_h = custom && (self.settings.gb("custom_wind_sides", false) || self.settings.gb("custom_wind_all", false));
         let wind_v = custom && self.settings.gb("custom_wind_all", false);
         let free_roam = custom && self.settings.gb("custom_free_roam", false);
+        let beta_obs = custom && !free_roam && self.settings.gb("custom_beta_obstacles", false);
         let free_speed = 10;
         let (mut wh, mut wh_t, mut wh_timer) = (0.0f64, 0.0f64, 0i64);
         let (mut wv, mut wv_t, mut wv_timer) = (0.0f64, 0.0f64, 0i64);
@@ -558,6 +559,13 @@ impl G {
                         let mut r = random() * mod_w_sum;
                         let pick = mod_obs.iter().find(|o| { r -= o.weight; r < 0.0 }).or(mod_obs.last());
                         if let Some(o) = pick { if o.top { top_obstacles.push(Obstacle::from_mod(o, w, h)); } else { obstacles.push(Obstacle::from_mod(o, w, h)); } }
+                    } else if beta_obs && random() < 0.45 {
+                        let mut o = self.make_beta_obstacle(w);
+                        // Balken nur mit Abstand zum letzten Hindernis (sonst ist man evtl. noch in der Luft)
+                        if o.obs_type == "bar" && obstacles.iter().any(|x| x.r.right() > w - 420) { o = Obstacle::new(w, h - 50 - 92, 46, 92, "tall"); }
+                        // nach dem Balken etwas Luft lassen, damit man nicht drunter springen muss
+                        if o.obs_type == "bar" || o.obs_type == "dasher" { obstacle_delay = obstacle_delay.max(1100); }
+                        obstacles.push(o);
                     } else {
                         let t = self.pick_obstacle_type(&difficulty, if dynamic_mode { Some(speed) } else { None });
                         obstacles.extend(self.make_obstacle(w, &t));
@@ -594,6 +602,13 @@ impl G {
                     } else {
                         o.r.x = addf(o.r.x, -current_speed * o.spd);
                         if wind_h && rp.freeze_remaining == 0.0 { o.r.x = addf(o.r.x, wh * 5.0); }
+                        match o.obs_type {
+                            // Hüpfball: springt im Takt auf und ab (oben passt man drunter durch)
+                            "bouncer" if current_speed > 0.0 => { o.fx += 0.075 * (current_speed / 8.0).clamp(0.7, 2.0); o.r.y = (o.fy - o.fx.sin().abs() * 135.0).round() as i32; }
+                            // Sprinter: rollt erst langsam heran, ab gut der Hälfte zieht er an
+                            "dasher" => { o.spd = if o.r.x > (w as f64 * 0.58) as i32 { 0.45 } else { 1.9 }; }
+                            _ => {}
+                        }
                     }
                     if !fr && right_before >= player.left() && o.r.right() < player.left() { passed.push(o.r); }
                     let off = if fr { o.r.right() < 0 || o.r.left() > w || o.r.bottom() < 0 || o.r.top() > h } else { o.r.right() < 0 };
@@ -792,6 +807,12 @@ impl G {
             let dscroll = prev_floor_scroll + (floor_scroll - prev_floor_scroll) * alpha;
             for o in &obstacles {
                 let r = o.draw_rect(alpha);
+                match o.obs_type {
+                    "bar" => { super::art::draw_laser_bar(&bs, r, tsec); continue; }
+                    "bouncer" => { super::art::draw_bouncer(&bs, r, h - 50); continue; }
+                    "dasher" => { super::art::draw_hazard_c(&bs, r, super::art::DASHER); if o.spd < 1.0 { super::art::draw_dash_warning(&bs, r, tsec); } continue; }
+                    _ => {}
+                }
                 let tint = o.tint.unwrap_or(super::art::HAZARD);
                 if free_roam { super::art::draw_hazard_c(&bs, r, tint); } else { super::art::draw_hazard_live(&bs, r, tint, tsec, (r.x as f64 + dscroll) * 0.037); }
             }
