@@ -97,6 +97,8 @@ struct Mp {
     round_started: Instant,
     acc_ms: f64,
     jump_latch: bool,
+    /// Sprung vormerken: bis dahin weiter "Sprung" melden (springt dann bei der Landung)
+    jump_hold_until: Option<Instant>,
     leave_confirm_until: Option<Instant>,
     result: Option<(Option<Winner>, i64, String, u64)>,
     server_name: String,
@@ -170,7 +172,7 @@ impl Mp {
             addr_input: String::new(), code_input: String::new(), focus: Field::None, infos: HashMap::new(), info_tx, info_rx,
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
             create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room_looks: vec![], round_looks: vec![], trails: HashMap::new(), auto_spectate: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
-            jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
+            jump_latch: false, jump_hold_until: None, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
             public_servers: vec![], lan_servers: vec![], list_tx, list_rx, servers_at: None, servers_busy: 0, browser_scroll: 0,
@@ -505,7 +507,10 @@ impl G {
                             match e {
                                 SimEvent::Hit(i) | SimEvent::Died(i) => {
                                     if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.burst(x as f64, y as f64, super::art::HAZARD, 20); }
-                                    if i == you { self.shake(6.0); }
+                                    if i == you {
+                                        self.shake(6.0);
+                                        if self.settings.gb("pad_rumble", true) { self.display.rumble(if matches!(e, SimEvent::Died(_)) { 1.0 } else { 0.6 }, if matches!(e, SimEvent::Died(_)) { 380 } else { 180 }); }
+                                    }
                                 }
                                 SimEvent::OneUp(i) | SimEvent::Revived(i) => {
                                     if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.sparkle(x as f64, y as f64, super::art::ONEUP, 16); }
@@ -589,8 +594,11 @@ impl G {
             mp.acc_ms -= LOGIC_TICK_MS;
             steps += 1;
             if steps > 8 { mp.acc_ms = 0.0; break; }
+            let pressed = self.any_action_pressed("jump") || mp.jump_latch;
+            if mp.jump_latch && self.settings.gb("jump_buffer", true) { mp.jump_hold_until = Some(Instant::now() + Duration::from_millis(120)); }
+            let buffered = mp.jump_hold_until.map(|t| Instant::now() < t).unwrap_or(false);
             let raw = Input {
-                jump: self.any_action_pressed("jump") || mp.jump_latch,
+                jump: pressed || buffered,
                 left: self.any_action_pressed("left"),
                 right: self.any_action_pressed("right"),
             };

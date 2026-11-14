@@ -129,6 +129,10 @@ impl G {
                 r("language", self.get_text("language"), self.lang(), None),
                 r("focus_pause", self.tde("Pause, wenn das Fenster den Fokus verliert", "Pause when the window loses focus"), self.onoff(s.gb("pause_on_focus_loss", true)), Some(s.gb("pause_on_focus_loss", true))),
                 r("ghost", self.tde("Rekord-Geist anzeigen", "Show best-run ghost"), self.onoff(s.gb("ghost", true)), Some(s.gb("ghost", true))),
+                r("jump_buffer", self.tde("Sprung vormerken (kurz vor der Landung)", "Buffer jumps (just before landing)"), self.onoff(s.gb("jump_buffer", true)), Some(s.gb("jump_buffer", true))),
+                r("pad_rumble", self.tde("Controller-Vibration bei Treffern", "Controller rumble on hits"), self.onoff(s.gb("pad_rumble", true)), Some(s.gb("pad_rumble", true))),
+                r("exp_fast_fall", self.tde("Experimentell: Schnell fallen (S / ↓ / LT)", "Experimental: fast fall (S / ↓ / LT)"), self.onoff(s.gb("exp_fast_fall", false)), Some(s.gb("exp_fast_fall", false))),
+                r("exp_short_hop", self.tde("Experimentell: Kurz springen (früh loslassen)", "Experimental: short hop (release early)"), self.onoff(s.gb("exp_short_hop", false)), Some(s.gb("exp_short_hop", false))),
             ],
             _ => vec![
                 r("update", self.tde("Nach Updates suchen", "Check for updates"), format!("v{}", env!("CARGO_PKG_VERSION")), None),
@@ -250,6 +254,10 @@ impl G {
         match key {
             "back" => { self.play_sound(Snd::ClickBack); self.in_settings_more_menu = false; self.in_settings_menu = true; return; }
             "theme" => { let v = !self.is_dark_mode(); self.settings.insert("dark_mode".into(), json!(v)); self.save_section("settings", None); }
+            "jump_buffer" => self.flip_bool("jump_buffer", true),
+            "pad_rumble" => { self.flip_bool("pad_rumble", true); if self.settings.gb("pad_rumble", true) { self.display.rumble(0.5, 160); } }
+            "exp_fast_fall" => self.flip_bool("exp_fast_fall", false),
+            "exp_short_hop" => self.flip_bool("exp_short_hop", false),
             "legacy_art" => { self.flip_bool("legacy_art", false); super::art::set_legacy(self.settings.gb("legacy_art", false)); }
             "gui_scale" => {
                 let cur = self.settings.gf("gui_scale", 1.0);

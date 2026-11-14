@@ -26,7 +26,7 @@ pub const DARK_BUTTON_HOVER: (i32, i32, i32) = (90, 90, 100);
 
 pub const FADE_SPEED: i32 = 22;
 
-pub const STANDARD_ACTIONS: [&str; 6] = ["jump", "left", "right", "power1", "power2", "pause"];
+pub const STANDARD_ACTIONS: [&str; 7] = ["jump", "left", "right", "down", "power1", "power2", "pause"];
 pub const TWO_P_ACTIONS: [&str; 6] = ["p1_jump", "p1_left", "p1_right", "p2_jump", "p2_left", "p2_right"];
 pub const MENU_NAV_ACTIONS: [&str; 6] = ["nav_up", "nav_down", "nav_left", "nav_right", "nav_confirm", "nav_back"];
 pub const NAV_UP: [i32; 2] = [K_UP, K_w];
@@ -41,6 +41,7 @@ pub fn default_kb() -> Vec<(&'static str, Vec<i32>)> {
         ("jump", vec![K_SPACE, K_w, K_UP]),
         ("left", vec![K_LEFT, K_a]),
         ("right", vec![K_RIGHT, K_d]),
+        ("down", vec![K_DOWN, K_s]),
         ("power1", vec![K_q]),
         ("power2", vec![K_e]),
         ("pause", vec![K_ESCAPE]),
@@ -686,6 +687,7 @@ impl G {
         let t = d("_ACTION_LABELS_TRANSLATIONS");
         let de = &t["Deutsch"];
         let pack = t.gv(&self.lang()).unwrap_or(de);
+        if action == "down" && de.gos(action).is_none() { return self.tde("Schnell fallen (Experimentell)", "Fast fall (experimental)"); }
         pack.gos(action).or_else(|| de.gos(action)).unwrap_or_else(|| action.to_string())
     }
 

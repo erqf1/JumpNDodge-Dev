@@ -325,6 +325,14 @@ impl G {
         let mut rp = RuntimePowers::new(&equipped);
         let mut space_was_down = false;
         used_double_jump = false;
+        // Steuerung: vorgemerkter Sprung (ms), schnell fallen, kurz springen
+        let buffer_window: f64 = if self.settings.gb("jump_buffer", true) { 120.0 } else { 0.0 };
+        let fast_fall = self.settings.gb("exp_fast_fall", false);
+        let short_hop = self.settings.gb("exp_short_hop", false);
+        let rumble = self.settings.gb("pad_rumble", true);
+        let mut jump_buffer: f64 = 0.0;
+        let mut hop_cut = false;
+        let trace = std::env::var("JND_TRACE_JUMPS").is_ok();
         let mut last_frame = self.base_surface.copy();
         // Feste Logikrate: die Spielregeln laufen immer mit 60 Schritten/s (wie das pygame-Original),
         // gezeichnet wird so oft wie der Monitor kann - dazwischen wird interpoliert.
@@ -432,9 +440,20 @@ impl G {
                 let left_down = self.any_action_pressed("left");
                 let right_down = self.any_action_pressed("right");
                 if !free_roam {
-                    let space_down = self.any_action_pressed("jump") || jump_latch;
+                    let held = self.any_action_pressed("jump");
+                    let space_down = held || jump_latch;
                     jump_latch = false;
-                    if space_down && !space_was_down {
+                    if space_down && !space_was_down { jump_buffer = buffer_window.max(1.0); }
+                    // Kurz springen: Taste früh loslassen bremst den Aufstieg (einmal pro Sprung)
+                    if short_hop && is_jumping && !held && !hop_cut && vy < -7.0 { vy = -7.0; hop_cut = true; if trace { println!("[JUMP] Tick {} kurz", tick_no); } }
+                    // Schnell fallen: in der Luft nach unten drücken
+                    if fast_fall && is_jumping && self.any_action_pressed("down") { vy = vy.max(2.0) + gravity * 1.6; }
+                    let can_jump = !is_jumping || (rp.double_jump && !used_double_jump);
+                    if jump_buffer > 0.0 && !can_jump { jump_buffer -= dt as f64; }
+                    if jump_buffer > 0.0 && can_jump {
+                        jump_buffer = 0.0;
+                        hop_cut = false;
+                        if trace { println!("[JUMP] Tick {} y {} {}", tick_no, player.bottom(), if is_jumping { "doppelt" } else { "Boden" }); }
                         if !is_jumping {
                             vy = -20.0 * modm.jump;
                             is_jumping = true;
@@ -686,6 +705,7 @@ impl G {
                             lives -= 1;
                             hit_invuln = 750;
                             self.play_sound_v(Snd::Hit, "hit_volume");
+                            if rumble { self.display.rumble(if lives <= 0 { 1.0 } else { 0.6 }, if lives <= 0 { 380 } else { 180 }); }
                             if fx_on && combo >= 5 {
                                 let s = self.tab_font.render(&format!("{} x{}", self.tde("Combo weg", "Combo lost"), combo), true, if dark_round { (170, 166, 190) } else { (110, 106, 130) });
                                 fx.pop(player.centerx() as f64, (player.top() - 22) as f64, s, 800.0, 0.8);

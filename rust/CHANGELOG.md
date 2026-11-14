@@ -3,6 +3,12 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.9.0
+
+- Steuerung: Sprung vormerken (Druck bis 120 ms vor der Landung zählt), auch online; abschaltbar.
+- Controller: Vibration bei Treffern (abschaltbar), RT springt, LT fällt schnell.
+- Experimentell (Einstellungen > Spiel): Schnell fallen (S / ↓ / LT, eigene Taste) und Kurz springen (früh loslassen).
+
 ## JumpNDodge 5.8.0
 
 - Server-Browser: öffentliche Server (Liste beim offiziellen Server), Server im eigenen Netzwerk (LAN) und zuletzt genutzte.

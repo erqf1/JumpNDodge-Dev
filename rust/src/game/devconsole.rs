@@ -61,6 +61,8 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("unlock_all_powers", "Alle Powers freischalten"),
     ("unlock_all_cosmetics", "Alle Kosmetik-Items freischalten"),
     ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
+    ("setting", "Einstellung setzen, z.B.: run setting exp_fast_fall true"),
+    ("settings_game", "Einstellungen > Spiel öffnen"),
     ("theme", "Hell/Dunkel setzen, z.B.: run theme light / run theme dark"),
     ("settings_more", "Einstellungen > Mehr öffnen"),
     ("settings_sound", "Einstellungen > Sound öffnen"),
@@ -254,6 +256,14 @@ impl G {
                 self.save_section("settings", None);
                 super::art::set_legacy(v);
                 println!("[DEV] legacy_art {}", v);
+            }
+            "settings_game" => { for f in ALL_SCREEN_FLAGS { self.set_screen_flag(f, false); } self.open_settings_page(super::settings_ui::PAGE_GAME); }
+            "setting" => {
+                let (Some(k), Some(v)) = (args.first(), args.get(1)) else { println!("[DEV] setting braucht Name und Wert"); return true; };
+                let val = match *v { "true" | "an" | "on" => json!(true), "false" | "aus" | "off" => json!(false), x => x.parse::<f64>().map(|f| json!(f)).unwrap_or(json!(x)) };
+                self.settings.insert(k.to_string(), val.clone());
+                self.save_section("settings", None);
+                println!("[DEV] setting {} = {}", k, val);
             }
             "equip" => {
                 let Some(key) = args.first().map(|s| s.to_string()) else { println!("[DEV] equip braucht einen Kosmetik-Schlüssel"); return true; };

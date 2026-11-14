@@ -175,6 +175,8 @@ impl ApplicationHandler for App {
 struct Pads {
     gilrs: gilrs::Gilrs,
     order: Vec<gilrs::GamepadId>,
+    /// Laufende Vibrationen (werden nach Ablauf freigegeben)
+    effects: Vec<(gilrs::ff::Effect, std::time::Instant)>,
 }
 
 fn pad_button_key(pad: usize, b: gilrs::Button) -> Option<i32> {
@@ -182,6 +184,8 @@ fn pad_button_key(pad: usize, b: gilrs::Button) -> Option<i32> {
     if pad == 0 {
         Some(match b {
             South => K_SPACE, East => K_ESCAPE, West | LeftTrigger => K_q, North | RightTrigger => K_e,
+            // Trigger (LT/RT): springen bzw. schnell fallen - bequem mit dem Zeigefinger
+            RightTrigger2 => K_SPACE, LeftTrigger2 => K_s,
             Start => K_ESCAPE, Select => K_m,
             DPadUp => K_w, DPadDown => K_s, DPadLeft => K_a, DPadRight => K_d,
             _ => return None,
@@ -233,7 +237,7 @@ impl Display {
         if std::env::var("JND_NO_GAMEPAD").is_err() {
             match gilrs::Gilrs::new() {
                 Ok(g) => {
-                    let mut p = Pads { gilrs: g, order: Vec::new() };
+                    let mut p = Pads { gilrs: g, order: Vec::new(), effects: Vec::new() };
                     let ids: Vec<gilrs::GamepadId> = p.gilrs.gamepads().map(|(id, _)| id).collect();
                     p.order.extend(ids);
                     d.pads = Some(p);
@@ -308,6 +312,25 @@ impl Display {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Alle Controller kurz vibrieren lassen (falls sie das können); stärke 0..1
+    pub fn rumble(&mut self, strength: f32, ms: u32) {
+        use gilrs::ff::{BaseEffect, BaseEffectType, EffectBuilder, Replay, Ticks};
+        let Some(p) = self.pads.as_mut() else { return; };
+        let now = std::time::Instant::now();
+        p.effects.retain(|(_, until)| *until > now);
+        let ids: Vec<gilrs::GamepadId> = p.gilrs.gamepads().filter(|(_, g)| g.is_ff_supported()).map(|(id, _)| id).collect();
+        if ids.is_empty() { return; }
+        let mag = (strength.clamp(0.0, 1.0) * u16::MAX as f32) as u16;
+        let eff = EffectBuilder::new()
+            .add_effect(BaseEffect { kind: BaseEffectType::Strong { magnitude: mag }, scheduling: Replay { play_for: Ticks::from_ms(ms), ..Default::default() }, envelope: Default::default() })
+            .add_effect(BaseEffect { kind: BaseEffectType::Weak { magnitude: mag / 2 }, scheduling: Replay { play_for: Ticks::from_ms(ms), ..Default::default() }, envelope: Default::default() })
+            .gamepads(&ids)
+            .finish(&mut p.gilrs);
+        if let Ok(e) = eff {
+            if e.play().is_ok() { p.effects.push((e, now + std::time::Duration::from_millis(ms as u64 + 50))); }
         }
     }
 
