@@ -1,7 +1,9 @@
-## JumpNDodge 5.5.0
+## JumpNDodge 5.6.0
 
-- **Online bis zu 8 Spieler:** Beim Raum-Erstellen 2 bis 8 Plätze wählen. VS: Wer als Letzter übrig ist, gewinnt. Koop: ein 1-UP belebt einen ausgeschiedenen Mitspieler wieder.
-- **Chat 24 Stunden:** Der Server hebt den Chat einen Tag lang auf – wer neu reinkommt, sieht, was geschrieben wurde.
-- Dafür brauchen Spiel **und** Server 5.5.0 (Server ab 5.4.1 aktualisieren sich selbst). Ältere Spiele bekommen „bitte aktualisieren“.
+- **Schnell spielen:** Ein Klick bringt dich in den nächsten offenen Raum (oder macht einen auf) – auch direkt beim offiziellen Server.
+- **Raum-Chef:** Wer den Raum erstellt, kann starten, ohne dass alle bereit sind, Leute rauswerfen und den Raum privat machen (dann nur per Code).
+- **Schnell-Nachrichten:** Tasten 1–4 für „GG“, „Knapp!“, „Nochmal?“, „Haha“ als Blase über dem Spieler.
+- **Server auf CasaOS:** startet jetzt zuverlässig (Rechte im Datenordner), offizielles Paket ohne eigenen Tunnel-Container.
+- Mit 5.3.0 oder 5.4.0 dieses Update bitte **einmal von Hand** installieren.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

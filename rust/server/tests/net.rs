@@ -314,3 +314,55 @@ fn vier_spieler_ein_raum() {
     yous.sort();
     assert_eq!(yous, vec![0, 1, 2, 3], "jeder hat seine eigene Nummer");
 }
+
+/// Mehrere Clients mit Puffer: nichts geht verloren, wenn in einem Schwung mehrere Nachrichten kommen
+struct Pool { cs: Vec<Client>, buf: Vec<std::collections::VecDeque<ServerMsg>> }
+impl Pool {
+    fn new(cs: Vec<Client>) -> Pool { let n = cs.len(); Pool { cs, buf: (0..n).map(|_| Default::default()).collect() } }
+    fn send(&mut self, i: usize, m: ClientMsg) { self.cs[i].send(&m); }
+    /// Alle pumpen, bis `f` für Client `i` etwas liefert (übersprungene Nachrichten werden verworfen)
+    fn wait<T>(&mut self, i: usize, secs: u64, mut f: impl FnMut(&ServerMsg) -> Option<T>) -> T {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(secs) {
+            for (k, c) in self.cs.iter_mut().enumerate() { self.buf[k].extend(c.poll()); }
+            while let Some(m) = self.buf[i].pop_front() { if let Some(v) = f(&m) { return v; } }
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        panic!("Zeitüberschreitung beim Warten (Client {i})");
+    }
+}
+
+#[test]
+fn schnell_spielen_chef_und_nachrichten() {
+    let srv = start_server("", 8, 0.0);
+    let mut p = Pool::new(["Anna", "Ben", "Cem"].iter().map(|n| Client::connect(&srv.addr, opts(n, 0.0)).expect("verbindet")).collect());
+    // Anna: Schnell spielen -> neuer Raum, sie ist Chef (Platz 0)
+    p.send(0, ClientMsg::QuickPlay);
+    let code = p.wait(0, 10, |m| if let ServerMsg::RoomState { code, players, .. } = m { (players.len() == QUICK_ROOM_MAX as usize).then(|| code.clone()) } else { None });
+    p.wait(0, 10, |m| matches!(m, ServerMsg::RoomExtra { host: 0, private: false }).then_some(()));
+    // Ben und Cem: Schnell spielen -> derselbe Raum
+    p.send(1, ClientMsg::QuickPlay);
+    let c1 = p.wait(1, 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    p.send(2, ClientMsg::QuickPlay);
+    let c2 = p.wait(2, 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    assert_eq!((c1.as_str(), c2.as_str()), (code.as_str(), code.as_str()), "Schnell spielen landet im offenen Raum");
+    // Nur der Chef darf rauswerfen: Ben versucht Cem rauszuwerfen -> nichts; Anna wirft Cem raus
+    p.send(1, ClientMsg::Kick { slot: 2 });
+    p.send(0, ClientMsg::Kick { slot: 2 });
+    let r = p.wait(2, 10, |m| if let ServerMsg::LeftRoom { reason } = m { Some(reason.clone()) } else { None });
+    assert!(r.contains("entfernt"), "{r}");
+    // Privat: Raum verschwindet aus der Liste
+    p.send(0, ClientMsg::SetPrivate(true));
+    p.wait(0, 10, |m| matches!(m, ServerMsg::RoomExtra { private: true, .. }).then_some(()));
+    p.send(2, ClientMsg::ListRooms);
+    let list = p.wait(2, 10, |m| if let ServerMsg::RoomList(l) = m { Some(l.clone()) } else { None });
+    assert!(list.iter().all(|r| r.code != code), "privater Raum nicht in der Liste");
+    // Schnell-Nachricht kommt bei Ben an
+    p.send(0, ClientMsg::Emote(1));
+    p.wait(1, 10, |m| matches!(m, ServerMsg::Emote { player: 0, id: 1, in_round: false }).then_some(()));
+    // Chef startet, obwohl Ben nicht bereit ist
+    p.send(1, ClientMsg::HostStart); // Ben ist nicht Chef -> darf nicht
+    p.send(0, ClientMsg::HostStart);
+    let (you, names) = p.wait(1, 15, |m| if let ServerMsg::Start { you, names, .. } = m { Some((*you, names.clone())) } else { None });
+    assert_eq!((you, names.len()), (1, 2), "Runde mit Anna und Ben");
+}

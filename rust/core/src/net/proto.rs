@@ -70,6 +70,16 @@ pub enum ClientMsg {
     Chat { text: String },
     /// Bildschirmgröße des Spielers (für die Feldbreite). Alte Server kennen das nicht und ignorieren es.
     Screen { w: u32, h: u32 },
+    /// Schnell spielen: in einen offenen öffentlichen Raum (der vollste zuerst), sonst neuen Raum aufmachen
+    QuickPlay,
+    /// Raum-Chef: Runde starten, auch wenn nicht alle bereit sind (mindestens 2 im Raum)
+    HostStart,
+    /// Raum-Chef: Spieler auf Platz `slot` aus dem Raum werfen
+    Kick { slot: u8 },
+    /// Raum-Chef: Raum privat (nicht in der Liste, nicht bei Schnell spielen - nur per Code)
+    SetPrivate(bool),
+    /// Schnell-Nachricht (Tasten 1-4): 0 GG, 1 Knapp!, 2 Nochmal?, 3 Haha
+    Emote(u8),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -161,7 +171,20 @@ pub enum ServerMsg {
     Pong { t: u64 },
     /// Chat. `from_id` 0 = Hinweis vom Server (beigetreten, zu schnell ...), CHAT_HISTORY_ID = aus dem Verlauf
     Chat { from_id: u32, from: String, text: String },
+    /// Zusatz zu RoomState: wer der Raum-Chef ist (Platz) und ob der Raum privat ist
+    RoomExtra { host: u8, private: bool },
+    /// Schnell-Nachricht eines Spielers: `player` = Nummer in der Runde (während einer Runde) bzw. Platz im Raum
+    Emote { player: u8, id: u8, in_round: bool },
 }
+
+/// Texte der Schnell-Nachrichten (Tasten 1-4)
+pub const EMOTES: [&str; 4] = ["GG", "Knapp!", "Nochmal?", "Haha"];
+pub const EMOTES_EN: [&str; 4] = ["GG", "Close!", "Again?", "Haha"];
+
+/// Beim Schnell spielen neu angelegte Räume
+pub const QUICK_ROOM_MAX: u8 = 8;
+pub const QUICK_ROOM_DIFFICULTY: &str = "Mittel";
+
 
 pub fn encode<T: Serialize>(m: &T) -> Vec<u8> {
     use bincode::Options;

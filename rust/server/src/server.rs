@@ -52,6 +52,10 @@ struct Room {
     difficulty: String,
     /// Plätze (2 bis 8)
     slots: Vec<Option<SocketAddr>>,
+    /// Platz des Raum-Chefs (Ersteller; geht er, übernimmt der nächste)
+    host: usize,
+    /// Privat: nicht in der Raumliste und nicht bei Schnell spielen
+    private: bool,
     ready: Vec<bool>,
     phase: Phase,
 }
@@ -303,9 +307,10 @@ impl Server {
             ClientMsg::Hello { .. } | ClientMsg::Info => {}
             ClientMsg::ListRooms => {
                 let list: Vec<RoomInfo> = self.rooms.values()
+                    .filter(|r| !r.private)
                     .map(|r| RoomInfo {
                         code: r.code.clone(), mode: r.mode, difficulty: r.difficulty.clone(), players: r.count(), max: r.slots.len() as u8,
-                        host: r.slots.iter().flatten().next().and_then(|h| self.conns.get(h)).map(|c| c.name.clone()).unwrap_or_default(),
+                        host: r.slots.get(r.host).copied().flatten().or_else(|| r.slots.iter().flatten().next().copied()).and_then(|h| self.conns.get(&h)).map(|c| c.name.clone()).unwrap_or_default(),
                         playing: matches!(r.phase, Phase::Playing(_)),
                     })
                     // offene Räume zuerst
@@ -315,19 +320,64 @@ impl Server {
                 list.truncate(MAX_ROOMS_IN_LIST);
                 self.send(a, &ServerMsg::RoomList(list));
             }
-            ClientMsg::CreateRoom { mode, difficulty, max_players } => {
-                if !DIFFICULTIES.contains(&difficulty.as_str()) { return self.send(a, &ServerMsg::Error("Unbekannte Schwierigkeit".into())); }
-                self.leave_room(a, "hat den Raum verlassen");
-                if self.rooms.len() as u32 >= self.cfg.max_rooms { return self.send(a, &ServerMsg::Error("Server ist voll (keine freien Räume)".into())); }
-                let code = self.new_code();
-                let max = (max_players as usize).clamp(2, sim2p::MAX_PLAYERS);
-                let mut slots = vec![None; max];
-                slots[0] = Some(a);
-                self.rooms.insert(code.clone(), Room { code: code.clone(), mode, difficulty: difficulty.clone(), slots, ready: vec![false; max], phase: Phase::Lobby });
-                if let Some(c) = self.conns.get_mut(&a) { c.room = Some(code.clone()); }
-                let n = self.conns[&a].name.clone();
-                self.logf(&format!("Raum {} erstellt von {} ({:?}, {}, {} Plätze)", code, n, mode, difficulty, max));
+            ClientMsg::CreateRoom { mode, difficulty, max_players } => self.create_room(a, mode, difficulty, max_players),
+            ClientMsg::QuickPlay => {
+                // offener öffentlicher Raum in der Lobby, der vollste zuerst (schneller voll = schneller los)
+                let pick = self.rooms.values()
+                    .filter(|r| !r.private && matches!(r.phase, Phase::Lobby) && (r.count() as usize) < r.slots.len() && r.slot_of(a).is_none())
+                    .max_by_key(|r| (r.count(), std::cmp::Reverse(r.code.clone())))
+                    .map(|r| r.code.clone());
+                match pick {
+                    Some(code) => self.handle(a, ClientMsg::JoinRoom { code }),
+                    None => self.create_room(a, Mode::Vs, QUICK_ROOM_DIFFICULTY.into(), QUICK_ROOM_MAX),
+                }
+            }
+            ClientMsg::HostStart => {
+                let Some(code) = self.conns[&a].room.clone() else { return; };
+                let Some(r) = self.rooms.get_mut(&code) else { return; };
+                if r.slot_of(a) != Some(r.host) || !matches!(r.phase, Phase::Lobby) { return; }
+                if r.count() < 2 { return self.send(a, &ServerMsg::Error("Mindestens 2 Spieler nötig".into())); }
+                r.phase = Phase::Countdown { ends: Instant::now() + Duration::from_secs(COUNTDOWN_SECS as u64), shown: 0 };
                 self.broadcast_room(&code);
+            }
+            ClientMsg::Kick { slot } => {
+                let Some(code) = self.conns[&a].room.clone() else { return; };
+                let Some(r) = self.rooms.get(&code) else { return; };
+                if r.slot_of(a) != Some(r.host) || slot as usize == r.host { return; }
+                let Some(target) = r.slots.get(slot as usize).copied().flatten() else { return; };
+                self.leave_room(target, "wurde aus dem Raum entfernt");
+                self.send(target, &ServerMsg::LeftRoom { reason: "Du wurdest aus dem Raum entfernt".into() });
+            }
+            ClientMsg::SetPrivate(on) => {
+                let Some(code) = self.conns[&a].room.clone() else { return; };
+                let Some(r) = self.rooms.get_mut(&code) else { return; };
+                if r.slot_of(a) != Some(r.host) { return; }
+                r.private = on;
+                self.broadcast_room(&code);
+            }
+            ClientMsg::Emote(id) => {
+                if id as usize >= EMOTES.len() { return; }
+                let Some(code) = self.conns[&a].room.clone() else { return; };
+                let Some(r) = self.rooms.get(&code) else { return; };
+                let Some(slot) = r.slot_of(a) else { return; };
+                let (player, in_round) = match &r.phase {
+                    Phase::Playing(g) => match g.order.iter().position(|&s| s == slot) { Some(k) => (k, true), None => return },
+                    _ => (slot, false),
+                };
+                // kleiner Spamschutz: teilt sich den Chat-Eimer
+                let ok = {
+                    let Some(c) = self.conns.get_mut(&a) else { return; };
+                    let now = Instant::now();
+                    c.chat_tokens = (c.chat_tokens + now.duration_since(c.chat_at).as_secs_f64() / CHAT_REFILL_SECS).min(CHAT_BURST);
+                    c.chat_at = now;
+                    let ok = c.chat_tokens >= 1.0;
+                    if ok { c.chat_tokens -= 1.0; }
+                    ok
+                };
+                if !ok { return; }
+                let to: Vec<SocketAddr> = r.slots.iter().flatten().copied().collect();
+                let m = ServerMsg::Emote { player: player as u8, id, in_round };
+                for t in to { self.send(t, &m); }
             }
             ClientMsg::JoinRoom { code } => {
                 let code = code.trim().to_uppercase();
@@ -422,6 +472,21 @@ impl Server {
         for t in to { self.chat_notice(t, text); }
     }
 
+    fn create_room(&mut self, a: SocketAddr, mode: Mode, difficulty: String, max_players: u8) {
+        if !DIFFICULTIES.contains(&difficulty.as_str()) { return self.send(a, &ServerMsg::Error("Unbekannte Schwierigkeit".into())); }
+        self.leave_room(a, "hat den Raum verlassen");
+        if self.rooms.len() as u32 >= self.cfg.max_rooms { return self.send(a, &ServerMsg::Error("Server ist voll (keine freien Räume)".into())); }
+        let code = self.new_code();
+        let max = (max_players as usize).clamp(2, sim2p::MAX_PLAYERS);
+        let mut slots = vec![None; max];
+        slots[0] = Some(a);
+        self.rooms.insert(code.clone(), Room { code: code.clone(), mode, difficulty: difficulty.clone(), slots, host: 0, private: false, ready: vec![false; max], phase: Phase::Lobby });
+        if let Some(c) = self.conns.get_mut(&a) { c.room = Some(code.clone()); }
+        let n = self.conns[&a].name.clone();
+        self.logf(&format!("Raum {} erstellt von {} ({:?}, {}, {} Plätze)", code, n, mode, difficulty, max));
+        self.broadcast_room(&code);
+    }
+
     fn new_code(&self) -> String {
         let mut rng = rand::thread_rng();
         loop {
@@ -436,7 +501,8 @@ impl Server {
         let msgs: Vec<(SocketAddr, ServerMsg)> = (0..r.slots.len()).filter_map(|i| r.slots[i].map(|a| (a, ServerMsg::RoomState {
             code: r.code.clone(), mode: r.mode, difficulty: r.difficulty.clone(), you: i as u8, players: players.clone(),
         }))).collect();
-        for (a, m) in msgs { self.send(a, &m); }
+        let extra = ServerMsg::RoomExtra { host: r.host as u8, private: r.private };
+        for (a, m) in msgs { self.send(a, &m); self.send(a, &extra); }
     }
 
     /// Spieler verlässt seinen Raum (freiwillig oder Verbindung weg)
@@ -446,6 +512,8 @@ impl Server {
         let Some(r) = self.rooms.get_mut(&code) else { return; };
         let Some(i) = r.slot_of(a) else { return; };
         r.slots[i] = None;
+        // Chef geht -> der nächste Anwesende übernimmt
+        if r.host == i { if let Some(n) = r.slots.iter().position(|s| s.is_some()) { r.host = n; } }
         let others: Vec<SocketAddr> = r.slots.iter().flatten().copied().collect();
         let mut game_over: Option<ServerMsg> = None;
         let mut end_round = false;

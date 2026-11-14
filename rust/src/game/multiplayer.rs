@@ -76,6 +76,14 @@ struct Mp {
     create_max: usize,
     /// Namen der Spieler in der laufenden Runde (Rundenreihenfolge)
     round_names: Vec<String>,
+    /// Raum-Chef (Platz) und privat - kommt mit RoomExtra (alte Server: Platz 0, öffentlich)
+    room_host: usize,
+    room_private: bool,
+    /// Schnell-Nachrichten: (in der Runde?, Spieler, Text-Nr., seit)
+    emotes: Vec<(bool, usize, u8, Instant)>,
+    /// Schnell spielen gesendet (für den Hinweis bei alten Servern); nach dem Verbinden gleich losspielen
+    quick_sent: Option<Instant>,
+    auto_quick: bool,
     room: Option<RoomView>,
     countdown: Option<u8>,
     round: Option<NetRound>,
@@ -110,7 +118,7 @@ impl Mp {
             screen: Screen::Browser, client: None, connect_rx: None, connecting_addr: String::new(), connect_started: now,
             addr_input: String::new(), code_input: String::new(), focus: Field::None, infos: HashMap::new(), info_tx, info_rx,
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
-            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
+            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
@@ -298,6 +306,7 @@ impl G {
                     self.settings.insert("mp_last_addr".into(), json!(a));
                     self.mp_remember(&a);
                     println!("[MP] verbunden mit {} ({})", mp.server_name, a);
+                    if std::mem::take(&mut mp.auto_quick) { mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
                     self.play_sound(Snd::Click);
                 }
                 Ok(Err(e)) => {
@@ -329,6 +338,11 @@ impl G {
             mp.last_ping_sent = Instant::now();
             mp.send(ClientMsg::Ping { t: now_ms() });
         }
+        if mp.quick_sent.map(|t| t.elapsed() > Duration::from_secs(5)).unwrap_or(false) {
+            mp.quick_sent = None;
+            if mp.room.is_none() { mp.say(&self.tde("Der Server kennt „Schnell spielen“ noch nicht (Server-Update nötig).", "This server doesn't support Quick play yet (needs an update)."), true); }
+        }
+        mp.emotes.retain(|e| e.3.elapsed() < Duration::from_millis(2600));
         if mp.screen == Screen::Lobby && mp.last_list.elapsed() >= Duration::from_secs(3) {
             mp.last_list = Instant::now();
             mp.send(ClientMsg::ListRooms);
@@ -351,7 +365,13 @@ impl G {
                 }
             }
             ServerMsg::RoomState { code, mode, difficulty, you, players } => {
-                if mp.room.as_ref().map(|r| r.code != code).unwrap_or(true) { println!("[MP] Raum {}", code); }
+                mp.quick_sent = None;
+                if mp.room.as_ref().map(|r| r.code != code).unwrap_or(true) {
+                    println!("[MP] Raum {}", code);
+                    mp.room_host = 0;
+                    mp.room_private = false;
+                    mp.emotes.clear();
+                }
                 mp.room = Some(RoomView { code, mode, difficulty, you: you as usize, players });
                 if matches!(mp.screen, Screen::Lobby | Screen::Connecting) { mp.screen = Screen::Room; }
                 if mp.auto_ready {
@@ -439,6 +459,12 @@ impl G {
                 let own = from_id != 0 && from_id == mp.client_id;
                 mp.chat_push(from, text, own, from_id == 0);
             }
+            ServerMsg::RoomExtra { host, private } => { mp.room_host = host as usize; mp.room_private = private; }
+            ServerMsg::Emote { player, id, in_round } => {
+                mp.emotes.retain(|e| !(e.0 == in_round && e.1 == player as usize));
+                mp.emotes.push((in_round, player as usize, id, Instant::now()));
+                self.play_sound(Snd::Click);
+            }
             ServerMsg::Welcome { .. } | ServerMsg::Info(_) => {}
         }
     }
@@ -519,6 +545,11 @@ impl G {
     }
 
     fn mp_key(&mut self, mp: &mut Mp, key: i32, unicode: &str, mods: u16) {
+        // Schnell-Nachrichten: 1-4 (nicht beim Tippen)
+        if mp.focus == Field::None && matches!(mp.screen, Screen::Playing | Screen::Room | Screen::Result) && (49..=52).contains(&key) {
+            mp.send(ClientMsg::Emote((key - 49) as u8));
+            if mp.screen != Screen::Playing { return; }
+        }
         if mp.screen == Screen::Playing {
             if self.action_matches_key(key, "jump") { mp.jump_latch = true; }
             if key == K_ESCAPE || self.action_matches_key(key, "pause") {
@@ -607,6 +638,12 @@ impl G {
             "cancel" => { self.play_sound(Snd::ClickBack); mp.connect_rx = None; mp.screen = Screen::Browser; }
             "disconnect" => { self.play_sound(Snd::ClickBack); self.mp_disconnect(mp, None); }
             "refresh" => { self.play_sound(Snd::Click); mp.last_list = Instant::now(); mp.send(ClientMsg::ListRooms); }
+            "quick" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::QuickPlay); mp.quick_sent = Some(Instant::now()); }
+            "quick_official" => { self.play_sound(Snd::MenuClick); mp.auto_quick = true; let o = self.mp_official(); self.mp_connect(mp, &o); }
+            "host_start" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::HostStart); }
+            "kick" => { if let Ok(i) = arg.parse::<u8>() { self.play_sound(Snd::ClickBack); mp.send(ClientMsg::Kick { slot: i }); } }
+            "private" => { self.play_sound(Snd::Click); mp.send(ClientMsg::SetPrivate(!mp.room_private)); }
+            "emote" => { if let Ok(i) = arg.parse::<u8>() { mp.send(ClientMsg::Emote(i)); } }
             "mode" => { self.play_sound(Snd::Click); mp.create_mode = if arg == "coop" { Mode::Coop } else { Mode::Vs }; }
             "max" => {
                 self.play_sound(Snd::Click);
@@ -669,6 +706,11 @@ impl G {
             "disconnect" => self.mp_disconnect(mp, None),
             "list" => mp.send(ClientMsg::ListRooms),
             "chat" => { let t = p[1..].join(" "); mp.send(ClientMsg::Chat { text: t }); }
+            "quick" => self.mp_action(mp, "quick"),
+            "start" => self.mp_action(mp, "host_start"),
+            "kick" => { let a = format!("kick:{}", p.get(1).copied().unwrap_or("1")); self.mp_action(mp, &a); }
+            "private" => { let on = p.get(1).map(|v| *v != "off").unwrap_or(true); mp.send(ClientMsg::SetPrivate(on)); }
+            "emote" => { let a = format!("emote:{}", p.get(1).copied().unwrap_or("0")); self.mp_action(mp, &a); }
             "chat_focus" => mp.focus = Field::Chat,
             "chat_type" => { mp.focus = Field::Chat; mp.chat_input = p[1..].join(" "); }
             "state" => println!("[MP] Bildschirm {:?}, Raum {:?}", mp.screen, mp.room.as_ref().map(|r| r.code.clone())),
@@ -769,6 +811,8 @@ impl G {
         draw::circle(&bs, sc, (card.x + 22, card.y + 54), 6, 0);
         self.mp_text(&bs, &sf, &st, sc, card.x + 36, card.y + 45, false);
         let online = matches!(mp.infos.get(&off), Some(InfoState::Online(..)));
+        let qb = Rect::new(card.right() - 312, card.y + 15, 152, 44);
+        self.mp_button(&bs, mp, qb, &self.tde("Schnell spielen", "Quick play"), "quick_official", (139, 108, 240), None);
         let cb = Rect::new(card.right() - 150, card.y + 15, 136, 44);
         self.mp_button(&bs, mp, cb, &self.tde("Verbinden", "Connect"), "connect_official", if online { (90, 190, 140) } else { (120, 120, 140) }, None);
         // Per IP
@@ -877,8 +921,11 @@ impl G {
         self.mp_text_field(&bs, mp, Rect::new(rx + 14, jp.y + 44, 160, 44), &ci, "ABCD", foc, "focus_code");
         self.mp_button(&bs, mp, Rect::new(rx + 184, jp.y + 44, 127, 44), &self.tde("Beitreten", "Join"), "join_code", (100, 160, 220), None);
         // unten
-        self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 62, 180, 44), &self.tde("Aktualisieren", "Refresh"), "refresh", (100, 160, 220), None);
-        self.mp_button(&bs, mp, Rect::new(w / 2 + 10, h - 62, 180, 44), &self.tde("Trennen", "Disconnect"), "disconnect", (150, 150, 150), None);
+        // Schnell spielen = Hauptaktion (Akzentfarbe), dann Aktualisieren und Trennen
+        self.draw_ui_button(&bs, Rect::new(w / 2 - 290, h - 62, 210, 44), &self.tde("Schnell spielen", "Quick play"), BtnOpts { font: Some(sf.clone()), hovered: Rect::new(w / 2 - 290, h - 62, 210, 44).collidepoint(self.mouse_logical_peek()), base_color: Some(super::ui_c::ACCENT), hover_color: Some(super::art::lighten(super::ui_c::ACCENT, 0.12)), text_color: Some((255, 255, 255)), ..Default::default() });
+        mp.buttons.push((Rect::new(w / 2 - 290, h - 62, 210, 44), "quick".into()));
+        self.mp_button(&bs, mp, Rect::new(w / 2 - 70, h - 62, 170, 44), &self.tde("Aktualisieren", "Refresh"), "refresh", (100, 160, 220), None);
+        self.mp_button(&bs, mp, Rect::new(w / 2 + 110, h - 62, 170, 44), &self.tde("Trennen", "Disconnect"), "disconnect", (150, 150, 150), None);
     }
 
     fn mp_draw_room(&mut self, mp: &mut Mp) {
@@ -909,6 +956,20 @@ impl G {
             super::art::draw_player(&bs, Rect::new(r.x + 12, r.y + 12, ps, ps), col);
             let tx = r.x + 20 + ps;
             self.mp_text(&bs, &sf, &format!("P{}", i + 1), col, tx, r.y + if big { 18 } else { 12 }, false);
+            if room.players[i].is_some() && i == mp.room_host {
+                let cs = self.badge_font.render(&self.tde("Chef", "Host"), true, (255, 255, 255));
+                let cr = Rect::new(r.right() - cs.get_width() - 18 - if room.you == mp.room_host { 0 } else { 0 }, r.y + 8, cs.get_width() + 10, cs.get_height() + 4);
+                draw::rect(&bs, super::ui_c::ACCENT, cr, 0, 5);
+                bs.blit(&cs, (cr.x + 5, cr.y + 2));
+            }
+            if room.you == mp.room_host && i != room.you && room.players[i].is_some() {
+                // Raum-Chef: rauswerfen
+                let kr = Rect::new(r.right() - 30, r.bottom() - 30, 22, 22);
+                self.mp_button(&bs, mp, kr, "x", &format!("kick:{}", i), (150, 100, 110), Some(self.badge_font.clone()));
+            }
+            if let Some(e) = mp.emotes.iter().find(|e| !e.0 && e.1 == i) {
+                self.mp_draw_emote(&bs, e.2, r.centerx(), r.y - 4);
+            }
             match &room.players[i] {
                 Some(p) => {
                     let me = if i == room.you { format!(" ({})", self.tde("du", "you")) } else { String::new() };
@@ -943,7 +1004,27 @@ impl G {
         }
         let me_ready = room.me_ready();
         let rt = if me_ready { self.tde("Nicht mehr bereit", "Not ready") } else { self.tde("Bereit!", "Ready!") };
-        self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 120, 380, 50), &rt, "ready", if me_ready { (180, 150, 90) } else { (90, 190, 140) }, Some(self.menu_font.clone()));
+        if room.you == mp.room_host {
+            // Raum-Chef: Bereit + Starten (auch wenn nicht alle bereit sind) + privat
+            self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 120, 185, 50), &rt, "ready", if me_ready { (180, 150, 90) } else { (90, 190, 140) }, Some(self.small_font.clone()));
+            let can = room.present() >= 2;
+            let st = Rect::new(w / 2 + 5, h - 120, 185, 50);
+            if can {
+                self.draw_ui_button(&bs, st, &self.tde("Starten", "Start"), BtnOpts { font: Some(self.small_font.clone()), hovered: st.collidepoint(self.mouse_logical_peek()), base_color: Some(super::ui_c::ACCENT), hover_color: Some(super::art::lighten(super::ui_c::ACCENT, 0.12)), text_color: Some((255, 255, 255)), ..Default::default() });
+                mp.buttons.push((st, "host_start".into()));
+            } else {
+                self.draw_ui_button(&bs, st, &self.tde("Starten (ab 2)", "Start (2+)"), BtnOpts { font: Some(self.small_font.clone()), hovered: false, ..Default::default() });
+            }
+            let pr = Rect::new(w - 186, 20, 170, 36);
+            let pt = if mp.room_private { self.tde("Privat: an", "Private: on") } else { self.tde("Privat: aus", "Private: off") };
+            self.mp_button(&bs, mp, pr, &pt, "private", (110, 110, 130), Some(self.small_font.clone()));
+        } else {
+            self.mp_button(&bs, mp, Rect::new(w / 2 - 190, h - 120, 380, 50), &rt, "ready", if me_ready { (180, 150, 90) } else { (90, 190, 140) }, Some(self.menu_font.clone()));
+            if mp.room_private {
+                let ps = self.small_font.render(&self.tde("Privat - nur mit Code", "Private - code only"), true, (150, 150, 180));
+                bs.blit(&ps, (w - ps.get_width() - 20, 28));
+            }
+        }
         self.mp_button(&bs, mp, Rect::new(w / 2 - 90, h - 60, 180, 44), &self.tde("Verlassen", "Leave"), "leave_room", (150, 150, 150), None);
     }
 
@@ -963,6 +1044,17 @@ impl G {
     fn mp_field_point(&self, x: i32, y: i32) -> (i32, i32) {
         let (s, ox, oy) = self.mp_field_tf();
         ((ox + x as f64 * s) as i32, (oy + y as f64 * s) as i32)
+    }
+
+    /// Sprechblase einer Schnell-Nachricht, unten mittig bei (cx, bottom)
+    fn mp_draw_emote(&self, bs: &Surface, id: u8, cx: i32, bottom: i32) {
+        let t = if self.lang() == "Deutsch" { EMOTES.get(id as usize) } else { EMOTES_EN.get(id as usize) }.copied().unwrap_or("?");
+        let f = &self.small_font;
+        let ts = f.render(t, true, (30, 26, 50));
+        let r = Rect::new(cx - ts.get_width() / 2 - 10, bottom - ts.get_height() - 10, ts.get_width() + 20, ts.get_height() + 8);
+        draw::rect(bs, (245, 243, 255), r, 0, 8);
+        draw::polygon(bs, (245, 243, 255), &[(cx - 6, r.bottom()), (cx + 6, r.bottom()), (cx, r.bottom() + 7)], 0);
+        bs.blit(&ts, (r.x + 10, r.y + 4));
     }
 
     fn mp_draw_player(&self, bs: &Surface, i: usize, p: &DrawPlayer, label: &str) {
@@ -1010,6 +1102,13 @@ impl G {
         for (o, d) in r.others_draw() { self.mp_draw_player(&bs, o, &d, &format!("P{}", o + 1)); }
         let me = r.own_draw(alpha);
         self.mp_draw_player(&bs, you, &me, &self.tde("Du", "You"));
+        for (_, pl, id, _) in mp.emotes.iter().filter(|e| e.0) {
+            let pr = if *pl == you { Some(me.rect) } else { r.other_draw(*pl).map(|d| d.rect) };
+            if let Some(pr) = pr {
+                let fr = self.mp_field_rect(pr);
+                self.mp_draw_emote(&bs, *id, fr.centerx(), fr.top() - 26);
+            }
+        }
         // HUD: Leben P1 links, P2 rechts
         let mf = self.menu_font.clone();
         let sf = self.small_font.clone();
@@ -1060,7 +1159,7 @@ impl G {
         }
         let hint = if mp.leave_confirm_until.map(|t| Instant::now() < t).unwrap_or(false) {
             (self.tde("Nochmal ESC = Runde verlassen (online gibt es keine Pause)", "Press ESC again to leave (no pause online)"), (230, 120, 130))
-        } else { (self.tde("ESC: Runde verlassen", "ESC: leave round"), (90, 90, 110)) };
+        } else { (self.tde("ESC: Runde verlassen  ·  1-4: Schnell-Nachricht", "ESC: leave round  ·  1-4: quick message"), (90, 90, 110)) };
         self.mp_text(&bs, &sf, &hint.0, hint.1, w / 2, h - 20, true);
         self.mp_draw_chat_toasts(&bs, mp);
         self.draw_overlays_ingame();
