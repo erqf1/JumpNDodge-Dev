@@ -488,12 +488,21 @@ impl G {
                     for t in &eq_trails {
                         let list = trails.entry(t.clone()).or_default();
                         for _ in 0..trail_particle_count(t) {
-                            let (sx, vx) = if left_down { (player.right() as f64 + uniform(-5.0, 5.0), uniform(-3.0, -0.5)) }
+                            let legacy = super::art::legacy();
+                            let (sx, vx) = if legacy {
+                                // Python-Original (unverändert)
+                                if left_down { (player.right() as f64 + uniform(-5.0, 5.0), uniform(-3.0, -0.5)) }
                                 else if right_down { (player.left() as f64 + uniform(-5.0, 5.0), uniform(0.5, 3.0)) }
-                                else if super::art::legacy() { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) }
-                                // neue Grafik: hinten am Spieler raus und mit der Welt nach links ziehen
-                                else { (player.left() as f64 + uniform(0.0, player.w as f64 * 0.35), uniform(-2.2, -0.4) - speed * 0.45) };
-                            list.push(spawn_trail_particle(t, sx, vx, player.centery() as f64));
+                                else { (player.centerx() as f64 + uniform(-8.0, 8.0), uniform(-2.0, 2.0)) }
+                            }
+                            // neue Grafik: immer HINTEN raus (gegen die Laufrichtung) und nur sanft wegtreiben -
+                            // vorher zogen sie mit halbem Spieltempo nach links und landeten weit weg vom Spieler
+                            else if left_down { (player.right() as f64 - uniform(0.0, player.w as f64 * 0.3), uniform(0.3, 1.8)) }
+                            else if right_down { (player.left() as f64 + uniform(0.0, player.w as f64 * 0.3), uniform(-1.8, -0.3)) }
+                            else { (player.centerx() as f64 + uniform(-player.w as f64 * 0.35, player.w as f64 * 0.2), uniform(-1.2, -0.2)) };
+                            let mut p = spawn_trail_particle(t, sx, vx, player.centery() as f64);
+                            if !legacy { p.life *= 0.6; p.max_life = p.life; }
+                            list.push(p);
                         }
                     }
                 }
