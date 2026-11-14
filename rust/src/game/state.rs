@@ -234,6 +234,10 @@ pub struct G {
     pub help_lang: Option<String>,
     pub tutorial_step: usize,
     pub in_tutorial: bool,
+    /// Anleitung als Pop-up: Hintergrund (vorheriges Bild scharf, weichgezeichnet + abgedunkelt), Startzeit, Rückweg
+    pub tutorial_bg: Option<(Surface, Surface)>,
+    pub tutorial_open_t: f64,
+    pub tutorial_from_more: bool,
     pub in_language_select: bool,
     pub _lang_from_settings: bool,
     pub in_shop: bool,

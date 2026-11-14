@@ -382,16 +382,13 @@ impl G {
                                 if self.tutorial_step + 1 >= total { self._finish_tutorial(); } else { self.tutorial_step += 1; }
                             } else if [K_LEFT, K_a].contains(&key) && self.tutorial_step > 0 { self.tutorial_step -= 1; }
                         }
-                        Event::MouseButtonDown { .. } => {
+                        Event::MouseButtonDown { button: 1, .. } => {
                             let mp = self.get_mouse_pos_logical();
-                            let (pw, ph) = (560, 320);
-                            let (px, py) = (self.WIDTH / 2 - pw / 2, self.HEIGHT / 2 - ph / 2);
-                            let by = py + ph - 52;
-                            let next = Rect::new(px + pw - 160, by, 140, 40);
-                            let back = Rect::new(px + 20, by, 140, 40);
+                            let (panel, next, back, close) = self.tutorial_rects();
                             if next.collidepoint(mp) {
                                 if self.tutorial_step + 1 >= total { self._finish_tutorial(); } else { self.tutorial_step += 1; }
                             } else if back.collidepoint(mp) && self.tutorial_step > 0 { self.tutorial_step -= 1; }
+                            else if close.collidepoint(mp) || !panel.collidepoint(mp) { self.play_sound(Snd::Click); self._finish_tutorial(); }
                         }
                         _ => {}
                     }
@@ -500,7 +497,7 @@ impl G {
                         match a {
                             "admin" => self.set_more_to_admin(),
                             "classic" => self.open_classic_game(),
-                            "help" => { self.in_more_menu = false; self.in_tutorial = true; self.tutorial_step = 0; }
+                            "help" => { self.in_more_menu = false; self.open_tutorial_popup(true); }
                             "redeem_code" => self.open_redeem_code_from_more(),
                             "replays" => self.run_replays_menu(),
                             "mods" => { self.in_more_menu = false; self.in_mods_menu = true; }

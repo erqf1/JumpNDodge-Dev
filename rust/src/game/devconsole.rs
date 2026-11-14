@@ -209,6 +209,13 @@ impl G {
     }
 
     fn _dev_run(&mut self, cmd: &str, args: &[&str]) -> bool {
+        // Anleitung wie im Spiel als Pop-up über dem aktuellen Bild öffnen (aus dem Mehr-Menü: dorthin zurück)
+        if cmd == "tutorial" {
+            let from_more = self.in_more_menu;
+            self._dev_goto("in_tutorial", None);
+            self.open_tutorial_popup(from_more);
+            return true;
+        }
         if let Some((_, target)) = NAV_CMDS.iter().find(|(c, _)| *c == cmd) { self._dev_goto(target, None); return true; }
         let powers_list: Vec<String> = d("POWERS_DB").as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
         match cmd {

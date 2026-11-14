@@ -63,32 +63,96 @@ impl G {
         if ["Deutsch", "English", "Русский", "Türkçe", "Schwiizerdütsch"].contains(&l.as_str()) { l } else { "Deutsch".into() }
     }
 
+    /// Anleitung als Pop-up öffnen: das aktuelle Bild bleibt (weichgezeichnet, abgedunkelt) dahinter stehen.
+    /// `from_more` = aus Mehr → Anleitung (Schließen führt dorthin zurück), sonst erster Start.
+    pub fn open_tutorial_popup(&mut self, from_more: bool) {
+        self.in_tutorial = true;
+        self.tutorial_step = 0;
+        self.tutorial_from_more = from_more;
+        self.tutorial_open_t = super::art::anim_time();
+        // einmal beim Öffnen: Kopie, verkleinert/vergrößert = weich, dann abgedunkelt (nicht pro Bild)
+        self.tutorial_bg = if super::art::legacy() { None } else {
+            let (w, h) = (self.WIDTH, self.HEIGHT);
+            let sharp = self.base_surface.copy();
+            // in Halbierungs-Schritten verkleinern (jeder Schritt mittelt 2x2 Pixel, kein Treppen-Rauschen)
+            // und wieder in Verdopplungen vergrößern = weicher Schleier
+            let mut sizes = vec![(w, h)];
+            let mut cur = sharp.clone();
+            for _ in 0..4 {
+                let (cw, ch) = cur.get_size();
+                let nxt = ((cw / 2).max(1), (ch / 2).max(1));
+                cur = transform::smoothscale(&cur, nxt);
+                sizes.push(nxt);
+            }
+            sizes.pop();
+            while let Some(sz) = sizes.pop() { cur = transform::smoothscale(&cur, sz); }
+            let soft = cur;
+            soft.fill_blend(if self.is_dark_mode() { (8, 8, 18) } else { (40, 40, 70) }, if self.is_dark_mode() { 120 } else { 95 });
+            Some((sharp, soft))
+        };
+    }
+
+    /// Karte, Weiter, Zurück, Schließen (in logischen Koordinaten, ohne Einblend-Versatz)
+    pub fn tutorial_rects(&self) -> (Rect, Rect, Rect, Rect) {
+        let (pw, ph) = (580, 340);
+        let panel = Rect::new(self.WIDTH / 2 - pw / 2, self.HEIGHT / 2 - ph / 2, pw, ph);
+        let by = panel.y + ph - 56;
+        (panel, Rect::new(panel.x + pw - 164, by, 140, 40), Rect::new(panel.x + 24, by, 140, 40), Rect::new(panel.right() - 46, panel.y + 12, 32, 32))
+    }
+
+    /// Hintergrund des Pop-ups: vorheriges Bild (blendet beim Öffnen weich ins abgedunkelte über)
+    fn draw_tutorial_backdrop(&mut self, bs: &Surface, p: f64) {
+        let (w, h) = (self.WIDTH, self.HEIGHT);
+        // Fenstergröße geändert: Hintergrund einmal anpassen
+        if let Some((a, b)) = &self.tutorial_bg {
+            if a.get_size() != (w, h) { let (a, b) = (transform::smoothscale(a, (w, h)), transform::smoothscale(b, (w, h))); self.tutorial_bg = Some((a, b)); }
+        }
+        match &self.tutorial_bg {
+            Some((sharp, soft)) => {
+                if p < 1.0 { bs.blit(sharp, (0, 0)); bs.blit_f(soft, 0.0, 0.0, p as f32); } else { bs.blit(soft, (0, 0)); }
+            }
+            None => self.fill_bg(true),
+        }
+    }
+
     pub fn draw_tutorial(&mut self) -> (Option<Rect>, Option<Rect>) {
         let steps = self._get_tutorial_steps();
         let lang = self._tutorial_lang();
         let total = steps.len().max(1);
         let step = steps.get(self.tutorial_step.min(total - 1)).cloned().unwrap_or(json!({}));
-        self.fill_bg(true);
         let bs = self.base_surface.clone();
+        // Einblenden: Karte federt von unten herein, Hintergrund dunkelt ab (nur mit voller Bewegung)
+        let t = super::art::anim_time() - self.tutorial_open_t;
+        let p = if super::art::motion_level() >= 2 && !super::art::legacy() { (t / 0.22).clamp(0.0, 1.0) } else { 1.0 };
+        let ease = 1.0 - (1.0 - p).powi(3);
+        self.draw_tutorial_backdrop(&bs, ease);
         let dark = self.is_dark_mode();
-        let (pw, ph) = (560, 320);
-        let px = self.WIDTH / 2 - pw / 2;
-        let py = self.HEIGHT / 2 - ph / 2;
-        let panel = Rect::new(px, py, pw, ph);
-        draw::rect(&bs, self.get_panel_color(), panel, 0, 18);
-        let border_col = if !dark { (100, 160, 255) } else { (80, 120, 200) };
-        draw::rect(&bs, border_col, panel, 3, 18);
+        let (panel0, next0, back0, close0) = self.tutorial_rects();
+        let dy = ((1.0 - ease) * 28.0).round() as i32;
+        let mv = |r: Rect| Rect::new(r.x, r.y + dy, r.w, r.h);
+        let (panel, next_rect, br, close) = (mv(panel0), mv(next0), mv(back0), mv(close0));
+        let (px, py, pw, ph) = (panel.x, panel.y, panel.w, panel.h);
+        let accent = if !dark { (90, 120, 230) } else { (130, 150, 255) };
+        self.draw_card(&bs, panel, 18, true, Some(accent), 3, false, None);
         let sf = self.small_font.clone();
+        let mp = self.get_mouse_pos_logical();
+        // Schließen (X oben rechts)
+        let ch = close0.collidepoint(mp);
+        let xc = if ch { accent } else if dark { (170, 170, 200) } else { (110, 110, 150) };
+        if ch { draw::rect(&bs, if dark { (60, 62, 95) } else { (225, 228, 250) }, close, 0, 8); }
+        let (cx, cy) = (close.centerx() as f64, close.centery() as f64);
+        draw::line(&bs, xc, (cx - 7.0, cy - 7.0), (cx + 7.0, cy + 7.0), 3);
+        draw::line(&bs, xc, (cx + 7.0, cy - 7.0), (cx - 7.0, cy + 7.0), 3);
         let ct = sf.render(&format!("{} / {}", self.tutorial_step + 1, total), true, (150, 150, 180));
-        bs.blit(&ct, (px + pw - ct.get_width() - 16, py + 14));
+        bs.blit(&ct, (px + 24, py + 20));
         let title = langs_get(step.gv("title").unwrap_or(&json!({})), &lang);
-        let ts = self.menu_font.render(&title, true, if !dark { (80, 140, 255) } else { (120, 170, 255) });
-        bs.blit(&ts, (px + pw / 2 - ts.get_width() / 2, py + 20));
-        draw::line(&bs, border_col, (px + 20, py + 60), (px + pw - 20, py + 60), 1);
+        let ts = self.menu_font.render(&title, true, accent);
+        bs.blit(&ts, (px + pw / 2 - ts.get_width() / 2, py + 18));
+        draw::line(&bs, if dark { (70, 75, 110) } else { (200, 205, 235) }, (px + 24, py + 62), (px + pw - 24, py + 62), 2);
         let body = langs_get(step.gv("text").unwrap_or(&json!({})), &lang);
-        let mut ty = py + 72;
-        for ln in wrap_words(&sf, &body, pw - 40) {
-            bs.blit(&sf.render(&ln, true, self.get_text_color()), (px + 20, ty));
+        let mut ty = py + 76;
+        for ln in wrap_words(&sf, &body, pw - 48) {
+            bs.blit(&sf.render(&ln, true, self.get_text_color()), (px + 24, ty));
             ty += 24;
         }
         let hint = step.gv("hint").map(|h| langs_get(h, &lang)).unwrap_or_default();
@@ -96,18 +160,17 @@ impl G {
             let parts: Vec<String> = if hint.contains('|') { hint.split('|').map(|p| p.trim().to_string()).collect() } else { vec![hint.clone()] };
             let (part_h, gap_h) = (28, 5);
             let th = parts.len() as i32 * part_h + (parts.len() as i32 - 1) * gap_h;
-            let hy0 = py + ph - 60 - th;
+            let hy0 = py + ph - 66 - th;
             let bgc = if dark { (55, 75, 115) } else { (215, 228, 255) };
             let txc = if dark { (180, 210, 255) } else { (30, 55, 140) };
             for (pi, part) in parts.iter().enumerate() {
                 let hy = hy0 + pi as i32 * (part_h + gap_h);
-                let hbg = Rect::new(px + 20, hy, pw - 40, part_h);
+                let hbg = Rect::new(px + 24, hy, pw - 48, part_h);
                 draw::rect(&bs, bgc, hbg, 0, 7);
                 let hs = sf.render(part, true, txc);
                 bs.blit(&hs, (hbg.centerx() - hs.get_width() / 2, hbg.centery() - hs.get_height() / 2));
             }
         }
-        let (btn_y, btn_h) = (py + ph - 52, 40);
         let is_last = self.tutorial_step >= total - 1;
         let next_label = match lang.as_str() {
             "English" => if is_last { "Done!" } else { "Next >>" },
@@ -116,25 +179,20 @@ impl G {
             "Schwiizerdütsch" => if is_last { "Fertig!" } else { "Witer >>" },
             _ => if is_last { "Fertig!" } else { "Weiter >>" },
         };
-        let nc = if is_last { (80, 200, 120) } else { (80, 140, 255) };
-        let next_rect = Rect::new(px + pw - 160, btn_y, 140, btn_h);
-        let mp = self.get_mouse_pos_logical();
         self.draw_ui_button(&bs, next_rect, next_label, BtnOpts {
-            font: Some(self.menu_font.clone()), hovered: next_rect.collidepoint(mp), base_color: Some(nc),
-            hover_color: Some(((nc.0 + 30).min(255), (nc.1 + 30).min(255), (nc.2 + 30).min(255))), text_color: Some((255, 255, 255)),
-            border_color: Some((0.max(nc.0 - 40), 0.max(nc.1 - 40), 0.max(nc.2 - 40))), hover_border_color: Some((255, 255, 255)), ..Default::default()
+            font: Some(self.menu_font.clone()), hovered: next0.collidepoint(mp), base_color: Some((80, 120, 230)), hover_color: Some((105, 145, 250)),
+            text_color: Some((255, 255, 255)), border_color: Some((50, 80, 180)), hover_border_color: Some((255, 255, 255)), ..Default::default()
         });
         let mut back_rect = None;
         if self.tutorial_step > 0 {
             let bl = match lang.as_str() { "English" => "<< Back", "Русский" => "<< Назад", "Türkçe" => "<< Geri", "Schwiizerdütsch" => "<< Zrugg", _ => "<< Zurück" };
-            let br = Rect::new(px + 20, btn_y, 140, btn_h);
-            self.draw_ui_button(&bs, br, bl, BtnOpts { font: Some(self.menu_font.clone()), hovered: br.collidepoint(mp), border_color: Some((160, 160, 180)), border_width: Some(1), ..Default::default() });
+            self.draw_ui_button(&bs, br, bl, BtnOpts { font: Some(self.menu_font.clone()), hovered: back0.collidepoint(mp), ..Default::default() });
             back_rect = Some(br);
         }
-        let dot_y = btn_y + btn_h / 2;
-        let dot_start = self.WIDTH / 2 - (total as i32 * 14) / 2;
+        let dot_y = next_rect.centery();
+        let dot_start = px + pw / 2 - (total as i32 * 14) / 2 + 7;
         for i in 0..total {
-            let col = if i == self.tutorial_step { (80, 140, 255) } else if !dark { (160, 160, 200) } else { (80, 80, 100) };
+            let col = if i == self.tutorial_step { accent } else if !dark { (170, 170, 205) } else { (80, 80, 105) };
             draw::circle(&bs, col, (dot_start + i as i32 * 14, dot_y), if i == self.tutorial_step { 4 } else { 3 }, 0);
         }
         self.flip();
@@ -145,7 +203,8 @@ impl G {
         self.stats.insert("tutorial_seen".into(), json!(true));
         self.save_section("stats", None);
         self.in_tutorial = false;
-        self._route_to_menu_or_gate();
+        self.tutorial_bg = None;
+        if std::mem::take(&mut self.tutorial_from_more) { self.in_more_menu = true; } else { self._route_to_menu_or_gate(); }
         self.tutorial_step = 0;
     }
 
@@ -309,7 +368,7 @@ impl G {
             self._lang_from_settings = false;
             self.in_settings_menu = true;
         } else {
-            self.in_tutorial = true;
+            self.open_tutorial_popup(false);
         }
     }
 

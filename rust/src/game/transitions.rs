@@ -35,7 +35,8 @@ fn depth(screen: &str) -> Option<i32> {
         "in_shop_menu" | "in_loadout_menu" | "in_settings_menu" | "in_more_menu" | "in_difficulty_select" | "in_profile_hub"
         | "in_online_hub" | "in_daily_rewards" | "in_mods_menu" | "in_language_select" => 1,
         "in_player_search" | "in_public_profile" | "in_clan_create" | "in_clan_search" | "in_clan_view" | "in_chat" | "in_admin_panel" => 3,
-        "game_running" | "in_classic_game" | "in_loading" | "in_profile_select" | "in_profile_name_input" | "in_username_gate" | "" => return None,
+        // Anleitung ist ein Pop-up mit eigener Einblendung über dem vorherigen Bild
+        "game_running" | "in_classic_game" | "in_loading" | "in_profile_select" | "in_profile_name_input" | "in_username_gate" | "in_tutorial" | "" => return None,
         _ => 2,
     })
 }
