@@ -19,7 +19,7 @@ members = ["core", "server", "tex", "tools/texturwerk"]
 
 [workspace.package]
 # Eine Version für Spiel, Bibliothek und Server (Online: Client und Server müssen gleich sein)
-version = "5.4.0"
+version = "5.4.1"
 
 [dependencies]
 jnd_core = { path = "core", features = ["tls"] }
