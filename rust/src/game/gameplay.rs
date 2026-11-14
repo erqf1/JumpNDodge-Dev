@@ -348,6 +348,7 @@ impl G {
         // Bewegung (Feder, Wippen) folgt der Effekte-Einstellung; Aufprall-Tempo der letzten Landung
         super::art::set_bounce(fx_on);
         let mut land_impact = 0.0f64;
+        let mut wind_layer: Option<Surface> = None;
         // Aufzeichnung (Replay) und Geist des Rekordlaufs
         let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
         let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
@@ -798,7 +799,10 @@ impl G {
                     let a = 200.min((mag * 220.0) as i32);
                     let dist = (wh * wh + wv * wv).sqrt().max(0.001);
                     let (ux, uy) = (wh / dist, wv / dist);
-                    let layer = Surface::new_alpha(w, h);
+                    // eine Ebene für alle Bilder wiederverwenden (nur bei neuer Fenstergröße neu)
+                    if wind_layer.as_ref().map(|l| l.get_size() != (w, h) || (l.scale_k() - bs.scale_k()).abs() > 1e-4).unwrap_or(true) { wind_layer = Some(Surface::new_alpha(w, h)); }
+                    let layer = wind_layer.clone().unwrap();
+                    layer.fill((0, 0, 0, 0));
                     for wp in &wind_particles {
                         draw::line(&layer, (220, 240, 255, a), (wp[0] - ux * wp[2], wp[1] - uy * wp[2]), (wp[0], wp[1]), 2);
                     }

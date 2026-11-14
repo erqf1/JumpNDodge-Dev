@@ -238,6 +238,7 @@
       <a class="l" href="#features" data-i18n="nav_features">Features</a>
       <a class="l" href="#look" data-i18n="nav_look">Screenshots</a>
       <a class="l" href="#download" data-i18n="nav_download">Download</a>
+      <a class="l" href="wiki/" data-i18n="nav_wiki">Wiki</a>
       <a class="l" href="server/" data-i18n="nav_server">Host a server</a>
       <select class="sel" id="lang" aria-label="Language">
         <option value="en">English</option>
@@ -410,7 +411,7 @@
     <details class="reveal"><summary data-i18n="q3">I want the old look back.</summary><p data-i18n="q3a">Settings → More → Legacy graphics: on. The game then draws everything like in version 5.2.</p></details>
     <details class="reveal"><summary data-i18n="q4">Can I use my own textures?</summary><p data-i18n="q4a">Yes. Create a folder called textures next to the game and put e.g. player.png, hazard.png, faller.png or oneup.png in it. Cosmetics are called cos_&lt;name&gt;, trails trail_&lt;name&gt;.</p></details>
     <details class="reveal"><summary data-i18n="q5">Where is my save?</summary><p data-i18n="q5a">Windows and portable: in the data folder next to the game. Linux package: ~/.local/share/JumpNDodge/data. macOS: ~/Library/Application Support/JumpNDodge/data.</p></details>
-    <details class="reveal"><summary data-i18n="q6">How do I play online with a friend?</summary><p data-i18n="q6a">Online → Multiplayer, create a room and send your friend the code. Both of you need the same version. Want your own server? See <a href="server/">Host a server</a>.</p></details>
+    <details class="reveal"><summary data-i18n="q6">How do I play online with a friend?</summary><p data-i18n="q6a">Online → Multiplayer, create a room and send your friend the code. Older and newer versions can play together as long as the network protocol matches. Want your own server? See <a href="server/">Host a server</a>.</p></details>
   </div>
 </section>
 
@@ -427,7 +428,7 @@
 <footer>
   <div class="wrap">
     <span>© 2026 JumpNDodge · Apache License 2.0</span>
-    <span><a href="server/" data-i18n="f_server">Host a server</a> · <a href="https://github.com/erqf1/JumpNDodge">GitHub</a> · <a href="/hub/">W Hub</a></span>
+    <span><a href="wiki/" data-i18n="f_wiki">Wiki</a> · <a href="server/" data-i18n="f_server">Host a server</a> · <a href="https://github.com/erqf1/JumpNDodge">GitHub</a> · <a href="/hub/">W Hub</a></span>
   </div>
 </footer>
 
@@ -558,7 +559,7 @@
   });
 
   var T = { de: {
-    nav_how:'So spielst du', nav_features:'Funktionen', nav_look:'Bilder', nav_download:'Download', nav_server:'Server hosten',
+    nav_how:'So spielst du', nav_features:'Funktionen', nav_look:'Bilder', nav_download:'Download', nav_server:'Server hosten', nav_wiki:'Wiki',
     badge_new:'Kostenlos', badge_t:'Windows · Linux · macOS',
     h1a:'Springen. Ausweichen.', h1b:'Überleben.',
     lead:'Blöcke rasen auf dich zu, Kristalle fallen von oben, und du hast nur einen Knopf zum Springen. Wie lange hältst du durch? Allein, zu zweit an einer Tastatur oder online.',
@@ -588,9 +589,9 @@
     q3:'Ich will den alten Look zurück.', q3a:'Einstellungen → Mehr → Legacy-Grafik: An. Dann zeichnet das Spiel alles wieder wie in Version 5.2.',
     q4:'Kann ich eigene Texturen benutzen?', q4a:'Ja. Leg neben dem Spiel einen Ordner textures an und darin z. B. player.png, hazard.png, faller.png oder oneup.png. Cosmetics heißen cos_&lt;name&gt;, Spuren trail_&lt;name&gt;.',
     q5:'Wo liegt mein Spielstand?', q5a:'Windows und portabel: im Ordner data neben dem Spiel. Linux-Paket: ~/.local/share/JumpNDodge/data. macOS: ~/Library/Application Support/JumpNDodge/data.',
-    q6:'Wie spiele ich online mit einem Freund?', q6a:'Online → Multiplayer, Raum erstellen und deinem Freund den Code schicken. Ihr braucht beide dieselbe Version. Eigener Server? Siehe <a href="server/">Server hosten</a>.',
+    q6:'Wie spiele ich online mit einem Freund?', q6a:'Online → Multiplayer, Raum erstellen und deinem Freund den Code schicken. Ältere und neuere Versionen spielen zusammen, solange das Netzwerk-Protokoll gleich ist. Eigener Server? Siehe <a href="server/">Server hosten</a>.',
     cta_h:'Wie lange hältst du durch?', cta_s:'Runterladen, eigenen Highscore knacken, dann den deiner Freunde.', cta_b:'JumpNDodge herunterladen',
-    f_server:'Server hosten'
+    f_wiki:'Wiki', f_server:'Server hosten'
   } };
   var orig = {};
   $$('[data-i18n]').forEach(function (el) { orig[el.dataset.i18n] = el.innerHTML; });

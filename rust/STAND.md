@@ -55,11 +55,12 @@ Letzte Aktualisierung: 2026-11-14 · Branch: `main`
   **CasaOS offiziell:** `server/casaos-offiziell/` (Server + cloudflared, `ANLEITUNG.md`). **Bewegung:** federnde Spielfigur
   (`art::squash_spring`), wippende Hindernisse (`draw_hazard_live`), Kristall-Aufprall (`draw_faller_live`), verformtes Blitten
   `Surface::blit_xf`; nur Optik, folgt der Effekte-Einstellung, Legacy unverändert; Vorschau `run art_preview`. Spur-Band entfernt.
+  **Anleitung als Pop-up** (`open_tutorial_popup`: Hintergrund einmal weichgezeichnet, kein Seitenübergang). **Wiki** `website/jump/wiki/`.
   Historie jetzt in `CHANGELOG.md`, `packaging/release-notes.md` nur noch der kurze Text fürs nächste Release.
 - **5.2.0:** eingebaute Sounds (die Releases waren ohne eigene Sounddateien stumm), Mehr → Replays (letzte Runde + Rekordläufe).
 
 ## Was du selbst tun musst
-1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren
+1. **Website hochladen** (CasaOS): Ordner `website/jump/` aus diesem Repo nach `mert.win/jump/` kopieren (inkl. neuem `wiki/` – JumpNDodge-Wiki mit allen Werten aus dem Code; bei Änderungen an Werten in `assets/data.json`/`core.rs` mitpflegen)
    (`index.html` im Aufbau der Line-Seiten, `img/` mit `shots/`, `tex/`, `figur/`; `style.css` + `site.js` braucht nur noch `server/index.html`). Für W Hub zusätzlich
    `website-update/hub/changelog-1.2.1.html` und `changelog-1.2.2.html` aus erqf1/whub oben in `mert.win/hub/changelog.html` einfügen.
 2. **Offizieller Multiplayer-Server** (`play.mert.win`, über Cloudflare Tunnel): Anleitung `rust/server/casaos-offiziell/ANLEITUNG.md`.

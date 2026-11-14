@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JumpNDodge Wiki</title>
+<meta name="description" content="Das JumpNDodge-Wiki: alle Spielmodi, Schwierigkeiten, Powers, Kosmetik, Hindernisse, Coins, Multiplayer, Einstellungen und Mods mit genauen Werten.">
+<link rel="icon" href="../img/tex/player.png">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* Wiki-Aufbau: Seitenleiste + Artikel, Infoboxen und Tabellen im Stil des Spiels (flach, Treppen-Ecken, harte Schatten) */
+  html { scroll-padding-top: 76px; }
+  .wiki { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 34px; padding: 30px 0 60px; }
+  .side { position: sticky; top: 82px; align-self: start; max-height: calc(100vh - 100px); overflow-y: auto; padding-right: 6px; }
+  .side input { width: 100%; padding: 9px 12px; margin-bottom: 14px; background: var(--panel); color: var(--text); border: 0; font: 15px system-ui, sans-serif; box-shadow: 3px 3px 0 var(--shadow); outline: none; }
+  .side input:focus { background: var(--panel2); }
+  .tocbox { padding: 0; }
+  .tocbox::before, .tocbox::after { display: none; }
+  .tocbox > summary { display: none; }
+  .side h4 { margin: 16px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .side a { display: block; padding: 3px 8px; color: var(--text); font-size: 14.5px; }
+  .side a:hover { background: var(--panel); text-decoration: none; }
+  .side a.on { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+  article { min-width: 0; }
+  article > section { padding: 0 0 34px; }
+  article > section + section { padding-top: 26px; box-shadow: 0 -3px 0 var(--bg2); }
+  article h1 { font-size: clamp(32px, 4.6vw, 44px); margin: 4px 0 6px; font-weight: 900; letter-spacing: -.02em; text-shadow: 4px 4px 0 var(--shadow); }
+  article h2 { font-size: 27px; margin: 0 0 10px; font-weight: 900; text-shadow: 3px 3px 0 var(--shadow); }
+  article h3 { font-size: 19px; margin: 24px 0 8px; }
+  article p, article li { color: #d6d3e8; }
+  article ul { padding-left: 22px; }
+  article li + li { margin-top: 3px; }
+  .lede { font-size: 18px; color: var(--muted) !important; max-width: 46em; }
+  .crumb { font-size: 13px; color: var(--muted); }
+  .clear::after { content: ""; display: block; clear: both; }
+
+  .infobox { float: right; width: 280px; margin: 4px 0 18px 26px; padding: 14px 16px 12px; --fill: var(--panel); }
+  .infobox .ib-title { margin: 0 0 10px; font-weight: 900; font-size: 17px; text-align: center; }
+  .infobox .ib-img { display: grid; place-items: center; padding: 14px; margin-bottom: 10px; background: var(--bg2); }
+  .infobox .ib-img img { width: 72px; height: 72px; image-rendering: pixelated; }
+  .infobox .ib-img.wide img { width: 100%; height: auto; image-rendering: auto; }
+  .infobox table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .infobox th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px 4px 0; vertical-align: top; width: 44%; }
+  .infobox td { padding: 4px 0; }
+
+  table.wt { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 14.5px; background: var(--panel); box-shadow: 5px 5px 0 var(--shadow); }
+  table.wt th { background: var(--panel2); text-align: left; padding: 9px 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  table.wt td { padding: 9px 12px; border-top: 2px solid var(--bg2); vertical-align: top; }
+  table.wt td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.wt td small { color: var(--muted); }
+  .tw { overflow-x: auto; }
+
+  .r { display: inline-block; padding: 1px 8px; font-size: 12.5px; font-weight: 800; color: #fff; box-shadow: 2px 2px 0 var(--shadow); white-space: nowrap; }
+  .r-Common { background: #2f8a4c; } .r-Rare { background: #3f6fe0; } .r-Epic { background: #8a45d6; }
+  .r-Legendary { background: #b88a10; } .r-Mythic { background: #d9661c; }
+  .tag { display: inline-block; padding: 0 7px; font-size: 12px; font-weight: 700; background: var(--panel2); color: var(--muted); }
+  .key { white-space: nowrap; }
+  .box { --fill: #26304f; padding: 12px 16px; margin: 12px 0 16px; }
+  .box.warn { --fill: #3d2a3a; }
+  .box b:first-child { color: var(--gold); }
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 14px 0 6px; }
+  .shots figure { margin: 0; }
+  .navbox { margin-top: 10px; padding: 16px 18px; --fill: var(--panel); }
+  .navbox dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; margin: 0; }
+  .navbox dt { font-weight: 800; color: var(--muted); font-size: 14px; }
+  .navbox dd { margin: 0; font-size: 14px; }
+  .navbox dd a + a::before { content: " · "; color: var(--muted); }
+  .hidden { display: none !important; }
+  .nohit { display: none; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .wiki { grid-template-columns: 1fr; }
+    .side { position: static; max-height: none; }
+    .tocbox { padding: 12px 14px; }
+    .tocbox::before, .tocbox::after { display: block; }
+    .tocbox > summary { display: block; }
+    .side nav { display: grid; grid-template-columns: 1fr 1fr; }
+    .side h4 { grid-column: 1 / -1; }
+    .infobox { float: none; width: auto; margin: 10px 0 18px; }
+    .shots { grid-template-columns: 1fr; }
+    .navbox dl { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../img/tex/player.png" alt="">JumpNDodge <small>Wiki</small></a>
+    <nav>
+      <a href="../">Startseite</a>
+      <a href="../#download">Download</a>
+      <a href="../server/">Server hosten</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap wiki">
+  <aside class="side">
+    <input id="q" type="search" placeholder="Wiki durchsuchen …" aria-label="Wiki durchsuchen">
+    <p class="nohit" id="nohit">Nichts gefunden.</p>
+    <details class="tocbox" id="tocbox" open>
+    <summary>Inhalt</summary>
+    <nav id="toc">
+      <h4>Allgemein</h4>
+      <a href="#ueberblick">Überblick</a>
+      <a href="#steuerung">Steuerung</a>
+      <a href="#runde">Ablauf einer Runde</a>
+      <a href="#spielfigur">Spielfigur</a>
+      <h4>Welt</h4>
+      <a href="#hindernisse">Hindernisse</a>
+      <a href="#oneup">1-UP</a>
+      <a href="#schwierigkeiten">Schwierigkeiten</a>
+      <a href="#combo">Combo &amp; „Knapp!“</a>
+      <h4>Spielmodi</h4>
+      <a href="#standard">Standard</a>
+      <a href="#custom">Benutzerdefiniert</a>
+      <a href="#klassik">Klassik</a>
+      <a href="#zweispieler">2 Spieler (lokal)</a>
+      <a href="#multiplayer">Online-Multiplayer</a>
+      <a href="#classic">JumpNDodge Classic</a>
+      <h4>Fortschritt</h4>
+      <a href="#coins">Coins</a>
+      <a href="#taeglich">Tägliche Belohnung</a>
+      <a href="#powers">Powers</a>
+      <a href="#powershop">Power-Shop</a>
+      <a href="#kosmetik">Kosmetik</a>
+      <a href="#seltenheit">Seltenheiten</a>
+      <a href="#erfolge">Erfolge</a>
+      <a href="#statistik">Statistik</a>
+      <h4>Online</h4>
+      <a href="#profil">Profil &amp; Name</a>
+      <a href="#onlinehub">Rangliste, Freunde, Clans</a>
+      <a href="#codes">Codes einlösen</a>
+      <a href="#server">Eigener Server</a>
+      <h4>Extras</h4>
+      <a href="#replays">Replays &amp; Rekord-Geist</a>
+      <a href="#mods">Lua-Mods</a>
+      <a href="#einstellungen">Einstellungen</a>
+      <a href="#grafik">Grafik &amp; Effekte</a>
+      <a href="#dateien">Dateien &amp; Speicherorte</a>
+      <a href="#updates">Updates &amp; Versionen</a>
+    </nav>
+    </details>
+  </aside>
+
+  <article id="art">
+
+  <section id="ueberblick" class="clear">
+    <p class="crumb">JumpNDodge Wiki · Hauptseite</p>
+    <h1>JumpNDodge</h1>
+    <aside class="infobox px">
+      <p class="ib-title">JumpNDodge</p>
+      <div class="ib-img wide"><img src="../img/shots/ausweichen.webp" alt="Eine Runde JumpNDodge"></div>
+      <table>
+        <tr><th>Genre</th><td>Arcade, Endless Runner</td></tr>
+        <tr><th>Entwickler</th><td>W Software</td></tr>
+        <tr><th>Version</th><td><span data-version>5.4</span> (Rust Edition)</td></tr>
+        <tr><th>Systeme</th><td>Windows, Linux, macOS</td></tr>
+        <tr><th>Spieler</th><td>1, 2 lokal, 2 online</td></tr>
+        <tr><th>Sprachen</th><td>Deutsch, English, Русский, Türkçe, Schwiizerdütsch</td></tr>
+        <tr><th>Preis</th><td>kostenlos</td></tr>
+        <tr><th>Lizenz</th><td>Apache-2.0</td></tr>
+      </table>
+    </aside>
+    <p class="lede">JumpNDodge ist ein schnelles Arcade-Spiel: Blöcke rasen über den Boden auf dich zu, auf hohen Stufen fallen zusätzlich Kristalle von oben. Du springst, weichst aus und überlebst so lange wie möglich.</p>
+    <p>Jedes Hindernis, das an dir vorbeizieht, gibt einen Punkt. Auf den höheren Schwierigkeiten werden Punkte zu <a href="#coins">Coins</a>, mit denen du <a href="#powers">Powers</a> und <a href="#kosmetik">Kosmetik</a> freischaltest. Dazu kommen ein lokaler <a href="#zweispieler">2-Spieler-Modus</a>, <a href="#multiplayer">Online-Multiplayer</a>, <a href="#replays">Replays</a>, eigene <a href="#mods">Lua-Mods</a> und eine Online-<a href="#onlinehub">Rangliste</a>.</p>
+    <p>Dieses Wiki beschreibt jede Funktion mit den genauen Werten aus dem Spiel. Alle Zahlen gelten für die aktuelle Rust Edition (ab Version 5).</p>
+    <div class="box"><b>Gut zu wissen:</b> Die Spiellogik läuft immer mit genau 60 Schritten pro Sekunde, egal wie viele Bilder dein Monitor zeigt. Werte wie „8 Pixel pro Schritt“ sind deshalb überall gleich – auf 60-Hz- wie auf 240-Hz-Bildschirmen.</div>
+  </section>
+
+  <section id="steuerung">
+    <h2>Steuerung</h2>
+    <p>Alle Tasten lassen sich unter <b>Einstellungen → Steuerung</b> ändern. Jede Aktion kann mehrere Tasten haben.</p>
+    <h3>Tastatur</h3>
+    <div class="tw"><table class="wt">
+      <tr><th>Aktion</th><th>Standard</th><th>Hinweis</th></tr>
+      <tr><td>Springen</td><td><span class="key">Leertaste</span>, <span class="key">W</span>, <span class="key">↑</span></td><td>Gedrückt halten springt nicht erneut – jeder Sprung braucht einen neuen Tastendruck.</td></tr>
+      <tr><td>Links / Rechts</td><td><span class="key">A</span>/<span class="key">←</span>, <span class="key">D</span>/<span class="key">→</span></td><td>8 Pixel pro Logikschritt.</td></tr>
+      <tr><td>Power 1 / Power 2</td><td><span class="key">Q</span> / <span class="key">E</span></td><td>Löst die aktiven <a href="#powers">Powers</a> aus (Slow Motion, Time Freeze, Ghost Mode, Nuke).</td></tr>
+      <tr><td>Pause</td><td><span class="key">Esc</span></td><td>Beim Fortsetzen läuft ein kurzer Countdown (1 s).</td></tr>
+      <tr><td>Vollbild</td><td><span class="key">F11</span></td><td>Überall im Spiel.</td></tr>
+      <tr><td>2 Spieler: Spieler 1</td><td><span class="key">Leertaste</span>/<span class="key">W</span>, <span class="key">A</span>, <span class="key">D</span></td><td>Nur im lokalen <a href="#zweispieler">2-Spieler-Modus</a>.</td></tr>
+      <tr><td>2 Spieler: Spieler 2</td><td><span class="key">↑</span>, <span class="key">←</span>, <span class="key">→</span></td><td></td></tr>
+      <tr><td>Menüs</td><td>Pfeiltasten, <span class="key">Enter</span>, <span class="key">Esc</span></td><td>Alle Menüs lassen sich auch ohne Maus bedienen.</td></tr>
+    </table></div>
+    <h3>Controller</h3>
+    <p>Xbox-, PlayStation- und andere Gamepads werden erkannt. Controller 1 steuert Menüs und Spiel, Controller 2 ist Spieler 2 im lokalen 2-Spieler-Modus.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Taste</th><th>Funktion</th></tr>
+      <tr><td>A (Xbox) / ✕ (PlayStation)</td><td>Springen, Bestätigen</td></tr>
+      <tr><td>B / ○, Start</td><td>Zurück, Pause</td></tr>
+      <tr><td>X / □, LB</td><td>Power 1</td></tr>
+      <tr><td>Y / △, RB</td><td>Power 2</td></tr>
+      <tr><td>Steuerkreuz, linker Stick</td><td>Laufen, Menüs</td></tr>
+    </table></div>
+  </section>
+
+  <section id="runde">
+    <h2>Ablauf einer Runde</h2>
+    <ol>
+      <li>Im Hauptmenü auf <b>Start</b>, dann Modus und <a href="#schwierigkeiten">Schwierigkeit</a> wählen.</li>
+      <li>Du startest mit <b>3 Leben</b> links am Boden. Von rechts kommen Bodenblöcke, ab Hardcore fallen zusätzlich <a href="#hindernisse">Kristalle</a>.</li>
+      <li>Jeder Bodenblock, der links aus dem Bild fährt, gibt <b>+1 Punkt</b>. Kristalle geben keine Punkte.</li>
+      <li>Ein Treffer kostet ein Leben, entfernt das Hindernis und macht dich für <b>0,75 s</b> unverwundbar (die Figur blinkt). Bei 1 Leben pulsiert der Bildschirmrand rot und ein Herzschlag ist zu hören.</li>
+      <li>Bei 0 Leben ist die Runde vorbei. Der Game-Over-Bildschirm zeigt Punkte, Zeit, Rekord und verdiente Coins und bietet <b>Neustart</b>, <b>Replay (V)</b> und Menü.</li>
+    </ol>
+    <p>Nach der Runde werden Highscore, Bestzeit und Statistik gespeichert. Außer im Klassik-Modus und mit aktiven Mods geht dein Ergebnis auch an die <a href="#onlinehub">Online-Rangliste</a>.</p>
+  </section>
+
+  <section id="spielfigur" class="clear">
+    <h2>Spielfigur</h2>
+    <aside class="infobox px">
+      <p class="ib-title">Spielfigur</p>
+      <div class="ib-img"><img src="../img/tex/player.png" alt=""></div>
+      <table>
+        <tr><th>Größe</th><td>50 × 50 px</td></tr>
+        <tr><th>Leben</th><td>3 zum Start</td></tr>
+        <tr><th>Laufen</th><td>8 px / Schritt</td></tr>
+        <tr><th>Sprung</th><td>Startgeschwindigkeit 20</td></tr>
+        <tr><th>Doppelsprung</th><td>18 (mit Power)</td></tr>
+        <tr><th>Schwerkraft</th><td>1 pro Schritt</td></tr>
+        <tr><th>Schutz nach Treffer</th><td>0,75 s</td></tr>
+      </table>
+    </aside>
+    <p>Die Spielfigur ist ein Block in deiner Profilfarbe. Ein Sprung dauert vom Absprung bis zur Landung etwa 40 Logikschritte (rund 0,67 s) und erreicht 200 px Höhe. Mit <a href="#powers">Double Jump</a> kannst du einmal in der Luft nachspringen.</p>
+    <p>Die Figur bleibt immer im Bild: Am linken und rechten Rand geht es nicht weiter, nach oben stößt sie an die Decke.</p>
+    <h3>Bewegung (nur Optik)</h3>
+    <ul>
+      <li><b>Squash &amp; Stretch:</b> Beim Absprung streckt sich die Figur (je schneller sie steigt, desto mehr), am höchsten Punkt wird sie rund, im Fallen streckt sie sich leicht.</li>
+      <li><b>Landung:</b> Die Figur quetscht sich je nach Aufprall-Tempo flach und wippt danach gedämpft nach.</li>
+      <li>Staubwölkchen beim Absprung und Landen.</li>
+    </ul>
+    <p>Das alles ändert nur das Aussehen – die Trefferfläche bleibt immer genau 50 × 50 px. Abschaltbar über <a href="#einstellungen">Effekte</a>. Mit <a href="#grafik">Legacy-Grafik</a> sieht die Figur aus wie in der ursprünglichen Python-Version (ohne Squash).</p>
+    <p>Aussehen ändern: <a href="#profil">Profilfarbe</a> und <a href="#kosmetik">Kosmetik</a> (Kopfbedeckung, Augen, Nase, Mund, Spur).</p>
+  </section>
+
+  <section id="hindernisse" class="clear">
+    <h2>Hindernisse</h2>
+    <h3>Bodenblock</h3>
+    <aside class="infobox px">
+      <p class="ib-title">Bodenblock</p>
+      <div class="ib-img"><img src="../img/tex/hazard.png" alt=""></div>
+      <table>
+        <tr><th>Größe</th><td>50 × 50 px</td></tr>
+        <tr><th>Kommt von</th><td>rechts, am Boden</td></tr>
+        <tr><th>Tempo</th><td>je nach Schwierigkeit (6–32)</td></tr>
+        <tr><th>Schaden</th><td>1 Leben</td></tr>
+        <tr><th>Punkte</th><td>+1, wenn er links rausfährt</td></tr>
+        <tr><th>Ab</th><td>allen Schwierigkeiten</td></tr>
+      </table>
+    </aside>
+    <p>Rote Blöcke mit Pfeilen, die über den Boden auf dich zufahren. Der Abstand zwischen zwei Blöcken ist zufällig innerhalb der <a href="#schwierigkeiten">Hindernis-Pause</a> der Schwierigkeit. Hinter jedem Block ziehen kurze Fahrtstreifen her, beim Fahren wippt und neigt er sich leicht (nur Optik).</p>
+    <p>Die Pause zählt nur, solange die Zeit nicht von <a href="#powers">Time Freeze</a> angehalten ist. Slow Motion und ähnliche Powers halbieren das Tempo, nicht die Pause.</p>
+    <h3 style="clear:both">Kristall (fallendes Hindernis)</h3>
+    <aside class="infobox px">
+      <p class="ib-title">Kristall</p>
+      <div class="ib-img"><img src="../img/tex/faller.png" alt=""></div>
+      <table>
+        <tr><th>Größe</th><td>50 × 50 px</td></tr>
+        <tr><th>Kommt von</th><td>oben, zufällige Spalte</td></tr>
+        <tr><th>Fall-Tempo</th><td>85 % des Lauf-Tempos, mind. 2</td></tr>
+        <tr><th>Takt</th><td>alle 0,9–1,6 s (bei 800 px Breite)</td></tr>
+        <tr><th>Schaden</th><td>1 Leben</td></tr>
+        <tr><th>Punkte</th><td>keine</td></tr>
+        <tr><th>Ab</th><td>Hardcore</td></tr>
+      </table>
+    </aside>
+    <p>Lila Kristallblöcke, die von oben herunterfallen. Ein Warnpfeil zeigt, wo einer kommt. Sie erscheinen auf <b>Hardcore, Unmöglich, Albtraum und Hölle</b>, im Modus <b>Dynamisch</b> ab Tempo 14 und im <a href="#custom">benutzerdefinierten Modus</a>, wenn „Vert. Hindernisse“ an ist. Im Klassik-Modus gibt es keine Kristalle.</p>
+    <p>Auf breiteren Fenstern kommen Kristalle häufiger (der Takt wird mit 800 ÷ Fensterbreite verrechnet), damit die Dichte gleich bleibt. Im Fall strecken sie sich leicht, beim Aufprall auf den Boden werden sie flachgedrückt und verschwinden (nur Optik).</p>
+    <h3 style="clear:both">Eigene Hindernisse</h3>
+    <p>Mit <a href="#mods">Lua-Mods</a> lassen sich eigene Hindernisse mit Größe, Farbe, Tempo und Häufigkeit anlegen – am Boden oder von oben.</p>
+  </section>
+
+  <section id="oneup" class="clear">
+    <h2>1-UP</h2>
+    <aside class="infobox px">
+      <p class="ib-title">1-UP</p>
+      <div class="ib-img"><img src="../img/tex/oneup.png" alt=""></div>
+      <table>
+        <tr><th>Effekt</th><td>+1 Leben</td></tr>
+        <tr><th>Chance</th><td>1,5 % pro Hindernis-Takt</td></tr>
+        <tr><th>Mit Medic</th><td>1,725 %</td></tr>
+        <tr><th>2 Spieler</th><td>belebt den Partner wieder</td></tr>
+      </table>
+    </aside>
+    <p>Das türkise Herz gibt ein zusätzliches Leben. Jedes Mal, wenn ein neues Bodenhindernis fällig ist, wird mit 1,5 % Chance stattdessen ein 1-UP erzeugt. Es fährt wie ein Hindernis über den Boden und muss berührt werden.</p>
+    <ul>
+      <li><b>Medic</b> erhöht die Chance um 15 % (auf 1,725 %).</li>
+      <li><b>Magnet</b> zieht 1-UPs im Umkreis von 200 px an.</li>
+      <li>Im <a href="#custom">benutzerdefinierten Modus</a> lassen sich 1-UPs abschalten.</li>
+      <li>Im <a href="#zweispieler">2-Spieler-Koop</a> belebt ein 1-UP den ausgeschiedenen Partner wieder, statt ein Leben zu geben.</li>
+    </ul>
+  </section>
+
+  <section id="schwierigkeiten">
+    <h2>Schwierigkeiten</h2>
+    <p>Die Schwierigkeit legt das Tempo der Hindernisse, die Pause zwischen ihnen, fallende Kristalle und die Coin-Regel fest. Jede Schwierigkeit hat einen eigenen Highscore, eine eigene Bestzeit, eigene Online-Rangliste und einen eigenen <a href="#replays">Rekord-Geist</a>.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Stufe</th><th>Tempo</th><th>Hindernis-Pause</th><th>Kristalle</th><th>Coins</th></tr>
+      <tr><td><b>Leicht</b></td><td class="n">6</td><td class="n">1,4 – 2,2 s</td><td>–</td><td>keine</td></tr>
+      <tr><td><b>Mittel</b></td><td class="n">8</td><td class="n">1,0 – 1,8 s</td><td>–</td><td>keine</td></tr>
+      <tr><td><b>Schwer</b></td><td class="n">11</td><td class="n">0,6 – 1,3 s</td><td>–</td><td>10 Punkte = 1 Coin</td></tr>
+      <tr><td><b>Hardcore</b></td><td class="n">15</td><td class="n">0,4 – 1,0 s</td><td>ja</td><td>5 Punkte = 1 Coin</td></tr>
+      <tr><td><b>Unmöglich</b></td><td class="n">18</td><td class="n">0,5 – 1,0 s</td><td>ja</td><td>3 Punkte = 1 Coin</td></tr>
+      <tr><td><b>Albtraum</b></td><td class="n">24</td><td class="n">0,26 – 0,5 s</td><td>ja</td><td>2 Punkte = 1 Coin</td></tr>
+      <tr><td><b>Hölle</b></td><td class="n">32</td><td class="n">0,12 – 0,3 s</td><td>ja</td><td>1,5 Punkte = 1 Coin (aufgerundet)</td></tr>
+      <tr><td><b>Dynamisch</b></td><td class="n">7 → ∞</td><td class="n">1,4 – 2,4 s → kürzer</td><td>ab Tempo 14</td><td>keine</td></tr>
+    </table></div>
+    <p><b>Tempo</b> = Pixel pro Logikschritt (60 pro Sekunde). Tempo 8 heißt also 480 Pixel pro Sekunde.</p>
+    <p>Coins gibt es nur, wenn du mindestens <b>15 Sekunden</b> überlebst. Die Werte stehen auch im Spiel, wenn du mit der Maus über eine Schwierigkeit fährst.</p>
+    <h3>Dynamisch</h3>
+    <p>Startet langsam und wird nie fertig: Alle <b>5 Sekunden</b> steigt das Tempo um <b>0,5</b>, die kürzeste Pause sinkt um 50 ms (bis 20 ms) und die längste um 100 ms (mindestens 20 ms über der kürzesten). Ab Tempo 14 fallen zusätzlich Kristalle. Dynamisch gibt keine Coins – es geht nur um den Rekord.</p>
+  </section>
+
+  <section id="combo">
+    <h2>Combo &amp; „Knapp!“</h2>
+    <p>Jedes Hindernis, das du ohne Treffer hinter dir lässt, erhöht deine <b>Combo</b>. Ab 3 steht sie unter der Anzeige oben links und färbt sich mit wachsender Combo. Ein Treffer setzt sie auf 0 zurück („Combo weg ×N“ ab 5).</p>
+    <ul>
+      <li><b>Meilensteine:</b> bei 10, 25, 50, 75, 100 … erscheint „Combo ×N!“ mit Funken und Ton.</li>
+      <li><b>„Knapp!“:</b> Springst du so knapp über einen Block, dass deine Unterkante höchstens 14 px über ihm ist, zählt er doppelt für die Combo. Dazu gibt es eine sehr kurze Zeitlupe (0,17 s), Funken und einen eigenen Ton.</li>
+    </ul>
+    <p>Combo und „Knapp!“ sind reine Anzeige: Sie ändern weder Punkte noch Coins. Ohne <a href="#einstellungen">Effekte</a> werden sie nicht angezeigt.</p>
+  </section>
+
+  <section id="standard">
+    <h2>Spielmodi</h2>
+    <p>Im Startmenü wählst du oben den Modus: <b>Benutzerdefiniert</b>, <b>Standard</b>, <b>Klassik</b> oder <b>2 Spieler</b>. Online-Multiplayer und JumpNDodge Classic findest du an anderer Stelle.</p>
+    <h3>Standard</h3>
+    <p>Der normale Modus mit allen Regeln dieses Wikis: alle Schwierigkeiten, <a href="#powers">Powers</a>, <a href="#coins">Coins</a>, Rangliste, Replays und Rekord-Geist.</p>
+  </section>
+
+  <section id="custom">
+    <h3>Benutzerdefiniert (Custom)</h3>
+    <p>Hier stellst du die Runde selbst zusammen. Ergebnisse haben einen eigenen Highscore unter „Custom“, einen Rekord-Geist gibt es hier nicht.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Einstellung</th><th>Bereich</th><th>Wirkung</th></tr>
+      <tr><td>Tempo</td><td class="n">4 – 35</td><td>Lauf-Tempo der Hindernisse (Standard 10).</td></tr>
+      <tr><td>Min. Pause</td><td class="n">100 – 2000 ms</td><td>Immer mindestens 100 ms unter der max. Pause.</td></tr>
+      <tr><td>Max. Pause</td><td class="n">200 – 2500 ms</td><td>Immer mindestens 100 ms über der min. Pause.</td></tr>
+      <tr><td>1-Ups</td><td>an/aus</td><td>Aus = es erscheinen keine 1-UPs.</td></tr>
+      <tr><td>Vert. Hindernisse</td><td>an/aus</td><td>Zusätzlich fallende <a href="#hindernisse">Kristalle</a>.</td></tr>
+      <tr><td>Wind (Seiten)</td><td>an/aus</td><td>Seitenwind schiebt dich und die Hindernisse nach links oder rechts. Stärke und Richtung wechseln immer wieder; Anzeige „Wind: N %“ mit Pfeil.</td></tr>
+      <tr><td>Wind (alle Richtungen)</td><td>an/aus</td><td>Wie oben, zusätzlich nach oben/unten – beeinflusst auch Sprünge und fallende Kristalle.</td></tr>
+      <tr><td>Free Roam</td><td>an/aus</td><td>Kein Springen: Du fliegst frei mit <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> (10 px pro Schritt), Hindernisse kommen schräg von allen vier Seiten.</td></tr>
+    </table></div>
+    <p>Coins gibt es im Custom-Modus nicht.</p>
+  </section>
+
+  <section id="klassik">
+    <h3>Klassik</h3>
+    <p>Die Runde wie in den frühen Versionen: nur einfache Bodenblöcke, <b>keine Kristalle</b>, <b>keine Coins</b>, keine Online-Rangliste und kein Rekord-Geist. Gut zum Üben ohne Ablenkung.</p>
+  </section>
+
+  <section id="zweispieler">
+    <h3>2 Spieler (lokal)</h3>
+    <p>Zwei Spieler an einer Tastatur oder mit zwei Controllern. Beide Figuren sind 40 × 40 px groß, Spieler 1 startet links, Spieler 2 etwas weiter rechts.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Variante</th><th>Regeln</th></tr>
+      <tr><td><b>Koop</b></td><td>Ihr spielt zusammen. Wer 0 Leben hat, scheidet aus – sammelt der andere ein 1-UP ein, kommt der Partner zurück (kurz unverwundbar). Die Runde endet, wenn beide ausgeschieden sind.</td></tr>
+      <tr><td><b>VS</b></td><td>Gegeneinander auf derselben Strecke. Wer zuerst alle Leben verliert, verliert. Scheiden beide im selben Moment aus, ist es unentschieden.</td></tr>
+    </table></div>
+    <p>Jeder hat 3 Leben, nach einem Treffer 1,5 s Schutz. Powers gibt es im 2-Spieler-Modus nicht. Die Regeln sind dieselben wie im <a href="#multiplayer">Online-Multiplayer</a>.</p>
+    <figure class="shot" style="max-width:520px"><img src="../img/shots/zweispieler.webp" alt="Zwei Spieler" loading="lazy"><figcaption>Lokaler 2-Spieler-Modus</figcaption></figure>
+  </section>
+
+  <section id="multiplayer">
+    <h3>Online-Multiplayer</h3>
+    <p>Unter <b>Online → Multiplayer</b> spielst du VS oder Koop mit einem Freund über das Internet. Die Regeln entsprechen dem <a href="#zweispieler">lokalen 2-Spieler-Modus</a>; der Server berechnet die Runde, damit beide dasselbe sehen.</p>
+    <ol>
+      <li><b>Server wählen:</b> der <b>offizielle Server</b> (<code>play.mert.win</code>) oder ein eigener per Adresse/Hostname. Die Liste zeigt, ob ein Server online ist, wie viele Spieler da sind, den Ping und ob er ein Passwort hat.</li>
+      <li><b>Raum erstellen</b> (VS oder Koop, Schwierigkeit wählen) oder einem Raum aus der Liste beitreten. Jeder Raum hat einen <b>4-stelligen Code</b>, den du deinem Freund schicken kannst. Pro Raum spielen 2 Spieler.</li>
+      <li>Beide drücken <b>Bereit</b>, nach einem Countdown startet die Runde.</li>
+      <li>Danach gibt es das Ergebnis und <b>Rematch</b>.</li>
+    </ol>
+    <ul>
+      <li><b>Server-Chat:</b> Nachrichten gehen live an alle, die gerade auf dem Server sind. Es gibt keinen Verlauf, nichts wird gespeichert, und es gibt eine Bremse gegen Spam.</li>
+      <li><b>Versionen:</b> Spiel und Server müssen dasselbe Netzwerk-Protokoll haben. Ältere und neuere Spielversionen können zusammen spielen, solange das Protokoll gleich ist. Sonst sagt das Spiel, wer aktualisieren muss.</li>
+      <li><b>Verbindung:</b> Normalerweise über UDP. Antwortet ein Hostname nicht per UDP (z. B. hinter einem Cloudflare Tunnel), verbindet sich das Spiel automatisch über eine sichere WebSocket-Verbindung (<code>wss://</code>).</li>
+    </ul>
+    <p>Einen <a href="#server">eigenen Server</a> kann jeder betreiben.</p>
+  </section>
+
+  <section id="classic">
+    <h3>JumpNDodge Classic</h3>
+    <p>Unter <b>Mehr → JumpNDodge Classic</b> steckt das allererste JumpNDodge als kleines Extra: Gegner kommen von <b>links und rechts</b>, du springst ihnen auf den Kopf, um sie zu besiegen (+1 Punkt). Berührst du sie von der Seite, verlierst du eines von 3 Leben. Steuerung: <span class="key">A</span>/<span class="key">D</span> und <span class="key">Leertaste</span>, <span class="key">Esc</span> beendet.</p>
+  </section>
+
+  <section id="coins">
+    <h2>Coins</h2>
+    <p>Coins sind die Währung des Spiels. Du siehst sie oben in den Menüs.</p>
+    <h3>Coins verdienen</h3>
+    <div class="tw"><table class="wt">
+      <tr><th>Quelle</th><th>Menge</th></tr>
+      <tr><td>Runde auf Schwer bis Hölle</td><td>Punkte ÷ Teiler der <a href="#schwierigkeiten">Schwierigkeit</a>, nur ab 15 s Überleben</td></tr>
+      <tr><td><a href="#taeglich">Tägliche Belohnung</a></td><td>50–100 + Bonus</td></tr>
+      <tr><td>Doppelte Power aus dem <a href="#powershop">Power-Shop</a></td><td>+10 zurück</td></tr>
+      <tr><td>Power <a href="#powers">Recovery</a></td><td>+3 am Rundenende</td></tr>
+      <tr><td><a href="#codes">Codes</a></td><td>je nach Code</td></tr>
+    </table></div>
+    <p>Beispiel: 120 Punkte auf Hardcore nach 40 s = 120 ÷ 5 = <b>24 Coins</b>. Auf Hölle wird aufgerundet: 25 Punkte = 25 ÷ 1,5 = 16,7 → <b>17 Coins</b>.</p>
+    <p>Keine Coins gibt es auf Leicht, Mittel und Dynamisch, im Klassik- und Custom-Modus, im 2-Spieler-Modus und online. Runden mit aktiven <a href="#mods">Mods</a> zählen Coins nur in einer eigenen Mod-Statistik.</p>
+    <h3>Coins ausgeben</h3>
+    <ul>
+      <li><a href="#powershop">Power-Shop</a>: 50 pro Zug, 500 für 10 Züge.</li>
+      <li><a href="#kosmetik">Kosmetik-Shop</a>: 100 bis 2500 je Teil.</li>
+    </ul>
+  </section>
+
+  <section id="taeglich">
+    <h2>Tägliche Belohnung</h2>
+    <p>Einmal pro Tag gibt es unter <b>Tägliche Belohnungen</b> (Hauptmenü, oben rechts) kostenlose Coins. Das Datum kommt aus dem Internet – ohne Verbindung lässt sich die Belohnung nicht abholen, und das Umstellen der Uhr hilft nicht.</p>
+    <ul>
+      <li><b>Grundbetrag:</b> zufällig 50–100 Coins.</li>
+      <li><b>Bonus:</b> Danach kommt mit 90 % Chance +1 Coin dazu, dann wieder mit 90 % +1 und so weiter, höchstens +150. Im Schnitt sind das etwa +9.</li>
+      <li><b>Seltenheit der Belohnung:</b> ohne Bonus „Normal“, mit Bonus „Selten“, ab +20 Bonus „Episch“.</li>
+    </ul>
+    <p>Der Bildschirm zeigt die letzte Belohnung und die Zeit bis zur nächsten.</p>
+  </section>
+
+  <section id="powers">
+    <h2>Powers</h2>
+    <p>Powers sind Fähigkeiten, die du im <a href="#powershop">Power-Shop</a> ziehst und im <b>Inventar</b> ausrüstest. Ohne <b>Extra Slot</b> hast du <b>1 Platz</b>, mit Extra Slot <b>2 Plätze</b>. Powers wirken nur im <a href="#standard">Standard-</a>, Klassik- und Custom-Modus, nicht zu zweit.</p>
+    <ul>
+      <li><b>Aktive Powers</b> löst du mit <span class="key">Q</span> (Power 1) und <span class="key">E</span> (Power 2) aus. Danach läuft ein Cooldown, der rechts oben neben dem Namen steht.</li>
+      <li><b>Passive Powers</b> wirken von selbst, solange sie ausgerüstet sind.</li>
+    </ul>
+    <div class="tw"><table class="wt">
+      <tr><th>Power</th><th>Seltenheit</th><th>Art</th><th>Wirkung</th><th>Dauer / CD</th></tr>
+      <tr><td><b>Recovery</b></td><td><span class="r r-Common">Common</span></td><td>passiv</td><td>+3 Coins am Rundenende. Gilt auf Schwer (ab 15 s Überleben) sowie Hardcore, Unmöglich und Dynamisch (ab 10 s).</td><td class="n">–</td></tr>
+      <tr><td><b>Auto Dodge</b></td><td><span class="r r-Common">Common</span></td><td>passiv</td><td>Bei jedem Treffer 5 % Chance, dass er nicht zählt („Auto Dodge!“).</td><td class="n">–</td></tr>
+      <tr><td><b>Double Jump</b></td><td><span class="r r-Rare">Rare</span></td><td>passiv</td><td>Einmal in der Luft nachspringen (Sprungkraft 18 statt 20).</td><td class="n">–</td></tr>
+      <tr><td><b>Slow Motion</b></td><td><span class="r r-Rare">Rare</span></td><td>aktiv</td><td>Alle Hindernisse halb so schnell.</td><td class="n">2 s / 40 s</td></tr>
+      <tr><td><b>Medic</b></td><td><span class="r r-Rare">Rare</span></td><td>passiv</td><td>1-UPs erscheinen 15 % häufiger.</td><td class="n">–</td></tr>
+      <tr><td><b>Magnet</b></td><td><span class="r r-Rare">Rare</span></td><td>passiv</td><td>Zieht 1-UPs im Umkreis von 200 px zu dir – je näher, desto stärker.</td><td class="n">–</td></tr>
+      <tr><td><b>Shield</b></td><td><span class="r r-Epic">Epic</span></td><td>passiv</td><td>Blockt einen Treffer („Geschützt“). Danach lädt der Schild 40 s nach.</td><td class="n">– / 40 s</td></tr>
+      <tr><td><b>Ghost Mode</b></td><td><span class="r r-Epic">Epic</span></td><td>aktiv</td><td>Unverwundbar gegen alle Hindernisse.</td><td class="n">2 s / 40 s</td></tr>
+      <tr><td><b>Nuke</b></td><td><span class="r r-Legendary">Legendary</span></td><td>aktiv</td><td>Vernichtet 4 s lang laufend alle Hindernisse im Umkreis von 200 px um dich.</td><td class="n">4 s / 20 s</td></tr>
+      <tr><td><b>Extra Slot</b></td><td><span class="r r-Legendary">Legendary</span></td><td>dauerhaft</td><td>Ein zweiter Power-Platz. Wirkt schon, wenn du ihn besitzt – er muss nicht ausgerüstet werden.</td><td class="n">–</td></tr>
+      <tr><td><b>Time Freeze</b></td><td><span class="r r-Legendary">Legendary</span></td><td>aktiv</td><td>Hält alle Hindernisse und den Wind 2 s komplett an (in dieser Zeit treffen sie dich nicht), danach 5 s halbes Tempo.</td><td class="n">2 s + 5 s / 30 s</td></tr>
+      <tr><td><b>Phoenix</b></td><td><span class="r r-Mythic">Mythic</span></td><td>passiv</td><td>Statt Game Over: Wiederbelebung mit 2 Leben, 2 s unverwundbar, 6 s halbes Tempo („Phoenix Revival!“).</td><td class="n">– / 120 s</td></tr>
+    </table></div>
+    <h3>Gut zu wissen</h3>
+    <ul>
+      <li>Slow Motion, das Nachlaufen von Time Freeze und Phoenix verlangsamen nicht gestapelt: Das Tempo ist höchstens halbiert.</li>
+      <li>Reihenfolge bei einem Treffer: Ghost Mode / Phoenix-Schutz → Shield → Auto Dodge → Leben weg.</li>
+      <li>Alle Cooldowns laufen nur während der Runde und starten jede Runde neu.</li>
+    </ul>
+    <figure class="shot" style="max-width:520px"><img src="../img/shots/powers.webp" alt="Powers im Inventar" loading="lazy"><figcaption>Powers im Inventar</figcaption></figure>
+  </section>
+
+  <section id="powershop">
+    <h2>Power-Shop</h2>
+    <p>Im <b>Shop → Powers</b> ziehst du Powers wie aus einer Kiste: Ein Band mit Feldern läuft durch (2,2 s) und bleibt auf deinem Gewinn stehen.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Zug</th><th>Preis</th></tr>
+      <tr><td>1 Power</td><td class="n">50 Coins</td></tr>
+      <tr><td>10 Powers</td><td class="n">500 Coins</td></tr>
+      <tr><td>Doppelte Power</td><td class="n">+10 Coins zurück</td></tr>
+    </table></div>
+    <p>Zuerst wird die Seltenheit gelost, dann eine Power dieser Seltenheit:</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Seltenheit</th><th>Chance</th><th>Powers</th></tr>
+      <tr><td><span class="r r-Common">Common</span></td><td class="n">79,5 %</td><td>Recovery, Auto Dodge</td></tr>
+      <tr><td><span class="r r-Rare">Rare</span></td><td class="n">10 %</td><td>Double Jump, Slow Motion, Medic, Magnet</td></tr>
+      <tr><td><span class="r r-Epic">Epic</span></td><td class="n">8 %</td><td>Shield, Ghost Mode</td></tr>
+      <tr><td><span class="r r-Legendary">Legendary</span></td><td class="n">2 %</td><td>Nuke, Extra Slot, Time Freeze</td></tr>
+      <tr><td><span class="r r-Mythic">Mythic</span></td><td class="n">0,5 %</td><td>Phoenix</td></tr>
+    </table></div>
+    <p>Beispiel: Phoenix hat eine Chance von 0,5 % pro Zug – im Schnitt also einmal in 200 Zügen (10 000 Coins).</p>
+  </section>
+
+  <section id="kosmetik">
+    <h2>Kosmetik</h2>
+    <p>Kosmetik ändert nur das Aussehen deiner Figur. Du kaufst sie im <b>Kosmetik-Shop</b> und legst sie im <b>Inventar</b> an. Pro Platz trägst du ein Teil: <b>Kopf</b>, <b>Augen</b>, <b>Nase</b>, <b>Mund</b> und <b>Spur</b>.</p>
+    <h3>Preise und Sale</h3>
+    <ul>
+      <li>Jedes Teil hat eine Preisspanne. Der genaue Preis wird beim ersten Start einmal pro Spielstand ausgelost und bleibt danach gleich.</li>
+      <li><b>Täglicher Sale:</b> Jeden Tag sind 4 Teile reduziert, um 20, 25, 30, 40 oder 50 %. Häufige Teile kommen öfter in den Sale als seltene.</li>
+      <li>Ein Teil kann nur einmal gekauft werden.</li>
+    </ul>
+    <h3>Spuren</h3>
+    <p>Spuren sind Partikel, die hinter der Figur herausziehen, solange du läufst oder steigst. Sie werden hinter der Figur gezeichnet und wandern mit der Welt nach hinten.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Spur</th><th>Seltenheit</th><th>Preis</th></tr>
+      <tr><td>Rauchspur</td><td><span class="r r-Common">Common</span></td><td class="n">100–180</td></tr>
+      <tr><td>Feuerspur</td><td><span class="r r-Common">Common</span></td><td class="n">150–250</td></tr>
+      <tr><td>Eisspur</td><td><span class="r r-Rare">Rare</span></td><td class="n">200–300</td></tr>
+      <tr><td>Herzspur</td><td><span class="r r-Rare">Rare</span></td><td class="n">200–300</td></tr>
+      <tr><td>Sternenspur</td><td><span class="r r-Rare">Rare</span></td><td class="n">220–320</td></tr>
+      <tr><td>Schattenspur</td><td><span class="r r-Epic">Epic</span></td><td class="n">250–400</td></tr>
+      <tr><td>Funkelspur</td><td><span class="r r-Epic">Epic</span></td><td class="n">350–500</td></tr>
+      <tr><td>Blutspur</td><td><span class="r r-Epic">Epic</span></td><td class="n">350–500</td></tr>
+      <tr><td>Giftspur</td><td><span class="r r-Epic">Epic</span></td><td class="n">400–600</td></tr>
+      <tr><td>Blitzspur</td><td><span class="r r-Epic">Epic</span></td><td class="n">450–650</td></tr>
+      <tr><td>Regenbogenspur</td><td><span class="r r-Legendary">Legendary</span></td><td class="n">800–1200</td></tr>
+    </table></div>
+    <h3>Figur-Teile</h3>
+    <div class="figs" style="grid-template-columns:repeat(8,1fr)">
+      <img src="../img/figur/krone.png" alt="Gelbe Krone"><img src="../img/figur/engel.png" alt="Heiligenschein"><img src="../img/figur/teufel.png" alt="Teufelshörner"><img src="../img/figur/zylinder.png" alt="Zylinder">
+      <img src="../img/figur/propeller.png" alt="Propellermütze"><img src="../img/figur/ninja.png" alt="Ninja-Stirnband"><img src="../img/figur/clown.png" alt="Clown-Nase"><img src="../img/figur/schwein.png" alt="Schweinenase">
+    </div>
+    <div class="tw"><table class="wt">
+      <tr><th>Teil</th><th>Platz</th><th>Seltenheit</th><th>Preis</th></tr>
+      <tr><td>Ninja-Stirnband</td><td>Kopf</td><td><span class="r r-Common">Common</span></td><td class="n">120–200</td></tr>
+      <tr><td>Propellermütze</td><td>Kopf</td><td><span class="r r-Rare">Rare</span></td><td class="n">250–350</td></tr>
+      <tr><td>Zylinder</td><td>Kopf</td><td><span class="r r-Rare">Rare</span></td><td class="n">280–380</td></tr>
+      <tr><td>Teufelshörner</td><td>Kopf</td><td><span class="r r-Epic">Epic</span></td><td class="n">420–580</td></tr>
+      <tr><td>Heiligenschein</td><td>Kopf</td><td><span class="r r-Legendary">Legendary</span></td><td class="n">2000–2500</td></tr>
+      <tr><td>Gelbe Krone</td><td>Kopf</td><td><span class="r r-Legendary">Legendary</span></td><td class="n">2500</td></tr>
+      <tr><td>Pixel-Augen</td><td>Augen</td><td><span class="r r-Common">Common</span></td><td class="n">120–200</td></tr>
+      <tr><td>Sonnenbrille</td><td>Augen</td><td><span class="r r-Common">Common</span></td><td class="n">130–200</td></tr>
+      <tr><td>3D-Brille</td><td>Augen</td><td><span class="r r-Rare">Rare</span></td><td class="n">200–300</td></tr>
+      <tr><td>Roboter-Visier</td><td>Augen</td><td><span class="r r-Epic">Epic</span></td><td class="n">420–580</td></tr>
+      <tr><td>Clown-Nase</td><td>Nase</td><td><span class="r r-Common">Common</span></td><td class="n">100–150</td></tr>
+      <tr><td>Schweinenase</td><td>Nase</td><td><span class="r r-Rare">Rare</span></td><td class="n">180–260</td></tr>
+      <tr><td>Nerd-Hasenzähne</td><td>Mund</td><td><span class="r r-Common">Common</span></td><td class="n">110–170</td></tr>
+      <tr><td>Vogelschnabel</td><td>Mund</td><td><span class="r r-Rare">Rare</span></td><td class="n">190–270</td></tr>
+      <tr><td>Breites Grinsen</td><td>Mund</td><td><span class="r r-Rare">Rare</span></td><td class="n">220–320</td></tr>
+      <tr><td>Vampirzähne</td><td>Mund</td><td><span class="r r-Epic">Epic</span></td><td class="n">380–520</td></tr>
+    </table></div>
+    <p>Kopf und Gesicht werden in einer festen Reihenfolge gezeichnet: Die Brille liegt zum Beispiel über einem Stirnband. Mit <a href="#grafik">Legacy-Grafik</a> erscheinen die Teile im Stil der Python-Version.</p>
+  </section>
+
+  <section id="seltenheit">
+    <h2>Seltenheiten</h2>
+    <p>Powers und Kosmetik haben fünf Seltenheiten, jede mit eigener Farbe in Shop und Inventar:</p>
+    <p><span class="r r-Common">Common</span> &nbsp; <span class="r r-Rare">Rare</span> &nbsp; <span class="r r-Epic">Epic</span> &nbsp; <span class="r r-Legendary">Legendary</span> &nbsp; <span class="r r-Mythic">Mythic</span></p>
+    <p>Die Chancen im Power-Shop stehen unter <a href="#powershop">Power-Shop</a>. Im Sale werden Teile nach Seltenheit gewichtet: häufig 100, selten 45, episch 20, legendär 8, mythisch 3.</p>
+  </section>
+
+  <section id="erfolge">
+    <h2>Erfolge</h2>
+    <div class="box warn"><b>Hinweis:</b> Erfolge sind in der aktuellen Version vorübergehend deaktiviert und werden mit einem späteren Update wieder freigeschaltet. Die Liste zeigt, was geplant ist; die Belohnung sind Coins.</div>
+    <div class="tw"><table class="wt">
+      <tr><th>Erfolg</th><th>Bedingung</th><th>Coins</th></tr>
+      <tr><td>Erste Runde</td><td>Spiele deine erste Runde.</td><td class="n">10</td></tr>
+      <tr><td>5 / 10 / 20 / 50 / 100 Runden gespielt</td><td>Spiele so viele Runden insgesamt.</td><td class="n">25 / 50 / 100 / 200 / 400</td></tr>
+      <tr><td>Aufgewärmt · Auf dem Weg · Zenturio</td><td>10 / 50 / 100 Punkte in einer Runde.</td><td class="n">15 / 30 / 60</td></tr>
+      <tr><td>Meisterhaft · Unaufhaltbar · Legende · Göttergleich</td><td>200 / 300 / 500 / 1000 Punkte in einer Runde.</td><td class="n">100 / 150 / 200 / 500</td></tr>
+      <tr><td>Hardcore · Unmöglich · Albtraum · Hölle · Dynamisch gestartet</td><td>Eine Runde auf dieser Schwierigkeit starten.</td><td class="n">20 / 35 / 50 / 75 / 25</td></tr>
+      <tr><td>Unmöglich-Überlebender</td><td>20 Sekunden auf Unmöglich überleben.</td><td class="n">125</td></tr>
+      <tr><td>Albtraum- / Hölle-Überlebender</td><td>Auf dieser Schwierigkeit überleben.</td><td class="n">200 / 350</td></tr>
+      <tr><td>1-UP eingesammelt</td><td>Ein 1-UP einsammeln.</td><td class="n">15</td></tr>
+      <tr><td>3× / 10× 1-UP gesamt</td><td>So viele 1-UPs insgesamt.</td><td class="n">35 / 80</td></tr>
+      <tr><td>5× 1-UP in einer Runde</td><td>5 1-UPs in einer einzigen Runde.</td><td class="n">60</td></tr>
+      <tr><td>100 / 500 / 1000 / 2500 Coins gesammelt</td><td>So viele Coins insgesamt verdienen.</td><td class="n">20 / 50 / 100 / 200</td></tr>
+      <tr><td>Unberührt</td><td>Eine Runde mit mindestens 20 Punkten ohne Schaden beenden.</td><td class="n">150</td></tr>
+      <tr><td>Speed Demon</td><td>Im Dynamisch-Modus den Tempo-Schub erreichen.</td><td class="n">75</td></tr>
+      <tr><td>60 Sekunden überlebt</td><td>60 Sekunden in einer Runde überleben.</td><td class="n">100</td></tr>
+      <tr><td>Phönix-Wiederbelebung</td><td>Vom Phoenix wiederbelebt werden.</td><td class="n">80</td></tr>
+    </table></div>
+  </section>
+
+  <section id="statistik">
+    <h2>Statistik</h2>
+    <p>Unter <b>Profil → Statistik</b> siehst du in Reitern: <b>Highscores</b> und Bestzeiten je Schwierigkeit, <b>Erfolge</b>, <b>Gesamt</b> (Spielzeit, Runden, Tode, Sprünge, eingesammelte 1-UPs, verdiente Coins, Punkte und Runden je Schwierigkeit) und – wenn du Mods nutzt – die getrennte <b>Mod-Statistik</b>.</p>
+    <p>„Sitzung“ heißt: seit dem Start des Spiels. Alles andere ist dauerhaft im Spielstand.</p>
+  </section>
+
+  <section id="profil">
+    <h2>Profil &amp; Name</h2>
+    <p>Beim ersten Start wählst du die Sprache und legst ein Profil an. Mehrere Profile auf einem Rechner sind möglich – jedes hat eigene Coins, Powers, Kosmetik, Highscores und Einstellungen. Unter <b>Profil</b> findest du Statistik, Erfolge, Profilfarbe, Umbenennen und den Profilwechsel.</p>
+    <p>Für die Online-Funktionen brauchst du einen eindeutigen <b>Benutzernamen</b>. Ist der Server erreichbar und dein Profil hat noch keinen, fragt das Spiel danach, bevor du online gehst.</p>
+  </section>
+
+  <section id="onlinehub">
+    <h2>Rangliste, Freunde, Clans</h2>
+    <p>Im <b>Online</b>-Bereich (Hauptmenü unten rechts):</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Bereich</th><th>Was es kann</th></tr>
+      <tr><td><b>Rangliste</b></td><td>Highscores vergleichen – je Schwierigkeit, weltweit. Runden im Klassik-Modus und mit Mods zählen nicht.</td></tr>
+      <tr><td><b>Freunde</b></td><td>Spieler suchen, Freundschaftsanfragen senden und annehmen, öffentliche Profile ansehen.</td></tr>
+      <tr><td><b>Nachrichten</b></td><td>Chats mit Freunden, mit Anzeige ungelesener Nachrichten.</td></tr>
+      <tr><td><b>Clan</b></td><td>Einen Clan gründen, suchen, beitreten und Beitrittsanfragen verwalten.</td></tr>
+      <tr><td><b>Multiplayer</b></td><td>VS oder Koop mit einem Freund – siehe <a href="#multiplayer">Online-Multiplayer</a>.</td></tr>
+    </table></div>
+    <p>Ohne Internet zeigt das Spiel einen Hinweis; alles andere funktioniert weiter offline.</p>
+  </section>
+
+  <section id="codes">
+    <h2>Codes einlösen</h2>
+    <p>Unter <b>Mehr → Code einlösen</b> gibst du Aktionscodes ein, die es z. B. zu Updates oder Events gibt. Codes werden beim Server geprüft, geben Coins und gelten einmal pro Profil. Aktuelle Codes werden über die offiziellen Kanäle verteilt – nicht in diesem Wiki.</p>
+  </section>
+
+  <section id="server">
+    <h2>Eigener Server</h2>
+    <p>Der <b>JumpNDodge-Server</b> ist ein kleines Programm ohne Fenster für Windows, Linux, macOS und Docker (amd64, arm64). Er braucht kaum Leistung, ein Raspberry Pi oder ein Heimserver reicht.</p>
+    <ul>
+      <li><b>Ports:</b> UDP 47800 für das Spiel, TCP 47801 für WebSocket (z. B. hinter einem Cloudflare Tunnel – dann braucht es keine Portweiterleitung).</li>
+      <li><b>Einstellungen</b> in <code>server.json</code>: Name, Begrüßung, Passwort, max. Räume, Log-Datei, Chat, Auto-Update.</li>
+      <li><b>Auto-Update:</b> Der Server lädt neue Versionen selbst, prüft sie und startet neu, sobald niemand verbunden ist.</li>
+    </ul>
+    <p>Schritt-für-Schritt-Anleitung: <a href="../server/">Server hosten</a>.</p>
+  </section>
+
+  <section id="replays">
+    <h2>Replays &amp; Rekord-Geist</h2>
+    <p>Jede Runde wird Schritt für Schritt aufgezeichnet (Spieler, Hindernisse, 1-UPs, Punkte, Leben). Ein Replay sieht deshalb immer genau so aus wie die Runde – unabhängig von Fenstergröße und Bildrate.</p>
+    <ul>
+      <li><b>Replay ansehen:</b> nach der Runde im Game Over <b>Replay (V)</b>, oder unter <b>Mehr → Replays</b> die letzte Runde und deine Rekordläufe je Schwierigkeit.</li>
+      <li><b>Steuerung im Replay:</b> Pause, 5 Sekunden vor/zurück, Tempo 1× / 2× / 4×.</li>
+      <li><b>Rekord-Geist:</b> Dein bester Lauf der gewählten Schwierigkeit läuft halbtransparent mit der Beschriftung „Rekord“ mit. Abschaltbar unter Einstellungen. Kein Geist im Custom- und Klassik-Modus.</li>
+    </ul>
+  </section>
+
+  <section id="mods">
+    <h2>Lua-Mods</h2>
+    <p>Mit Mods veränderst du das Spiel selbst: eigene Hindernisse, andere Spielwerte, eigene Modi und Reaktionen auf Ereignisse. Mods sind Textdateien mit der Endung <code>.lua</code> im Ordner <code>mods</code>.</p>
+    <p>Am schnellsten: <b>Hauptmenü → Mods → Beispiel-Mod anlegen</b>, dann <b>Ordner öffnen</b>, <code>beispiel.lua</code> bearbeiten und <b>Neu laden</b> drücken.</p>
+    <h3>Sicherheit</h3>
+    <ul>
+      <li>Jede Mod läuft in einer eigenen Sandbox (Lua 5.4) nur mit <code>table</code>, <code>string</code>, <code>math</code> und <code>utf8</code> – <b>kein</b> Zugriff auf Dateien, Netzwerk, Programme oder den Spielstand.</li>
+      <li>16 MB Speicher, Zeitlimit pro Aufruf. Fehler schalten nur die betroffene Mod ab, das Mods-Menü zeigt die Meldung.</li>
+      <li>Runden mit aktiven Mods zählen <b>getrennt</b> (eigene Highscores und Mod-Statistik, keine echten Coins, nicht in der Online-Rangliste).</li>
+    </ul>
+    <h3>Was eine Mod kann</h3>
+    <div class="tw"><table class="wt">
+      <tr><th>Funktion</th><th>Wofür</th><th>Werte</th></tr>
+      <tr><td><code>mod = { … }</code></td><td>Name, Autor, Version, Beschreibung fürs Mods-Menü</td><td></td></tr>
+      <tr><td><code>jnd.obstacle{ … }</code></td><td>Eigenes Hindernis</td><td>Größe 10–200, Farbe, Häufigkeit (normal = 100, 0 = nur per Ereignis), Tempo-Faktor 0,2–4, am Boden oder von oben</td></tr>
+      <tr><td><code>jnd.modifier{ … }</code></td><td>Spielwerte ändern</td><td>Faktoren für Schwerkraft, Sprung, Tempo; zusätzliche Leben</td></tr>
+      <tr><td><code>jnd.mode{ … }</code></td><td>Eigener Modus („Spielen: Name“)</td><td>Tempo, Pausen, Leben, Hindernisse von oben</td></tr>
+      <tr><td><code>on_round_start(info)</code></td><td>Rundenbeginn</td><td>Schwierigkeit, Fenstergröße, Modus</td></tr>
+      <tr><td><code>on_tick(state)</code></td><td>60× pro Sekunde, kann Hindernisse erzeugen</td><td>Schritt, Punkte, Leben, Spielerposition, Fenstergröße</td></tr>
+      <tr><td><code>on_hit(state)</code></td><td>Nach jedem Treffer</td><td>Punkte, Leben</td></tr>
+      <tr><td><code>jnd.log(…)</code></td><td>Text im Mods-Log</td><td></td></tr>
+    </table></div>
+<pre><code>mod = { name = "Goldregen", author = "Du", version = "1.0" }
+
+jnd.obstacle{ id = "gold", w = 30, h = 30, color = {240, 200, 60}, weight = 0, speed = 1.3 }
+
+function on_tick(state)
+  if state.tick % 300 == 0 then return { spawn = "gold" } end   -- alle 5 Sekunden
+end</code></pre>
+    <p>Mods aus der alten Python-Version (<code>.py</code>) laufen in der Rust Edition nicht.</p>
+  </section>
+
+  <section id="einstellungen">
+    <h2>Einstellungen</h2>
+    <p>Das Zahnrad neben dem Profil öffnet die Einstellungen. Dort gibt es die Bereiche Anzeige, Spiel, Steuerung, Sound und Updates.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Einstellung</th><th>Wirkung</th></tr>
+      <tr><td>Farbschema</td><td>Dunkel oder Hell.</td></tr>
+      <tr><td>Legacy-Grafik</td><td>Alles wie in der ursprünglichen Python-Version, siehe <a href="#grafik">Grafik</a>.</td></tr>
+      <tr><td>GUI-Größe</td><td>Skaliert Menüs und Schrift.</td></tr>
+      <tr><td>Animationen</td><td>Voll, Reduziert (nur Überblenden) oder Aus – für Menü-Übergänge und das Einblenden von Pop-ups.</td></tr>
+      <tr><td>Vollbild (F11)</td><td>Scharf in echter Bildschirmauflösung.</td></tr>
+      <tr><td>Bildrate</td><td>Monitor (passend zur Bildwiederholrate), feste FPS oder unbegrenzt. Die Spiellogik bleibt immer bei 60 Schritten pro Sekunde.</td></tr>
+      <tr><td>Effekte</td><td>Partikel, Bildschirmwackeln, Treffer-Stopp, Combo-Anzeige, „Knapp!“ und die federnde Bewegung von Figur und Hindernissen.</td></tr>
+      <tr><td>Hintergrund</td><td>Sterne, Ringe, Bewegung und einfarbiger Hintergrund einzeln schaltbar.</td></tr>
+      <tr><td>Boden anzeigen</td><td>Bodenlinie ein/aus.</td></tr>
+      <tr><td>Sprache</td><td>Deutsch, English, Русский, Türkçe, Schwiizerdütsch.</td></tr>
+      <tr><td>Pause bei Fokusverlust</td><td>Pausiert die Runde, wenn du in ein anderes Fenster wechselst.</td></tr>
+      <tr><td>Rekord-Geist</td><td>Rekordlauf mitlaufen lassen.</td></tr>
+      <tr><td>Steuerung</td><td>Alle Tasten neu belegen, auch für 2 Spieler.</td></tr>
+      <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel.</td></tr>
+      <tr><td>Updates</td><td>Nach Updates suchen, automatisch beim Start suchen.</td></tr>
+      <tr><td>Sprache exportieren</td><td>Texte als Datei speichern, z. B. um eine Übersetzung zu verbessern.</td></tr>
+    </table></div>
+  </section>
+
+  <section id="grafik">
+    <h2>Grafik &amp; Effekte</h2>
+    <p>Seit Version 5.3 kommen alle Grafiken aus Pixel-Texturen im Stil der Python-Version: flache Flächen, harte Schatten, Treppen-Ecken – gerendert in voller Bildschirmauflösung und deshalb in jeder Größe scharf.</p>
+    <ul>
+      <li><b>Legacy-Grafik:</b> zeigt alles exakt wie die ursprüngliche Python-Version – einfarbige Rechtecke, rote Blöcke, grünes 1-UP, zwei Bodenlinien, einfarbiger Hintergrund, kein Squash &amp; Stretch.</li>
+      <li><b>Effekte</b> (abschaltbar): Splitter bei Treffern, kurzer Treffer-Stopp und Bildschirmwackeln, Funkeln beim 1-UP, Staub beim Springen und Landen, Punkte-Hüpfer, Combo, „Knapp!“, federnde Figur, wippende Hindernisse.</li>
+      <li><b>Eigene Texturen:</b> Lege Bilder in den Ordner <code>textures</code> neben dem Spiel (z. B. <code>player.png</code> oder <code>cos_&lt;name&gt;.svg</code>) – sie ersetzen die eingebauten.</li>
+    </ul>
+    <div class="shots">
+      <figure class="shot"><img src="../img/shots/hoelle.webp" alt="Hölle" loading="lazy"><figcaption>Hölle mit fallenden Kristallen</figcaption></figure>
+      <figure class="shot"><img src="../img/shots/funkelspur.webp" alt="Funkelspur" loading="lazy"><figcaption>Funkelspur</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="dateien">
+    <h2>Dateien &amp; Speicherorte</h2>
+    <div class="tw"><table class="wt">
+      <tr><th>System</th><th>Spielstand-Ordner</th></tr>
+      <tr><td>Windows (Installer, portabel)</td><td>Ordner <code>data</code> neben dem Spiel</td></tr>
+      <tr><td>Linux (Paket)</td><td><code>~/.local/share/JumpNDodge</code></td></tr>
+      <tr><td>macOS</td><td><code>~/Library/Application Support/JumpNDodge</code></td></tr>
+    </table></div>
+    <ul>
+      <li>Der Spielstand ist verschlüsselt und wird im Hintergrund gespeichert.</li>
+      <li><code>replays/</code>: <code>last.jnr</code> (letzte Runde) und <code>best-&lt;Schwierigkeit&gt;.jnr</code> (Rekordläufe, daraus kommt der Geist).</li>
+      <li><code>mods/</code>: deine Lua-Mods. <code>textures/</code>: eigene Texturen. <code>sound/</code>: eigene Sounds (haben Vorrang vor den eingebauten).</li>
+      <li>Bei einem Update bleibt der Ordner <code>data</code> erhalten.</li>
+    </ul>
+  </section>
+
+  <section id="updates">
+    <h2>Updates &amp; Versionen</h2>
+    <p>Das Spiel sucht beim Start nach neuen Versionen und installiert sie mit einem Klick (abschaltbar). Alternativ hält <b>W Hub</b> JumpNDodge aktuell. Alle Änderungen stehen in den <a href="https://github.com/erqf1/JumpNDodge/releases">Release-Notizen</a>.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Version</th><th>Wichtigstes</th></tr>
+      <tr><td class="n">5.4.1</td><td>Updater repariert, Anleitung als Pop-up, einheitliche Menüs, Server über Cloudflare Tunnel und mit Auto-Update, federnde Figur und wippende Hindernisse.</td></tr>
+      <tr><td class="n">5.4</td><td>Server-Chat, Menüs im Startmenü-Look, Übergänge, Combo, „Knapp!“, schnelleres Zeichnen.</td></tr>
+      <tr><td class="n">5.3</td><td>Neue Pixel-Grafik, Legacy-Grafik, Light Mode.</td></tr>
+      <tr><td class="n">5.2</td><td>Eingebaute Sounds, Replays-Menü.</td></tr>
+      <tr><td class="n">5.1</td><td>Replays, Rekord-Geist, Controller, Lua-Mods.</td></tr>
+      <tr><td class="n">5.0</td><td>Rust Edition: komplett neu geschrieben, Online-Multiplayer, eingebauter Updater, Bildrate passend zum Monitor.</td></tr>
+    </table></div>
+
+    <div class="navbox px">
+      <dl>
+        <dt>Spiel</dt><dd><a href="#steuerung">Steuerung</a><a href="#runde">Runde</a><a href="#spielfigur">Spielfigur</a><a href="#hindernisse">Hindernisse</a><a href="#oneup">1-UP</a><a href="#schwierigkeiten">Schwierigkeiten</a><a href="#combo">Combo</a></dd>
+        <dt>Modi</dt><dd><a href="#standard">Standard</a><a href="#custom">Benutzerdefiniert</a><a href="#klassik">Klassik</a><a href="#zweispieler">2 Spieler</a><a href="#multiplayer">Online</a><a href="#classic">Classic</a></dd>
+        <dt>Fortschritt</dt><dd><a href="#coins">Coins</a><a href="#taeglich">Tägliche Belohnung</a><a href="#powers">Powers</a><a href="#powershop">Power-Shop</a><a href="#kosmetik">Kosmetik</a><a href="#erfolge">Erfolge</a><a href="#statistik">Statistik</a></dd>
+        <dt>Mehr</dt><dd><a href="#replays">Replays</a><a href="#mods">Mods</a><a href="#einstellungen">Einstellungen</a><a href="#grafik">Grafik</a><a href="#dateien">Dateien</a><a href="../server/">Server hosten</a></dd>
+      </dl>
+    </div>
+  </section>
+
+  </article>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>JumpNDodge Wiki · W Software · Apache-2.0</span>
+    <span><a href="../">JumpNDodge</a> · <a href="../server/">Server hosten</a> · <a href="https://github.com/erqf1/JumpNDodge/releases">GitHub</a></span>
+  </div>
+</footer>
+<script>
+  // Suche: blendet Abschnitte ohne Treffer aus; Seitenleiste markiert den Abschnitt, in dem man gerade liest
+  (() => {
+    const q = document.getElementById('q');
+    const secs = [...document.querySelectorAll('#art > section')];
+    const links = [...document.querySelectorAll('#toc a')];
+    const nohit = document.getElementById('nohit');
+    const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const text = new Map(secs.map((s) => [s, norm(s.textContent)]));
+    // Handy: Inhalt eingeklappt starten
+    if (matchMedia('(max-width: 900px)').matches) document.getElementById('tocbox').open = false;
+    q.addEventListener('input', () => {
+      const t = norm(q.value.trim());
+      if (t) { document.getElementById('tocbox').open = true; window.scrollTo(0, 0); }
+      let any = false;
+      secs.forEach((s) => { const hit = !t || text.get(s).includes(t); s.classList.toggle('hidden', !hit); any = any || hit; });
+      links.forEach((a) => { const s = document.querySelector(a.getAttribute('href')); a.classList.toggle('hidden', !!s && s.classList.contains('hidden')); });
+      document.querySelectorAll('#toc h4').forEach((h) => { h.classList.toggle('hidden', !!t); });
+      nohit.style.display = any ? 'none' : 'block';
+    });
+    const byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+    const io = new IntersectionObserver((es) => {
+      es.forEach((e) => {
+        if (!e.isIntersecting) return;
+        links.forEach((a) => a.classList.remove('on'));
+        const a = byId.get(e.target.id);
+        if (a) a.classList.add('on');
+      });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    secs.forEach((s) => io.observe(s));
+    // aktuelle Version (nur Anzeige)
+    fetch('https://api.github.com/repos/erqf1/JumpNDodge/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rel) => { if (rel && /^v?\d/.test(rel.tag_name || '')) document.querySelectorAll('[data-version]').forEach((e) => { e.textContent = rel.tag_name.replace(/^v/, ''); }); })
+      .catch(() => {});
+  })();
+</script>
+</body>
+</html>

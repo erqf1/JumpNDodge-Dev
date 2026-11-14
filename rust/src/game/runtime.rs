@@ -129,9 +129,8 @@ impl G {
             self.sync_window_size();
             let bs = self.base_surface.clone();
             bs.blit(frozen, (0, 0));
-            let dim = Surface::new_alpha(self.WIDTH, self.HEIGHT);
-            dim.fill((0, 0, 0, 100));
-            bs.blit(&dim, (0, 0));
+            // direkt abdunkeln (vorher jedes Bild eine neue bildschirmgroße Fläche)
+            bs.fill_blend((0, 0, 0), 100);
             let t = self.font.render(&format!("{} ms", rem), true, (255, 255, 255));
             bs.blit(&t, (self.WIDTH / 2 - t.get_width() / 2, self.HEIGHT / 2 - t.get_height() / 2));
             self.flip();
