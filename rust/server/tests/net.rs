@@ -276,7 +276,7 @@ fn feldbreite_nach_bildschirmen() {
     a.send(&ClientMsg::Ready(true));
     b.send(&ClientMsg::Ready(true));
     let (w, h) = wait_pump(&mut a, Some(&mut b), 15, |m| if let ServerMsg::Start { width, height, .. } = m { Some((*width, *height)) } else { None });
-    // das schmalere Format (16:9) gewinnt: 600 * 16/9 = 1067
-    assert_eq!((w, h), (1067, FIELD_H));
+    // kleinster gemeinsamer Bildschirm, in echten Pixeln
+    assert_eq!((w, h), (1920, 1080));
 }
 

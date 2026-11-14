@@ -24,8 +24,8 @@ struct Conn {
     room: Option<String>,
     /// Abgelehnte Verbindungen werden nach kurzer Zeit entfernt
     remove_after: Option<Instant>,
-    /// Bildschirmformat (Breite/Höhe), falls gemeldet
-    aspect: Option<f64>,
+    /// Fenstergröße des Spielers (Pixel), falls gemeldet
+    screen: Option<(u32, u32)>,
     /// Chat-Spamschutz (Token-Eimer): verfügbare Nachrichten und letzter Stand
     chat_tokens: f64,
     chat_at: Instant,
@@ -33,8 +33,9 @@ struct Conn {
 
 struct Game {
     sim: Sim2p,
-    /// Feldbreite dieser Runde
+    /// Feldgröße dieser Runde
     fw: i32,
+    fh: i32,
     frame: u64,
     inputs: [Input; 2],
     input_frame: [u64; 2],
@@ -215,7 +216,7 @@ impl Server {
         peer.loss = self.loss;
         let id = self.next_id;
         self.next_id += 1;
-        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, aspect: None, chat_tokens: CHAT_BURST, chat_at: Instant::now() });
+        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, screen: None, chat_tokens: CHAT_BURST, chat_at: Instant::now() });
     }
 
     fn reject(&mut self, a: SocketAddr, reason: String) {
@@ -330,7 +331,7 @@ impl Server {
             ClientMsg::Chat { text } => self.on_chat(a, &text),
             ClientMsg::Screen { w, h } => {
                 if w >= 100 && h >= 100 && w <= 20000 && h <= 20000 {
-                    if let Some(c) = self.conns.get_mut(&a) { c.aspect = Some(w as f64 / h as f64); }
+                    if let Some(c) = self.conns.get_mut(&a) { c.screen = Some((w, h)); }
                 }
             }
         }
@@ -434,11 +435,11 @@ impl Server {
         let mut out: Vec<(SocketAddr, ServerMsg, bool)> = vec![];
         let mut log_line = None;
         let mut back_to_lobby = false;
-        // Feldbreite aus den Bildschirmen der beiden Spieler (vor dem veränderlichen Zugriff auf den Raum)
-        let fw = self.rooms.get(code).map(|r| {
-            let asp = |i: usize| r.slots[i].and_then(|a| self.conns.get(&a)).and_then(|c| c.aspect);
-            field_width_for(asp(0), asp(1))
-        }).unwrap_or(FIELD_W);
+        // Feldgröße aus den Fenstern der beiden Spieler (vor dem veränderlichen Zugriff auf den Raum)
+        let (fw, fh) = self.rooms.get(code).map(|r| {
+            let scr = |i: usize| r.slots[i].and_then(|a| self.conns.get(&a)).and_then(|c| c.screen);
+            field_size_for(scr(0), scr(1))
+        }).unwrap_or((FIELD_W, FIELD_H));
         {
             let Some(r) = self.rooms.get_mut(code) else { return; };
             let slots = r.slots;
@@ -451,10 +452,10 @@ impl Server {
                         let seed: u64 = rand::random();
                         let cfg = sim2p::Config { difficulty: r.difficulty.clone(), vs: r.mode == Mode::Vs, obstacle_weights: vec![("normal".into(), 100.0)], seed };
                         for a in slots.iter().flatten() {
-                            out.push((*a, ServerMsg::Start { seed, mode: r.mode, difficulty: r.difficulty.clone(), width: fw, height: FIELD_H }, true));
+                            out.push((*a, ServerMsg::Start { seed, mode: r.mode, difficulty: r.difficulty.clone(), width: fw, height: fh }, true));
                         }
-                        r.phase = Phase::Playing(Box::new(Game { sim: Sim2p::new(cfg, fw, FIELD_H), fw, frame: 0, inputs: [Input::default(); 2], input_frame: [0, 0], events: VecDeque::new() }));
-                        log_line = Some(format!("Raum {}: Runde gestartet (Feld {}x{})", code, fw, FIELD_H));
+                        r.phase = Phase::Playing(Box::new(Game { sim: Sim2p::new(cfg, fw, fh), fw, fh, frame: 0, inputs: [Input::default(); 2], input_frame: [0, 0], events: VecDeque::new() }));
+                        log_line = Some(format!("Raum {}: Runde gestartet (Feld {}x{})", code, fw, fh));
                     } else if secs != *shown {
                         *shown = secs;
                         for a in slots.iter().flatten() { out.push((*a, ServerMsg::Countdown { seconds: secs }, true)); }
@@ -462,7 +463,7 @@ impl Server {
                 }
                 Phase::Playing(g) => {
                     g.frame += 1;
-                    let res = g.sim.step(dt, g.inputs, g.fw, FIELD_H);
+                    let res = g.sim.step(dt, g.inputs, g.fw, g.fh);
                     for e in res.events { g.events.push_back((g.frame, e)); }
                     while g.events.front().map(|e| e.0 + EVENT_HISTORY_FRAMES < g.frame).unwrap_or(false) { g.events.pop_front(); }
                     if g.frame % SNAPSHOT_EVERY == 0 || res.game_over {

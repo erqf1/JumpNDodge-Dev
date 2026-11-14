@@ -13,18 +13,21 @@ pub const PROTO_VERSION: u32 = 2;
 /// Spielversion (nur zur Anzeige; ob es passt, entscheidet PROTO_VERSION)
 pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEFAULT_PORT: u16 = 47800;
-/// Spielfeld online: Höhe fest (gleiche Sprünge wie überall), Breite nach den Bildschirmen der beiden
-/// Spieler (das schmalere Format gewinnt, damit keiner mehr sieht). Ohne Angabe (alte Spiele) 800x600.
+/// Spielfeld online: so groß wie der kleinere Bildschirm der beiden Spieler, in echten Pixeln wie im
+/// Einzelspieler (Figuren und Sprünge gleich groß, nichts wird hochskaliert). Ohne Angabe (alte Spiele) 800x600.
 pub const FIELD_W: i32 = 800;
 pub const FIELD_H: i32 = 600;
-pub const FIELD_W_MIN: i32 = 800;
-pub const FIELD_W_MAX: i32 = 1600;
+pub const FIELD_MIN: (i32, i32) = (800, 600);
+pub const FIELD_MAX: (i32, i32) = (3840, 2160);
 
-/// Feldbreite für zwei Bildschirmformate (Breite/Höhe). None = ein Spieler hat nichts gemeldet -> 800.
-pub fn field_width_for(a: Option<f64>, b: Option<f64>) -> i32 {
+/// Feldgröße aus den Fenstergrößen der beiden Spieler. None = ein Spieler hat nichts gemeldet -> 800x600.
+pub fn field_size_for(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> (i32, i32) {
     match (a, b) {
-        (Some(a), Some(b)) if a.is_finite() && b.is_finite() => ((FIELD_H as f64 * a.min(b)).round() as i32).clamp(FIELD_W_MIN, FIELD_W_MAX),
-        _ => FIELD_W,
+        (Some(a), Some(b)) => (
+            (a.0.min(b.0) as i32).clamp(FIELD_MIN.0, FIELD_MAX.0),
+            (a.1.min(b.1) as i32).clamp(FIELD_MIN.1, FIELD_MAX.1),
+        ),
+        _ => (FIELD_W, FIELD_H),
     }
 }
 pub const TICK_HZ: u64 = 60;
@@ -195,12 +198,12 @@ mod tests {
         assert_eq!(clean_chat("Grüße 👋"), "Grüße 👋");
     }
     #[test]
-    fn feldbreite() {
-        assert_eq!(field_width_for(None, Some(1.78)), 800);
-        assert_eq!(field_width_for(Some(16.0 / 9.0), Some(16.0 / 9.0)), 1067);
-        assert_eq!(field_width_for(Some(21.0 / 9.0), Some(16.0 / 9.0)), 1067);
-        assert_eq!(field_width_for(Some(0.5), Some(1.78)), 800);
-        assert_eq!(field_width_for(Some(5.0), Some(4.0)), 1600);
+    fn feldgroesse() {
+        assert_eq!(field_size_for(None, Some((1920, 1080))), (800, 600));
+        assert_eq!(field_size_for(Some((1920, 1080)), Some((1920, 1080))), (1920, 1080));
+        assert_eq!(field_size_for(Some((2560, 1080)), Some((1920, 1200))), (1920, 1080));
+        assert_eq!(field_size_for(Some((400, 700)), Some((1920, 1080))), (800, 700));
+        assert_eq!(field_size_for(Some((9000, 9000)), Some((8000, 8000))), (3840, 2160));
     }
     #[test]
     fn chat_kodieren() {

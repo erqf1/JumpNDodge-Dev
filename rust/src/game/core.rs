@@ -454,7 +454,7 @@ impl G {
             win_w = win_w.max(400);
             win_h = win_h.max(300);
         }
-        let gui_scale = if self.game_running { 1.0 } else { self.settings.gf("gui_scale", 1.0).clamp(0.5, 2.0) };
+        let gui_scale = if self.game_running || super::multiplayer::round_active() { 1.0 } else { self.settings.gf("gui_scale", 1.0).clamp(0.5, 2.0) };
         let lw = 400.max((win_w as f64 / gui_scale) as i32);
         let lh = 300.max((win_h as f64 / gui_scale) as i32);
         // Scharfe Darstellung: in echter Pixelauflösung zeichnen statt (wie pygame) klein

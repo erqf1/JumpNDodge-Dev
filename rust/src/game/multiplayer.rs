@@ -141,6 +141,12 @@ thread_local! {
 }
 fn field() -> (i32, i32) { FIELD.with(|f| f.get()) }
 
+thread_local! {
+    /// Läuft gerade eine Online-Runde? Dann gilt wie im Einzelspieler keine GUI-Skalierung.
+    static ROUND_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+pub fn round_active() -> bool { ROUND_ACTIVE.with(|r| r.get()) }
+
 fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
 
 fn mode_name(g: &G, m: Mode) -> String { match m { Mode::Vs => "VS".into(), Mode::Coop => g.tde("Koop", "Co-op") } }
@@ -239,6 +245,7 @@ impl G {
         mp.addr_input = self.settings.gs("mp_last_addr", "");
         let mut clock = Clock::new();
         while self.in_multiplayer {
+            ROUND_ACTIVE.with(|r| r.set(mp.screen == Screen::Playing));
             let fps = self.target_fps();
             let frame_ms = clock.tick_f(fps).min(250.0);
             self.sync_window_size();
@@ -252,6 +259,7 @@ impl G {
             self.mp_draw(&mut mp);
         }
         if let Some(c) = mp.client.take() { c.disconnect(); }
+        ROUND_ACTIVE.with(|r| r.set(false));
     }
 
     /// Netzwerk: Verbindungsaufbau, Nachrichten, Verbindungsverlust
@@ -295,10 +303,12 @@ impl G {
             self.mp_disconnect(mp, Some(&t));
             return;
         }
-        // Bildschirmformat melden (beim Verbinden und wenn sich das Fenster ändert) - außerhalb einer Runde
-        if mp.screen != Screen::Playing && mp.sent_screen != (self.WIDTH, self.HEIGHT) {
-            mp.sent_screen = (self.WIDTH, self.HEIGHT);
-            mp.send(ClientMsg::Screen { w: self.WIDTH.max(1) as u32, h: self.HEIGHT.max(1) as u32 });
+        // Fenstergröße melden (beim Verbinden und wenn sich das Fenster ändert) - außerhalb einer Runde.
+        // Echte Fenstergröße wie im Spiel (dort gilt keine GUI-Skalierung), nicht die Menü-Größe.
+        let win = self.display.size();
+        if mp.screen != Screen::Playing && mp.sent_screen != win {
+            mp.sent_screen = win;
+            mp.send(ClientMsg::Screen { w: win.0.max(1) as u32, h: win.1.max(1) as u32 });
         }
         if mp.last_ping_sent.elapsed() >= Duration::from_secs(2) {
             mp.last_ping_sent = Instant::now();
@@ -897,7 +907,8 @@ impl G {
     /// Spielfeld (800x600) in Fensterkoordinaten: (Faktor, Versatz x, Versatz y)
     fn mp_field_tf(&self) -> (f64, f64, f64) {
         let (fw, fh) = field();
-        let s = (self.WIDTH as f64 / fw as f64).min(self.HEIGHT as f64 / fh as f64);
+        // nie vergrößern: gleiche Größe wie im Einzelspieler; nur verkleinern, falls das Fenster kleiner ist
+        let s = (self.WIDTH as f64 / fw as f64).min(self.HEIGHT as f64 / fh as f64).min(1.0);
         (s, (self.WIDTH as f64 - fw as f64 * s) / 2.0, (self.HEIGHT as f64 - fh as f64 * s) / 2.0)
     }
     fn mp_field_rect(&self, r: Rect) -> Rect {
