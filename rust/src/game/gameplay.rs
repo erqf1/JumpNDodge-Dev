@@ -331,7 +331,7 @@ impl G {
         let buffer_window: f64 = if self.settings.gb("jump_buffer", true) { 120.0 } else { 0.0 };
         let fast_fall = self.settings.gb("exp_fast_fall", false);
         let short_hop = self.settings.gb("exp_short_hop", false);
-        let rumble = self.settings.gb("pad_rumble", true);
+        let rumble = self.settings.gb("pad_rumble", false);
         let mut jump_buffer: f64 = 0.0;
         let mut hop_cut = false;
         let trace = std::env::var("JND_TRACE_JUMPS").is_ok();

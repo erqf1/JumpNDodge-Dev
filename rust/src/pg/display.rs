@@ -276,6 +276,12 @@ impl Display {
     }
 
     fn pump_pads(&mut self) {
+        if let Some(p) = self.pads.as_mut() {
+            if !p.effects.is_empty() {
+                let now = std::time::Instant::now();
+                p.effects.retain(|(e, until)| if *until <= now { let _ = e.stop(); false } else { true });
+            }
+        }
         loop {
             let Some(p) = self.pads.as_mut() else { return; };
             let Some(ev) = p.gilrs.next_event() else { return; };
@@ -320,7 +326,9 @@ impl Display {
         use gilrs::ff::{BaseEffect, BaseEffectType, EffectBuilder, Replay, Ticks};
         let Some(p) = self.pads.as_mut() else { return; };
         let now = std::time::Instant::now();
-        p.effects.retain(|(_, until)| *until > now);
+        // läuft schon eine Vibration, keine zweite stapeln (sonst summiert sich das zu Dauer-Brummen)
+        if p.effects.iter().any(|(_, until)| *until > now) { return; }
+        for (e, _) in p.effects.drain(..) { let _ = e.stop(); }
         let ids: Vec<gilrs::GamepadId> = p.gilrs.gamepads().filter(|(_, g)| g.is_ff_supported()).map(|(id, _)| id).collect();
         if ids.is_empty() { return; }
         let mag = (strength.clamp(0.0, 1.0) * u16::MAX as f32) as u16;
@@ -330,7 +338,7 @@ impl Display {
             .gamepads(&ids)
             .finish(&mut p.gilrs);
         if let Ok(e) = eff {
-            if e.play().is_ok() { p.effects.push((e, now + std::time::Duration::from_millis(ms as u64 + 50))); }
+            if e.play().is_ok() { p.effects.push((e, now + std::time::Duration::from_millis(ms as u64))); }
         }
     }
 

@@ -3,6 +3,12 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.1
+
+- Controller-Vibration hörte nicht mehr auf: abgelaufene Vibrationen werden jetzt aktiv gestoppt, keine Stapelung mehr; standardmäßig aus.
+- Neues Menü Einstellungen → Experimentell: Schnell fallen, Kurz springen, Controller-Vibration.
+- Wiki auf den Stand von 5.11 gebracht.
+
 ## JumpNDodge 5.11.0
 
 - Geister von Freunden: Bestläufe werden beim offiziellen Server gespeichert; in der Runde laufen bis zu 3 Freunde (gleiche Schwierigkeit) mit Namen mit.

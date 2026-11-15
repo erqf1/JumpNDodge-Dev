@@ -8,10 +8,11 @@ use crate::pg::*;
 use crate::util::*;
 use serde_json::json;
 
-/// Seiten: 0 = Darstellung, 1 = Spiel, 2 = System
+/// Seiten: 0 = Darstellung, 1 = Spiel, 2 = System, 3 = Experimentell
 pub const PAGE_DISPLAY: usize = 0;
 pub const PAGE_GAME: usize = 1;
 pub const PAGE_SYSTEM: usize = 2;
+pub const PAGE_EXPERIMENTAL: usize = 3;
 
 const GUI_STEPS: [f64; 7] = [0.75, 0.85, 0.9, 1.0, 1.1, 1.25, 1.5];
 const FPS_STEPS: [i64; 7] = [0, 60, 120, 144, 165, 240, 1000];
@@ -29,12 +30,13 @@ impl G {
             (self.get_text("sound"), "sound"),
             (self.get_text("controls_menu_btn"), "controls"),
             ("System".to_string(), "system"),
+            (self.tde("Experimentell", "Experimental"), "experimental"),
             (self.get_text("back"), "back"),
         ]
     }
 
     fn settings_main_rects(&self) -> Vec<Rect> {
-        (0..6).map(|i| Rect::new(self.WIDTH / 2 - 180, 130 + i * 62, 360, 50)).collect()
+        (0..7).map(|i| Rect::new(self.WIDTH / 2 - 180, 122 + i * 56, 360, 46)).collect()
     }
 
     pub fn draw_settings_menu(&mut self) {
@@ -45,7 +47,7 @@ impl G {
         self.draw_coin_display(&bs);
         let items = self.settings_main_items();
         let rects = self.settings_main_rects();
-        let accents = [(150, 130, 230), (90, 190, 140), (100, 150, 220), (80, 180, 200), (200, 150, 90), (150, 150, 160)];
+        let accents = [(150, 130, 230), (90, 190, 140), (100, 150, 220), (80, 180, 200), (200, 150, 90), (210, 100, 160), (150, 150, 160)];
         for (i, ((t, _), r)) in items.iter().zip(rects.iter()).enumerate() {
             let hv = r.collidepoint(mp) || self.nav_is_focused("settings_menu", i, items.len());
             self.draw_ui_button(&bs, *r, t, BtnOpts { font: Some(self.menu_font.clone()), hovered: hv, border_color: Some(accents[i]), hover_border_color: Some(accents[i]), ..Default::default() });
@@ -85,6 +87,7 @@ impl G {
                 Some("display") => self.open_settings_page(PAGE_DISPLAY),
                 Some("game") => self.open_settings_page(PAGE_GAME),
                 Some("system") => self.open_settings_page(PAGE_SYSTEM),
+                Some("experimental") => self.open_settings_page(PAGE_EXPERIMENTAL),
                 Some("sound") => self.open_settings_sound_menu(),
                 Some("controls") => { self.play_sound(Snd::MenuClick); self.in_settings_menu = false; self.in_controls_menu = true; }
                 Some("back") => self.back_to_main_from_settings(),
@@ -132,9 +135,11 @@ impl G {
                 r("friend_ghosts", self.tde("Geister von Freunden", "Friends' ghosts"), self.onoff(s.gb("friend_ghosts", true)), Some(s.gb("friend_ghosts", true))),
                 r("ghost_share", self.tde("Meine Bestläufe für Freunde hochladen", "Upload my best runs for friends"), self.onoff(s.gb("ghost_share", true)), Some(s.gb("ghost_share", true))),
                 r("jump_buffer", self.tde("Sprung vormerken (kurz vor der Landung)", "Buffer jumps (just before landing)"), self.onoff(s.gb("jump_buffer", true)), Some(s.gb("jump_buffer", true))),
-                r("pad_rumble", self.tde("Controller-Vibration bei Treffern", "Controller rumble on hits"), self.onoff(s.gb("pad_rumble", true)), Some(s.gb("pad_rumble", true))),
-                r("exp_fast_fall", self.tde("Experimentell: Schnell fallen (S / ↓ / LT)", "Experimental: fast fall (S / ↓ / LT)"), self.onoff(s.gb("exp_fast_fall", false)), Some(s.gb("exp_fast_fall", false))),
-                r("exp_short_hop", self.tde("Experimentell: Kurz springen (früh loslassen)", "Experimental: short hop (release early)"), self.onoff(s.gb("exp_short_hop", false)), Some(s.gb("exp_short_hop", false))),
+            ],
+            PAGE_EXPERIMENTAL => vec![
+                r("exp_fast_fall", self.tde("Schnell fallen (S / ↓ / LT)", "Fast fall (S / ↓ / LT)"), self.onoff(s.gb("exp_fast_fall", false)), Some(s.gb("exp_fast_fall", false))),
+                r("exp_short_hop", self.tde("Kurz springen (Taste früh loslassen)", "Short hop (release jump early)"), self.onoff(s.gb("exp_short_hop", false)), Some(s.gb("exp_short_hop", false))),
+                r("pad_rumble", self.tde("Controller-Vibration bei Treffern", "Controller rumble on hits"), self.onoff(s.gb("pad_rumble", false)), Some(s.gb("pad_rumble", false))),
             ],
             _ => vec![
                 r("update", self.tde("Nach Updates suchen", "Check for updates"), format!("v{}", env!("CARGO_PKG_VERSION")), None),
@@ -145,7 +150,7 @@ impl G {
     }
 
     fn settings_page_title(&self) -> String {
-        match self.settings_page { PAGE_DISPLAY => self.tde("Darstellung", "Display"), PAGE_GAME => self.tde("Spiel", "Game"), _ => "System".into() }
+        match self.settings_page { PAGE_DISPLAY => self.tde("Darstellung", "Display"), PAGE_GAME => self.tde("Spiel", "Game"), PAGE_EXPERIMENTAL => self.tde("Experimentell", "Experimental"), _ => "System".into() }
     }
 
     /// (Zeilen-Rechtecke, Zurück-Knopf)
@@ -259,7 +264,7 @@ impl G {
             "jump_buffer" => self.flip_bool("jump_buffer", true),
             "friend_ghosts" => self.flip_bool("friend_ghosts", true),
             "ghost_share" => self.flip_bool("ghost_share", true),
-            "pad_rumble" => { self.flip_bool("pad_rumble", true); if self.settings.gb("pad_rumble", true) { self.display.rumble(0.5, 160); } }
+            "pad_rumble" => { self.flip_bool("pad_rumble", false); if self.settings.gb("pad_rumble", false) { self.display.rumble(0.5, 160); } }
             "exp_fast_fall" => self.flip_bool("exp_fast_fall", false),
             "exp_short_hop" => self.flip_bool("exp_short_hop", false),
             "legacy_art" => { self.flip_bool("legacy_art", false); super::art::set_legacy(self.settings.gb("legacy_art", false)); }

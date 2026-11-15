@@ -64,6 +64,7 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
     ("setting", "Einstellung setzen, z.B.: run setting exp_fast_fall true"),
     ("settings_game", "Einstellungen > Spiel öffnen"),
+    ("settings_exp", "Einstellungen > Experimentell öffnen"),
     ("replays", "Replay-Liste öffnen"),
     ("fakeghost", "Test: letzte Runde als Freundes-Geist einsetzen, z.B.: run fakeghost Anna"),
     ("theme", "Hell/Dunkel setzen, z.B.: run theme light / run theme dark"),
@@ -270,6 +271,7 @@ impl G {
                 match self.load_last_recording() { Some(r) => { println!("[DEV] fakeghost {} ({}, {} Frames)", n, r.difficulty, r.frames.len()); self.dev_fake_friend_ghost(n, r); } None => println!("[DEV] fakeghost: keine letzte Runde") }
             }
             "settings_game" => { for f in ALL_SCREEN_FLAGS { self.set_screen_flag(f, false); } self.open_settings_page(super::settings_ui::PAGE_GAME); }
+            "settings_exp" => { for f in ALL_SCREEN_FLAGS { self.set_screen_flag(f, false); } self.open_settings_page(super::settings_ui::PAGE_EXPERIMENTAL); }
             "setting" => {
                 let (Some(k), Some(v)) = (args.first(), args.get(1)) else { println!("[DEV] setting braucht Name und Wert"); return true; };
                 let val = match *v { "true" | "an" | "on" => json!(true), "false" | "aus" | "off" => json!(false), x => x.parse::<f64>().map(|f| json!(f)).unwrap_or(json!(x)) };

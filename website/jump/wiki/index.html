@@ -111,6 +111,7 @@
       <a href="#oneup">1-UP</a>
       <a href="#schwierigkeiten">Schwierigkeiten</a>
       <a href="#combo">Combo &amp; „Knapp!“</a>
+      <a href="#beta-hindernisse">Neue Hindernisse (Beta)</a>
       <h4>Spielmodi</h4>
       <a href="#standard">Standard</a>
       <a href="#custom">Benutzerdefiniert</a>
@@ -131,11 +132,14 @@
       <a href="#profil">Profil &amp; Name</a>
       <a href="#onlinehub">Rangliste, Freunde, Clans</a>
       <a href="#codes">Codes einlösen</a>
+      <a href="#serverliste">Server-Browser</a>
+      <a href="#einladen">Freunde einladen</a>
       <a href="#server">Eigener Server</a>
       <h4>Extras</h4>
-      <a href="#replays">Replays &amp; Rekord-Geist</a>
+      <a href="#replays">Replays &amp; Geister</a>
       <a href="#mods">Lua-Mods</a>
       <a href="#einstellungen">Einstellungen</a>
+      <a href="#experimentell">Experimentell</a>
       <a href="#grafik">Grafik &amp; Effekte</a>
       <a href="#dateien">Dateien &amp; Speicherorte</a>
       <a href="#updates">Updates &amp; Versionen</a>
@@ -154,16 +158,16 @@
       <table>
         <tr><th>Genre</th><td>Arcade, Endless Runner</td></tr>
         <tr><th>Entwickler</th><td>W Software</td></tr>
-        <tr><th>Version</th><td><span data-version>5.4</span> (Rust Edition)</td></tr>
+        <tr><th>Version</th><td><span data-version>5.11</span> (Rust Edition)</td></tr>
         <tr><th>Systeme</th><td>Windows, Linux, macOS</td></tr>
-        <tr><th>Spieler</th><td>1, 2 lokal, 2 online</td></tr>
+        <tr><th>Spieler</th><td>1, 2 lokal, bis 8 online</td></tr>
         <tr><th>Sprachen</th><td>Deutsch, English, Русский, Türkçe, Schwiizerdütsch</td></tr>
         <tr><th>Preis</th><td>kostenlos</td></tr>
         <tr><th>Lizenz</th><td>Apache-2.0</td></tr>
       </table>
     </aside>
     <p class="lede">JumpNDodge ist ein schnelles Arcade-Spiel: Blöcke rasen über den Boden auf dich zu, auf hohen Stufen fallen zusätzlich Kristalle von oben. Du springst, weichst aus und überlebst so lange wie möglich.</p>
-    <p>Jedes Hindernis, das an dir vorbeizieht, gibt einen Punkt. Auf den höheren Schwierigkeiten werden Punkte zu <a href="#coins">Coins</a>, mit denen du <a href="#powers">Powers</a> und <a href="#kosmetik">Kosmetik</a> freischaltest. Dazu kommen ein lokaler <a href="#zweispieler">2-Spieler-Modus</a>, <a href="#multiplayer">Online-Multiplayer</a>, <a href="#replays">Replays</a>, eigene <a href="#mods">Lua-Mods</a> und eine Online-<a href="#onlinehub">Rangliste</a>.</p>
+    <p>Jedes Hindernis, das an dir vorbeizieht, gibt einen Punkt. Auf den höheren Schwierigkeiten werden Punkte zu <a href="#coins">Coins</a>, mit denen du <a href="#powers">Powers</a> und <a href="#kosmetik">Kosmetik</a> freischaltest. Dazu kommen ein lokaler <a href="#zweispieler">2-Spieler-Modus</a>, <a href="#multiplayer">Online-Multiplayer</a> mit bis zu 8 Spielern, <a href="#replays">Replays</a> mit Geistern deiner Freunde, eigene <a href="#mods">Lua-Mods</a> und eine Online-<a href="#onlinehub">Rangliste</a>.</p>
     <p>Dieses Wiki beschreibt jede Funktion mit den genauen Werten aus dem Spiel. Alle Zahlen gelten für die aktuelle Rust Edition (ab Version 5).</p>
     <div class="box"><b>Gut zu wissen:</b> Die Spiellogik läuft immer mit genau 60 Schritten pro Sekunde, egal wie viele Bilder dein Monitor zeigt. Werte wie „8 Pixel pro Schritt“ sind deshalb überall gleich – auf 60-Hz- wie auf 240-Hz-Bildschirmen.</div>
   </section>
@@ -174,8 +178,10 @@
     <h3>Tastatur</h3>
     <div class="tw"><table class="wt">
       <tr><th>Aktion</th><th>Standard</th><th>Hinweis</th></tr>
-      <tr><td>Springen</td><td><span class="key">Leertaste</span>, <span class="key">W</span>, <span class="key">↑</span></td><td>Gedrückt halten springt nicht erneut – jeder Sprung braucht einen neuen Tastendruck.</td></tr>
+      <tr><td>Springen</td><td><span class="key">Leertaste</span>, <span class="key">W</span>, <span class="key">↑</span></td><td>Hältst du die Taste gedrückt, springst du nach der Landung gleich wieder. <b>Sprung vormerken:</b> Drückst du bis 120 ms vor der Landung, springst du direkt beim Aufkommen (Einstellungen → Spiel, Standard an).</td></tr>
       <tr><td>Links / Rechts</td><td><span class="key">A</span>/<span class="key">←</span>, <span class="key">D</span>/<span class="key">→</span></td><td>8 Pixel pro Logikschritt.</td></tr>
+      <tr><td>Schnell fallen</td><td><span class="key">S</span>, <span class="key">↓</span></td><td>Nur mit <a href="#experimentell">Experimentell → Schnell fallen</a>: in der Luft gedrückt halten, um schneller zu landen.</td></tr>
+      <tr><td>Schnell-Nachrichten</td><td><span class="key">1</span>–<span class="key">4</span></td><td>Online: „GG“, „Knapp!“, „Nochmal?“, „Haha“ als Blase über deiner Figur.</td></tr>
       <tr><td>Power 1 / Power 2</td><td><span class="key">Q</span> / <span class="key">E</span></td><td>Löst die aktiven <a href="#powers">Powers</a> aus (Slow Motion, Time Freeze, Ghost Mode, Nuke).</td></tr>
       <tr><td>Pause</td><td><span class="key">Esc</span></td><td>Beim Fortsetzen läuft ein kurzer Countdown (1 s).</td></tr>
       <tr><td>Vollbild</td><td><span class="key">F11</span></td><td>Überall im Spiel.</td></tr>
@@ -191,8 +197,11 @@
       <tr><td>B / ○, Start</td><td>Zurück, Pause</td></tr>
       <tr><td>X / □, LB</td><td>Power 1</td></tr>
       <tr><td>Y / △, RB</td><td>Power 2</td></tr>
+      <tr><td>RT / R2</td><td>Springen</td></tr>
+      <tr><td>LT / L2, Steuerkreuz unten</td><td>Schnell fallen (wenn unter Experimentell an)</td></tr>
       <tr><td>Steuerkreuz, linker Stick</td><td>Laufen, Menüs</td></tr>
     </table></div>
+    <p>Controller, die es können, vibrieren bei Treffern – das ist ein <a href="#experimentell">experimenteller</a> Schalter und standardmäßig aus.</p>
   </section>
 
   <section id="runde">
@@ -267,6 +276,15 @@
     </aside>
     <p>Lila Kristallblöcke, die von oben herunterfallen. Ein Warnpfeil zeigt, wo einer kommt. Sie erscheinen auf <b>Hardcore, Unmöglich, Albtraum und Hölle</b>, im Modus <b>Dynamisch</b> ab Tempo 14 und im <a href="#custom">benutzerdefinierten Modus</a>, wenn „Vert. Hindernisse“ an ist. Im Klassik-Modus gibt es keine Kristalle.</p>
     <p>Auf breiteren Fenstern kommen Kristalle häufiger (der Takt wird mit 800 ÷ Fensterbreite verrechnet), damit die Dichte gleich bleibt. Im Fall strecken sie sich leicht, beim Aufprall auf den Boden werden sie flachgedrückt und verschwinden (nur Optik).</p>
+    <h3 style="clear:both" id="beta-hindernisse">Neue Hindernisse (Beta)</h3>
+    <p>Nur im <a href="#custom">benutzerdefinierten Modus</a> mit dem Schalter <b>„Neue Hindernisse (Beta)“</b>. Dann ist etwa jedes zweite Bodenhindernis eines davon:</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Hindernis</th><th>Aussehen</th><th>So kommst du vorbei</th></tr>
+      <tr><td><b>Hoher Block</b></td><td>rot, 46 × 92 px</td><td>Fast doppelt so hoch – Sprung früh genug ansetzen.</td></tr>
+      <tr><td><b>Hüpfball</b></td><td>pinke Kugel, 40 px</td><td>Springt bis 135 px hoch und wieder runter: drüber springen, wenn er unten ist, oder drunter durch, wenn er oben ist.</td></tr>
+      <tr><td><b>Sprinter</b></td><td>stahlgrau, 62 × 40 px</td><td>Rollt erst mit halbem Tempo heran (rote Warnpfeile), ab gut der Hälfte des Bildschirms mit fast doppeltem Tempo.</td></tr>
+      <tr><td><b>Laser-Balken</b></td><td>gelb, 170 px breit</td><td>Hängt in Kopfhöhe: <b>unten bleiben, nicht springen</b>. Er kommt nie direkt hinter einem anderen Hindernis, und danach ist etwas Luft.</td></tr>
+    </table></div>
     <h3 style="clear:both">Eigene Hindernisse</h3>
     <p>Mit <a href="#mods">Lua-Mods</a> lassen sich eigene Hindernisse mit Größe, Farbe, Tempo und Häufigkeit anlegen – am Boden oder von oben.</p>
   </section>
@@ -342,6 +360,7 @@
       <tr><td>Wind (Seiten)</td><td>an/aus</td><td>Seitenwind schiebt dich und die Hindernisse nach links oder rechts. Stärke und Richtung wechseln immer wieder; Anzeige „Wind: N %“ mit Pfeil.</td></tr>
       <tr><td>Wind (alle Richtungen)</td><td>an/aus</td><td>Wie oben, zusätzlich nach oben/unten – beeinflusst auch Sprünge und fallende Kristalle.</td></tr>
       <tr><td>Free Roam</td><td>an/aus</td><td>Kein Springen: Du fliegst frei mit <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> (10 px pro Schritt), Hindernisse kommen schräg von allen vier Seiten.</td></tr>
+      <tr><td>Neue Hindernisse (Beta)</td><td>an/aus</td><td>Hoher Block, Hüpfball, Sprinter und Laser-Balken, siehe <a href="#beta-hindernisse">Neue Hindernisse</a>. Nicht zusammen mit Free Roam.</td></tr>
     </table></div>
     <p>Coins gibt es im Custom-Modus nicht.</p>
   </section>
@@ -365,18 +384,24 @@
 
   <section id="multiplayer">
     <h3>Online-Multiplayer</h3>
-    <p>Unter <b>Online → Multiplayer</b> spielst du VS oder Koop mit einem Freund über das Internet. Die Regeln entsprechen dem <a href="#zweispieler">lokalen 2-Spieler-Modus</a>; der Server berechnet die Runde, damit beide dasselbe sehen.</p>
+    <p>Unter <b>Online → Multiplayer</b> spielst du VS oder Koop mit <b>bis zu 8 Spielern</b> über das Internet. Die Regeln entsprechen dem <a href="#zweispieler">lokalen 2-Spieler-Modus</a>; der Server berechnet die Runde, damit alle dasselbe sehen.</p>
     <ol>
-      <li><b>Server wählen:</b> der <b>offizielle Server</b> (<code>play.mert.win</code>) oder ein eigener per Adresse/Hostname. Die Liste zeigt, ob ein Server online ist, wie viele Spieler da sind, den Ping und ob er ein Passwort hat.</li>
-      <li><b>Raum erstellen</b> (VS oder Koop, Schwierigkeit wählen) oder einem Raum aus der Liste beitreten. Jeder Raum hat einen <b>4-stelligen Code</b>, den du deinem Freund schicken kannst. Pro Raum spielen 2 Spieler.</li>
-      <li>Beide drücken <b>Bereit</b>, nach einem Countdown startet die Runde.</li>
+      <li><b>Server wählen:</b> der <b>offizielle Server</b> (<code>play.mert.win</code>), einer aus dem <a href="#serverliste">Server-Browser</a> oder ein eigener per Adresse/Hostname.</li>
+      <li><b>Schnell spielen</b> bringt dich in den vollsten offenen Raum (8 Plätze, Mittel) oder macht einen auf. Oder selbst einen <b>Raum erstellen</b>: VS oder Koop, Schwierigkeit und 2–8 Plätze. Jeder Raum hat einen <b>4-stelligen Code</b>; Freunde kannst du auch direkt <a href="#einladen">einladen</a>.</li>
+      <li>Alle drücken <b>Bereit</b>, nach einem Countdown startet die Runde. Der <b>Raum-Chef</b> (wer den Raum erstellt hat, Abzeichen „Chef“) kann auch ohne alle Bereit-Meldungen starten (ab 2 Spielern), Spieler mit „x“ rauswerfen und den Raum <b>privat</b> machen – dann steht er nicht in der Liste und nicht bei Schnell spielen, beitreten geht nur per Code. Geht der Chef, wird der Nächste Chef.</li>
       <li>Danach gibt es das Ergebnis und <b>Rematch</b>.</li>
     </ol>
-    <ul>
-      <li><b>Server-Chat:</b> Nachrichten gehen live an alle, die gerade auf dem Server sind. Es gibt keinen Verlauf, nichts wird gespeichert, und es gibt eine Bremse gegen Spam.</li>
-      <li><b>Versionen:</b> Spiel und Server müssen dasselbe Netzwerk-Protokoll haben. Ältere und neuere Spielversionen können zusammen spielen, solange das Protokoll gleich ist. Sonst sagt das Spiel, wer aktualisieren muss.</li>
-      <li><b>Verbindung:</b> Normalerweise über UDP. Antwortet ein Hostname nicht per UDP (z. B. hinter einem Cloudflare Tunnel), verbindet sich das Spiel automatisch über eine sichere WebSocket-Verbindung (<code>wss://</code>).</li>
-    </ul>
+    <div class="tw"><table class="wt">
+      <tr><th>Was</th><th>Wie es funktioniert</th></tr>
+      <tr><td><b>Zuschauen</b></td><td>Laufende Räume stehen in der Liste mit „läuft · zuschauen“. Du siehst die Runde mit den Namen über den Figuren; <span class="key">Esc</span> verlässt das Zuschauen. Nach der Runde rückst du auf einen freien Platz (ist keiner frei, geht es zurück in die Lobby). Höchstens 16 Zuschauer pro Raum, private Räume nicht.</td></tr>
+      <tr><td><b>Kosmetik</b></td><td>Kopfbedeckung, Augen, Nase, Mund und Spur der anderen siehst du im Raum und in der Runde.</td></tr>
+      <tr><td><b>Schnell-Nachrichten</b></td><td>Tasten <span class="key">1</span>–<span class="key">4</span>: „GG“, „Knapp!“, „Nochmal?“, „Haha“ als Blase über der Figur – im Raum, in der Runde und im Ergebnis.</td></tr>
+      <tr><td><b>Spielfeld</b></td><td>So groß wie der kleinste Bildschirm aller Spieler (mind. 800 × 600, höchstens 3840 × 2160) – in echten Pixeln, nie hochskaliert.</td></tr>
+      <tr><td><b>Server-Chat</b></td><td>Nachrichten an alle auf dem Server, mit einer Bremse gegen Spam. Der Verlauf bleibt <b>24 Stunden</b> (beim Server einstellbar); wer neu verbindet, sieht ihn.</td></tr>
+      <tr><td><b>Sprung vormerken</b></td><td>Gilt auch online: ein Druck kurz vor der Landung zählt.</td></tr>
+      <tr><td><b>Versionen</b></td><td>Spiel und Server müssen dasselbe Netzwerk-Protokoll haben. Ältere und neuere Spielversionen können zusammen spielen, solange das Protokoll gleich ist. Sonst sagt das Spiel, wer aktualisieren muss.</td></tr>
+      <tr><td><b>Verbindung</b></td><td>Normalerweise über UDP. Antwortet ein Hostname nicht per UDP (z. B. hinter einem Cloudflare Tunnel), verbindet sich das Spiel automatisch über <code>wss://</code>.</td></tr>
+    </table></div>
     <p>Einen <a href="#server">eigenen Server</a> kann jeder betreiben.</p>
   </section>
 
@@ -572,7 +597,7 @@
       <tr><td><b>Freunde</b></td><td>Spieler suchen, Freundschaftsanfragen senden und annehmen, öffentliche Profile ansehen.</td></tr>
       <tr><td><b>Nachrichten</b></td><td>Chats mit Freunden, mit Anzeige ungelesener Nachrichten.</td></tr>
       <tr><td><b>Clan</b></td><td>Einen Clan gründen, suchen, beitreten und Beitrittsanfragen verwalten.</td></tr>
-      <tr><td><b>Multiplayer</b></td><td>VS oder Koop mit einem Freund – siehe <a href="#multiplayer">Online-Multiplayer</a>.</td></tr>
+      <tr><td><b>Multiplayer</b></td><td>VS oder Koop mit bis zu 8 Spielern – siehe <a href="#multiplayer">Online-Multiplayer</a>.</td></tr>
     </table></div>
     <p>Ohne Internet zeigt das Spiel einen Hinweis; alles andere funktioniert weiter offline.</p>
   </section>
@@ -582,24 +607,45 @@
     <p>Unter <b>Mehr → Code einlösen</b> gibst du Aktionscodes ein, die es z. B. zu Updates oder Events gibt. Codes werden beim Server geprüft, geben Coins und gelten einmal pro Profil. Aktuelle Codes werden über die offiziellen Kanäle verteilt – nicht in diesem Wiki.</p>
   </section>
 
+  <section id="serverliste">
+    <h2>Server-Browser</h2>
+    <p>Im Multiplayer-Menü steht unter „Per IP verbinden“ die <b>Server-Liste</b> (Mausrad zum Blättern, „Aktualisieren“ sucht neu, sonst alle 30 s):</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Markierung</th><th>Woher</th></tr>
+      <tr><td><b>Öffentlich</b></td><td>Server, die sich beim offiziellen Server angemeldet haben (<code>"listed": true</code>). Der offizielle Server prüft jeden selbst und nimmt nur öffentlich erreichbare Adressen auf; wer sich 5 Minuten nicht meldet, fliegt raus.</td></tr>
+      <tr><td><b>LAN</b></td><td>Server im eigenen Netzwerk (Suche per Broadcast auf Port 47800).</td></tr>
+      <tr><td><b>Zuletzt</b></td><td>Die letzten 5 Server, mit denen du verbunden warst; „x“ entfernt einen.</td></tr>
+    </table></div>
+    <p>Jede Zeile zeigt Name, Adresse, Spieler, Ping und ob es ein Passwort gibt. Server mit anderem Netzwerk-Protokoll sind ausgegraut.</p>
+  </section>
+
+  <section id="einladen">
+    <h2>Freunde einladen</h2>
+    <p>Bist du mit einem Online-Profil angemeldet, gibt es im Raum oben links <b>„Freunde einladen“</b>. Dein Freund bekommt eine Nachricht mit Raum und Server. Hat er das Spiel offen, erscheint im Hauptmenü oder im Multiplayer ein Banner <b>„… lädt dich in einen Raum ein“</b> mit <b>Beitreten</b> – das verbindet mit dem richtigen Server und geht direkt in den Raum, auch in private Räume. Einladungen werden alle 10 s geprüft und verschwinden nach 2 Minuten.</p>
+  </section>
+
   <section id="server">
     <h2>Eigener Server</h2>
     <p>Der <b>JumpNDodge-Server</b> ist ein kleines Programm ohne Fenster für Windows, Linux, macOS und Docker (amd64, arm64). Er braucht kaum Leistung, ein Raspberry Pi oder ein Heimserver reicht.</p>
     <ul>
       <li><b>Ports:</b> UDP 47800 für das Spiel, TCP 47801 für WebSocket (z. B. hinter einem Cloudflare Tunnel – dann braucht es keine Portweiterleitung).</li>
-      <li><b>Einstellungen</b> in <code>server.json</code>: Name, Begrüßung, Passwort, max. Räume, Log-Datei, Chat, Auto-Update.</li>
+      <li><b>Einstellungen</b> in <code>server.json</code>: Name, Begrüßung, Ports, Passwort, max. Räume, Log-Datei, Chat und Verlauf (<code>chat_history_hours</code>, Standard 24), Auto-Update, <code>listed</code> + <code>public_address</code> (in den <a href="#serverliste">Server-Browser</a>), <code>replays</code> (Bestläufe und geteilte Replays).</li>
       <li><b>Auto-Update:</b> Der Server lädt neue Versionen selbst, prüft sie und startet neu, sobald niemand verbunden ist.</li>
     </ul>
+    <p>Für die Geister und geteilten Replays speichert der Server Replays im Ordner <code>replays/</code> neben der <code>server.json</code> (geteilte 30 Tage, höchstens 5000).</p>
     <p>Schritt-für-Schritt-Anleitung: <a href="../server/">Server hosten</a>.</p>
   </section>
 
   <section id="replays">
-    <h2>Replays &amp; Rekord-Geist</h2>
+    <h2>Replays &amp; Geister</h2>
     <p>Jede Runde wird Schritt für Schritt aufgezeichnet (Spieler, Hindernisse, 1-UPs, Punkte, Leben). Ein Replay sieht deshalb immer genau so aus wie die Runde – unabhängig von Fenstergröße und Bildrate.</p>
     <ul>
-      <li><b>Replay ansehen:</b> nach der Runde im Game Over <b>Replay (V)</b>, oder unter <b>Mehr → Replays</b> die letzte Runde und deine Rekordläufe je Schwierigkeit.</li>
+      <li><b>Replay ansehen:</b> nach der Runde im Game Over <b>Replay (V)</b>, oder unter <b>Mehr → Replays</b>: letzte Runde, deine Rekordläufe je Schwierigkeit und die Rekorde deiner Freunde.</li>
       <li><b>Steuerung im Replay:</b> Pause, 5 Sekunden vor/zurück, Tempo 1× / 2× / 4×.</li>
-      <li><b>Rekord-Geist:</b> Dein bester Lauf der gewählten Schwierigkeit läuft halbtransparent mit der Beschriftung „Rekord“ mit. Abschaltbar unter Einstellungen. Kein Geist im Custom- und Klassik-Modus.</li>
+      <li><b>Rekord-Geist:</b> Dein bester Lauf der gewählten Schwierigkeit läuft halbtransparent mit der Beschriftung „Rekord“ mit. Kein Geist im Custom- und Klassik-Modus.</li>
+      <li><b>Geister von Freunden:</b> Mit Online-Profil wird jeder neue Rekord beim offiziellen Server gespeichert. In deinen Runden laufen die Bestläufe von bis zu <b>3 Freunden</b> (die besten, gleiche Schwierigkeit) mit ihrem Namen mit. Die Liste wird im Hauptmenü geholt (höchstens alle 5 Minuten). Runden mit Mods werden nicht hochgeladen.</li>
+      <li><b>Teilen:</b> In der Replay-Liste bei jedem Eintrag <b>„Teilen“</b> – du bekommst einen 6-stelligen Code, der gleich kopiert wird. Mit <b>„Code eingeben“</b> (<span class="key">Strg</span>+<span class="key">V</span> geht auch) schaut man ein geteiltes Replay an. Geteilte Replays bleiben 30 Tage.</li>
+      <li><b>Abschalten:</b> Einstellungen → Spiel: „Rekord-Geist anzeigen“, „Geister von Freunden“, „Meine Bestläufe für Freunde hochladen“.</li>
     </ul>
   </section>
 
@@ -637,13 +683,13 @@ end</code></pre>
 
   <section id="einstellungen">
     <h2>Einstellungen</h2>
-    <p>Das Zahnrad neben dem Profil öffnet die Einstellungen. Dort gibt es die Bereiche Anzeige, Spiel, Steuerung, Sound und Updates.</p>
+    <p>Der Knopf <b>Einstellungen</b> im Hauptmenü (unter Inventar) öffnet sie. Bereiche: Darstellung, Spiel, Sound, Steuerung, System und <a href="#experimentell">Experimentell</a>.</p>
     <div class="tw"><table class="wt">
       <tr><th>Einstellung</th><th>Wirkung</th></tr>
       <tr><td>Farbschema</td><td>Dunkel oder Hell.</td></tr>
       <tr><td>Legacy-Grafik</td><td>Alles wie in der ursprünglichen Python-Version, siehe <a href="#grafik">Grafik</a>.</td></tr>
       <tr><td>GUI-Größe</td><td>Skaliert Menüs und Schrift.</td></tr>
-      <tr><td>Animationen</td><td>Voll, Reduziert (nur Überblenden) oder Aus – für Menü-Übergänge und das Einblenden von Pop-ups.</td></tr>
+      <tr><td>Animationen</td><td>Voll, Reduziert (nur Überblenden) oder Aus – für Menü-Übergänge.</td></tr>
       <tr><td>Vollbild (F11)</td><td>Scharf in echter Bildschirmauflösung.</td></tr>
       <tr><td>Bildrate</td><td>Monitor (passend zur Bildwiederholrate), feste FPS oder unbegrenzt. Die Spiellogik bleibt immer bei 60 Schritten pro Sekunde.</td></tr>
       <tr><td>Effekte</td><td>Partikel, Bildschirmwackeln, Treffer-Stopp, Combo-Anzeige, „Knapp!“ und die federnde Bewegung von Figur und Hindernissen.</td></tr>
@@ -652,10 +698,24 @@ end</code></pre>
       <tr><td>Sprache</td><td>Deutsch, English, Русский, Türkçe, Schwiizerdütsch.</td></tr>
       <tr><td>Pause bei Fokusverlust</td><td>Pausiert die Runde, wenn du in ein anderes Fenster wechselst.</td></tr>
       <tr><td>Rekord-Geist</td><td>Rekordlauf mitlaufen lassen.</td></tr>
+      <tr><td>Geister von Freunden</td><td>Bestläufe von Freunden mitlaufen lassen (an).</td></tr>
+      <tr><td>Bestläufe hochladen</td><td>Deine Rekorde für die Geister deiner Freunde hochladen (an).</td></tr>
+      <tr><td>Sprung vormerken</td><td>Ein Sprung bis 120 ms vor der Landung zählt (an), auch online.</td></tr>
       <tr><td>Steuerung</td><td>Alle Tasten neu belegen, auch für 2 Spieler.</td></tr>
       <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel.</td></tr>
       <tr><td>Updates</td><td>Nach Updates suchen, automatisch beim Start suchen.</td></tr>
       <tr><td>Sprache exportieren</td><td>Texte als Datei speichern, z. B. um eine Übersetzung zu verbessern.</td></tr>
+    </table></div>
+  </section>
+
+  <section id="experimentell">
+    <h2>Experimentell</h2>
+    <p>Unter <b>Einstellungen → Experimentell</b> liegen Profi-Steuerungen und Dinge, die noch getestet werden. Alles ist standardmäßig <b>aus</b> und gilt im Einzelspieler.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Schalter</th><th>Wirkung</th></tr>
+      <tr><td>Schnell fallen</td><td>In der Luft <span class="key">S</span>, <span class="key">↓</span> oder LT gedrückt halten: du fällst sofort und immer schneller (statt 40 Schritten Flugzeit landest du nach gut 10). Die Taste heißt in der Steuerung „Schnell fallen“.</td></tr>
+      <tr><td>Kurz springen</td><td>Lässt du die Sprungtaste früh los, wird der Sprung abgebremst – kleine Hüpfer über niedrige Hindernisse.</td></tr>
+      <tr><td>Controller-Vibration</td><td>Kurzes Vibrieren bei einem Treffer, stärker beim letzten Leben – nur bei Controllern, die das können.</td></tr>
     </table></div>
   </section>
 
@@ -683,7 +743,7 @@ end</code></pre>
     </table></div>
     <ul>
       <li>Der Spielstand ist verschlüsselt und wird im Hintergrund gespeichert.</li>
-      <li><code>replays/</code>: <code>last.jnr</code> (letzte Runde) und <code>best-&lt;Schwierigkeit&gt;.jnr</code> (Rekordläufe, daraus kommt der Geist).</li>
+      <li><code>replays/</code>: <code>last.jnr</code> (letzte Runde) und <code>best-&lt;Schwierigkeit&gt;.jnr</code> (Rekordläufe, daraus kommt der Geist). Freundes-Geister und geteilte Replays liegen auf dem offiziellen Server.</li>
       <li><code>mods/</code>: deine Lua-Mods. <code>textures/</code>: eigene Texturen. <code>sound/</code>: eigene Sounds (haben Vorrang vor den eingebauten).</li>
       <li>Bei einem Update bleibt der Ordner <code>data</code> erhalten.</li>
     </ul>
@@ -694,6 +754,14 @@ end</code></pre>
     <p>Das Spiel sucht beim Start nach neuen Versionen und installiert sie mit einem Klick (abschaltbar). Alternativ hält <b>W Hub</b> JumpNDodge aktuell. Alle Änderungen stehen in den <a href="https://github.com/erqf1/JumpNDodge/releases">Release-Notizen</a>.</p>
     <div class="tw"><table class="wt">
       <tr><th>Version</th><th>Wichtigstes</th></tr>
+      <tr><td class="n">5.11.1</td><td>Eigenes Menü „Experimentell“ (Schnell fallen, Kurz springen, Vibration – Vibration hörte nicht mehr auf, ist repariert und standardmäßig aus).</td></tr>
+      <tr><td class="n">5.11</td><td>Geister von Freunden, Replays per Code teilen.</td></tr>
+      <tr><td class="n">5.10</td><td>Neue Hindernisse (Beta) im Custom-Modus.</td></tr>
+      <tr><td class="n">5.9</td><td>Sprung vormerken, Controller-Vibration, RT/LT, Schnell fallen und Kurz springen.</td></tr>
+      <tr><td class="n">5.8</td><td>Server-Browser (öffentlich, LAN, zuletzt), Freunde einladen.</td></tr>
+      <tr><td class="n">5.7</td><td>Kosmetik online sichtbar, Zuschauen.</td></tr>
+      <tr><td class="n">5.6</td><td>Schnell spielen, Raum-Chef, Schnell-Nachrichten, Server läuft stabil auf CasaOS.</td></tr>
+      <tr><td class="n">5.5</td><td>Online bis 8 Spieler, Chat-Verlauf 24 Stunden.</td></tr>
       <tr><td class="n">5.4.1</td><td>Updater repariert, Anleitung als Pop-up, einheitliche Menüs, Server über Cloudflare Tunnel und mit Auto-Update, federnde Figur und wippende Hindernisse.</td></tr>
       <tr><td class="n">5.4</td><td>Server-Chat, Menüs im Startmenü-Look, Übergänge, Combo, „Knapp!“, schnelleres Zeichnen.</td></tr>
       <tr><td class="n">5.3</td><td>Neue Pixel-Grafik, Legacy-Grafik, Light Mode.</td></tr>

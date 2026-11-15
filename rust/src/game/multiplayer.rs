@@ -509,7 +509,7 @@ impl G {
                                     if let Some(pr) = at(i) { let (x, y) = self.mp_field_point(pr.centerx(), pr.centery()); mp.fx.burst(x as f64, y as f64, super::art::HAZARD, 20); }
                                     if i == you {
                                         self.shake(6.0);
-                                        if self.settings.gb("pad_rumble", true) { self.display.rumble(if matches!(e, SimEvent::Died(_)) { 1.0 } else { 0.6 }, if matches!(e, SimEvent::Died(_)) { 380 } else { 180 }); }
+                                        if self.settings.gb("pad_rumble", false) { self.display.rumble(if matches!(e, SimEvent::Died(_)) { 1.0 } else { 0.6 }, if matches!(e, SimEvent::Died(_)) { 380 } else { 180 }); }
                                     }
                                 }
                                 SimEvent::OneUp(i) | SimEvent::Revived(i) => {

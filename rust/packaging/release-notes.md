@@ -1,7 +1,7 @@
-## JumpNDodge 5.11.0
+## JumpNDodge 5.11.1
 
-- **Geister von Freunden:** Dein neuer Rekord wird beim offiziellen Server gespeichert. In deinen Runden laufen die Bestläufe von bis zu 3 Freunden mit Namen mit (gleiche Schwierigkeit).
-- **Replays teilen:** In der Replay-Liste auf „Teilen“ – du bekommst einen 6-stelligen Code (wird kopiert). Mit „Code eingeben“ schaut man ein geteiltes Replay an. Die Rekorde deiner Freunde stehen auch in der Liste.
-- Beides abschaltbar unter Einstellungen → Spiel.
+- **Controller-Vibration repariert:** Sie hörte nicht mehr auf. Jetzt stoppt sie nach dem Treffer zuverlässig – und ist standardmäßig aus.
+- **Neues Menü „Experimentell“** (Einstellungen → Experimentell): Schnell fallen, Kurz springen und Controller-Vibration.
+- Wiki aktualisiert.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**
