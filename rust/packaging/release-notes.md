@@ -1,5 +1,5 @@
-## JumpNDodge 5.11.4
+## JumpNDodge 5.11.5
 
-- **Server:** nimmt jetzt genug Spieler für volle Räume an – bis zu Räume × 8 + 64 Verbindungen (vorher war beim offiziellen Server nach 96 Spielern Schluss).
+- **Server:** Mit Cloudflare Tunnel zeigt der Start keinen Hinweis mehr auf Portweiterleitung, sondern dass Spieler einfach den Hostnamen nehmen.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

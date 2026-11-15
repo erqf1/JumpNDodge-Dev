@@ -95,7 +95,7 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
         println!(" Name:   {}", server.cfg.name);
         println!(" Port:   {port} (UDP)");
         match server.ws_addr() {
-            Some(a) => println!(" Web:    {} (TCP, WebSocket - für Cloudflare Tunnel: http://<host>:{})", a.port(), a.port()),
+            Some(a) => println!(" Web:    {} (TCP, WebSocket + Replays)", a.port()),
             None if ws_port != 0 => println!(" Web:    aus (Port {ws_port} belegt)"),
             None => {}
         }
@@ -106,8 +106,14 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
         println!(" Config: {}", cfg_path.display());
         println!("-----------------------------------------------------");
         println!(" Spieler im selben Netz verbinden sich mit deiner lokalen IP.");
-        println!(" Für Spieler aus dem Internet: im Router UDP-Port {port}");
-        println!(" an diesen PC weiterleiten und deine öffentliche IP teilen.");
+        if tunnel.is_some() {
+            println!(" Aus dem Internet: über den Tunnel - Spieler tragen den Hostnamen");
+            println!(" aus dem Cloudflare-Dashboard ein (ohne Port), keine Portweiterleitung nötig.");
+        } else {
+            println!(" Für Spieler aus dem Internet: im Router UDP-Port {port}");
+            println!(" an diesen PC weiterleiten und deine öffentliche IP teilen -");
+            println!(" oder einen Cloudflare Tunnel nutzen (tunnel_token in server.json).");
+        }
         println!(" Beenden: Strg+C");
         println!("=====================================================");
         if server.cfg.chat && server.cfg.chat_history_hours > 0 {

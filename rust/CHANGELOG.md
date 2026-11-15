@@ -3,6 +3,10 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.5
+
+- Server-Startanzeige: mit Tunnel kein Hinweis mehr auf Portweiterleitung; Web-Zeile ohne kaputten Platzhalter.
+
 ## JumpNDodge 5.11.4
 
 - Server: Verbindungsgrenze auf max_rooms × 8 + 64 (war noch × 2 + 32 aus der Zeit mit 2 Spielern pro Raum).
