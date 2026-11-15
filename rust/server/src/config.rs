@@ -16,7 +16,7 @@ pub struct Config {
     pub bind: String,
     /// Leer = jeder darf rein
     pub password: String,
-    /// Maximale Anzahl gleichzeitiger Räume (je 2 Spieler)
+    /// Maximale Anzahl gleichzeitiger Räume (je bis zu 8 Spieler)
     pub max_rooms: u32,
     /// Log-Datei (leer = nur Konsole)
     pub log_file: String,

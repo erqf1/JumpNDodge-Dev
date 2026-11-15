@@ -271,7 +271,7 @@ impl Server {
         match self.conns.get(&from) {
             None => {
                 if !hello_seq0 { return; }
-                if self.conns.len() >= (self.cfg.max_rooms as usize) * 2 + 32 { return; }
+                if self.conns.len() >= (self.cfg.max_rooms as usize) * 8 + 64 { return; }
                 self.new_conn(from);
             }
             Some(c) if hello_seq0 && c.peer.recv_next() > 0 => {

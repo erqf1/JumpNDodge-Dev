@@ -3,6 +3,10 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.4
+
+- Server: Verbindungsgrenze auf max_rooms × 8 + 64 (war noch × 2 + 32 aus der Zeit mit 2 Spielern pro Raum).
+
 ## JumpNDodge 5.11.3
 
 - Cloudflare Tunnel direkt im Server-Programm (`server/src/tunnel.rs`): `tunnel_token` in server.json oder `TUNNEL_TOKEN`; startet cloudflared, startet es neu, lädt es bei Bedarf von GitHub. Docker-Startskript braucht dafür nichts mehr.

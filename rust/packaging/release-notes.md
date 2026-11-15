@@ -1,5 +1,5 @@
-## JumpNDodge 5.11.3
+## JumpNDodge 5.11.4
 
-- **Cloudflare Tunnel im Server eingebaut** – auf allen Systemen: Token in der `server.json` bei `"tunnel_token"` (oder `TUNNEL_TOKEN` bei Docker/CasaOS) eintragen, fertig. Fehlt cloudflared, lädt der Server es selbst. Im Cloudflare-Dashboard: Hostname → **HTTP → localhost:47801**.
+- **Server:** nimmt jetzt genug Spieler für volle Räume an – bis zu Räume × 8 + 64 Verbindungen (vorher war beim offiziellen Server nach 96 Spielern Schluss).
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**
