@@ -46,8 +46,9 @@ Ohne Portweiterleitung: Cloudflare Tunnel (WebSocket)
 Neben UDP hört der Server auf TCP-Port 47801 auf WebSocket-Verbindungen. Damit lässt er
 sich hinter einem Cloudflare Tunnel betreiben - ohne Portfreigabe im Router:
 1. Cloudflare Zero Trust -> Networks -> Tunnels -> Tunnel anlegen, cloudflared starten.
-   Im Docker-Image ist cloudflared schon eingebaut: Umgebungsvariable TUNNEL_TOKEN setzen,
-   dann startet der Tunnel im selben Container mit (Service-URL: localhost:47801).
+   Einfacher: der Server hat den Tunnel eingebaut. Token in server.json bei "tunnel_token"
+   eintragen (oder Umgebungsvariable TUNNEL_TOKEN) - der Server startet cloudflared selbst und
+   lädt es beim ersten Mal von GitHub, falls es fehlt. Service-URL im Dashboard: localhost:47801.
 2. Public Hostname anlegen, z.B. spiel.deine-domain.de -> Service HTTP -> localhost:47801
    (im Docker-Netz: http://<containername>:47801).
 3. Mitspieler tragen nur den Hostnamen ein (ohne Port). Cloudflare leitet kein UDP weiter;

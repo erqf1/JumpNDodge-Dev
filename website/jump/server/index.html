@@ -71,7 +71,8 @@
   "update_check_minutes": 60,
   "listed": false,              // in der Server-Liste im Spiel zeigen
   "public_address": "",         // so erreichen Spieler den Server
-  "replays": true               // Bestläufe/geteilte Replays (über ws_port)
+  "replays": true,              // Bestläufe/geteilte Replays (über ws_port)
+  "tunnel_token": ""            // Cloudflare Tunnel eingebaut, leer = aus
 }</code></pre></li>
         <li><h3><span data-lang-de>Im eigenen Netz testen</span><span data-lang-en>Test on your own network</span></h3>
           <p><span data-lang-de>Im Spiel: Online → Multiplayer → „Per IP oder Hostname verbinden“ → die lokale IP des Server-Rechners eingeben (z.B. <code>192.168.178.20</code>). Klappt das, fehlt für Freunde aus dem Internet nur noch die Portweiterleitung.</span><span data-lang-en>In the game: Online → Multiplayer → “Connect by IP or hostname” → enter the local IP of the server PC (e.g. <code>192.168.178.20</code>). If that works, friends from the internet only need port forwarding.</span></p></li>
@@ -121,10 +122,10 @@ services:
         <li><h3><span data-lang-de>Tunnel anlegen</span><span data-lang-en>Create a tunnel</span></h3>
           <p><span data-lang-de>Cloudflare-Dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Den angezeigten Token kopieren (geheim halten).</span><span data-lang-en>Cloudflare dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Copy the token shown (keep it secret).</span></p></li>
         <li><h3><span data-lang-de>Token beim Server eintragen</span><span data-lang-en>Give the token to the server</span></h3>
-          <p><span data-lang-de>cloudflared ist im Docker-Image <b>schon eingebaut</b>. Einfach in CasaOS/Docker die Umgebungsvariable setzen – der Tunnel startet im selben Container mit (ohne Token bleibt er aus):</span><span data-lang-en>cloudflared is <b>already built into</b> the Docker image. Just set the environment variable in CasaOS/Docker – the tunnel starts in the same container (without a token it stays off):</span></p>
-<pre><code>    environment:
-      TUNNEL_TOKEN: "dein-token"</code></pre>
-          <p><span data-lang-de>Ohne Docker: cloudflared selbst installieren und mit dem Token als Dienst starten.</span><span data-lang-en>Without Docker: install cloudflared yourself and run it as a service with the token.</span></p></li>
+          <p><span data-lang-de>Der Tunnel ist <b>im Server eingebaut</b> – kein extra Programm. Windows/Linux: in der <code>server.json</code> eintragen und den Server neu starten. Fehlt cloudflared, lädt der Server es beim ersten Start selbst (offizielles Release von Cloudflare). Docker/CasaOS: Umgebungsvariable <code>TUNNEL_TOKEN</code>, cloudflared ist im Image schon drin.</span><span data-lang-en>The tunnel is <b>built into the server</b> – no extra program. Windows/Linux: put it into <code>server.json</code> and restart the server. If cloudflared is missing, the server downloads it on first start (official Cloudflare release). Docker/CasaOS: environment variable <code>TUNNEL_TOKEN</code>, cloudflared is already in the image.</span></p>
+<pre><code>"tunnel_token": "dein-token"        // server.json
+TUNNEL_TOKEN: "dein-token"          # Docker / CasaOS</code></pre>
+          <p><span data-lang-de>Im Server-Fenster bzw. Log steht dann <code>Tunnel: an</code> und kurz danach <code>[Tunnel] … Registered tunnel connection</code>.</span><span data-lang-en>The server window/log then shows <code>Tunnel: an</code> and shortly after <code>[Tunnel] … Registered tunnel connection</code>.</span></p></li>
         <li><h3>Public Hostname</h3>
           <p><span data-lang-de>Im Tunnel unter <b>Public Hostnames</b> z.B. <code>spiel.deine-domain.de</code> → Service <b>HTTP</b> → <code>localhost:47801</code>.</span><span data-lang-en>Under <b>Public Hostnames</b> add e.g. <code>game.your-domain.com</code> → service <b>HTTP</b> → <code>localhost:47801</code>.</span></p></li>
         <li><h3><span data-lang-de>Verbinden</span><span data-lang-en>Connect</span></h3>

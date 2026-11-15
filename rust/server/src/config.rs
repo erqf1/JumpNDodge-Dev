@@ -41,6 +41,9 @@ pub struct Config {
     pub server_list: bool,
     /// Replays annehmen (Bestläufe für Freundes-Geister, geteilte Replays) - über den WebSocket-Port
     pub replays: bool,
+    /// Cloudflare Tunnel (eingebaut): Token aus dem Cloudflare-Dashboard, leer = aus.
+    /// Im Dashboard zeigt der Hostname auf HTTP -> localhost:<ws_port>. Geheim halten!
+    pub tunnel_token: String,
 }
 
 impl Default for Config {
@@ -63,6 +66,7 @@ impl Default for Config {
             registry: "play.mert.win".into(),
             server_list: true,
             replays: true,
+            tunnel_token: String::new(),
         }
     }
 }

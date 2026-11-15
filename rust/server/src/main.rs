@@ -29,7 +29,8 @@ fn main() {
     if args.iter().any(|a| a == "--version" || a == "-V") { println!("{GAME_VERSION}"); return; }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS,
-JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_UPDATE (1/0)");
+JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_UPDATE (1/0),
+TUNNEL_TOKEN (Cloudflare Tunnel eingebaut: Token, leer = aus)");
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -48,6 +49,7 @@ JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_
     if let Some(v) = env("JND_SERVER_MAX_ROOMS").and_then(|v| v.parse().ok()) { cfg.max_rooms = v; }
     if let Some(v) = env("JND_SERVER_WS_PORT").and_then(|v| v.parse().ok()) { cfg.ws_port = v; }
     if let Some(v) = env("JND_SERVER_AUTO_UPDATE") { cfg.auto_update = !matches!(v.trim(), "0" | "false" | "nein" | "aus"); }
+    if let Some(v) = env("TUNNEL_TOKEN").or_else(|| env("JND_SERVER_TUNNEL_TOKEN")) { cfg.tunnel_token = v; }
     if let Some(p) = arg("--port") {
         match p.parse() { Ok(p) => cfg.port = p, Err(_) => { eprintln!("Fehler: ungültiger Port {p}"); std::process::exit(1); } }
     }
@@ -61,6 +63,18 @@ JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_
 
     let port = cfg.port;
     let ws_port = cfg.ws_port;
+    // Eingebauter Cloudflare Tunnel (läuft über Update-Neustarts hinweg nur einmal)
+    let tunnel_on = !cfg.tunnel_token.trim().is_empty() && ws_port != 0;
+    let tunnel = if tunnel_on {
+        let lp = log_path2.clone();
+        let log: jnd_server::tunnel::SendLog = std::sync::Arc::new(move |s: &str| {
+            let line = format!("[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), s);
+            println!("{line}");
+            if let Some(p) = &lp { if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) { let _ = writeln!(f, "{line}"); } }
+        });
+        let bin = cfg_path.parent().map(|d| d.join("bin")).unwrap_or_else(|| PathBuf::from("bin"));
+        Some(jnd_server::tunnel::Tunnel::start(cfg.tunnel_token.trim().to_string(), bin, log))
+    } else { None };
     let mut cfg = Some(cfg);
     let mut logger = Some(logger);
     loop {
@@ -86,6 +100,8 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
             None => {}
         }
         println!(" Chat:   {}", if !server.cfg.chat { "aus".to_string() } else if server.cfg.chat_history_hours == 0 { "nur live".to_string() } else { format!("Verlauf {} Stunden (chat.json)", server.cfg.chat_history_hours) });
+        println!(" Tunnel: {}", if tunnel.is_some() { format!("an (Cloudflare) - im Dashboard: Hostname -> HTTP -> localhost:{}", ws_port) }
+            else if !server.cfg.tunnel_token.trim().is_empty() { "aus (ws_port ist 0)".to_string() } else { "aus (kein tunnel_token / TUNNEL_TOKEN)".to_string() });
         println!(" Update: {}", if server.cfg.auto_update { "automatisch (neu starten, wenn niemand verbunden ist)" } else { "aus" });
         println!(" Config: {}", cfg_path.display());
         println!("-----------------------------------------------------");
@@ -108,6 +124,7 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
         // Ports freigeben, bevor die neue Version startet
         let log_line = |s: &str| println!("[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), s);
         drop(server);
+        if let Some(t) = &tunnel { t.stop(); }
         match jnd_server::update::apply(&ready, &args) {
             Ok(()) => { log_line(&format!("Update auf {} eingespielt - Neustart", ready.version)); std::process::exit(0); }
             Err(e) => {

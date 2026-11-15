@@ -2,5 +2,6 @@
 pub mod config;
 pub mod registry;
 pub mod replays;
+pub mod tunnel;
 pub mod server;
 pub mod update;

@@ -3,6 +3,10 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.3
+
+- Cloudflare Tunnel direkt im Server-Programm (`server/src/tunnel.rs`): `tunnel_token` in server.json oder `TUNNEL_TOKEN`; startet cloudflared, startet es neu, lädt es bei Bedarf von GitHub. Docker-Startskript braucht dafür nichts mehr.
+
 ## JumpNDodge 5.11.2
 
 - Server-Docker-Image mit eingebautem Cloudflare Tunnel: `TUNNEL_TOKEN` setzen, Hostname -> HTTP -> localhost:47801. Ohne Token aus.

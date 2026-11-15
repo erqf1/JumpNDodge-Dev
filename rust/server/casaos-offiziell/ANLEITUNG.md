@@ -1,8 +1,9 @@
 # Offizieller JumpNDodge-Server auf CasaOS (play.mert.win)
 
 Diese Anleitung richtet den **offiziellen** Server ein, mit dem sich das Spiel unter
-„Offizieller Server“ verbindet (`play.mert.win`). Der Cloudflare Tunnel ist **im Server-Container
-eingebaut** – eine App, ein Container, keine Portweiterleitung nötig.
+„Offizieller Server“ verbindet (`play.mert.win`). Der Cloudflare Tunnel ist **im Server-Programm
+eingebaut** – eine App, ein Container, keine Portweiterleitung nötig. (Ohne Docker genauso: in der
+`server.json` bei `"tunnel_token"` eintragen; fehlt cloudflared, lädt der Server es selbst.)
 
 ## 1. Tunnel in Cloudflare anlegen
 
@@ -29,8 +30,8 @@ Steht `play.mert.win` schon in einem **anderen** Tunnel (z. B. dem für mert.win
 
 In CasaOS bei der App auf **Logs**. Da muss stehen:
 
-- `Cloudflare Tunnel: wird gestartet`
-- `[Tunnel] … Registered tunnel connection` (meist 4×)
+- `Tunnel: an (Cloudflare) …`
+- `[Tunnel] INF Registered tunnel connection …` (meist 4×)
 - `Starte /usr/local/bin/JumpNDodge-Server (…) als Benutzer 1000`
 - `Port: 47800 (UDP)` und `Web: 47801 (TCP, WebSocket …)`
 

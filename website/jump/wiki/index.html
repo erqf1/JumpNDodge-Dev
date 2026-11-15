@@ -629,7 +629,7 @@
     <p>Der <b>JumpNDodge-Server</b> ist ein kleines Programm ohne Fenster für Windows, Linux, macOS und Docker (amd64, arm64). Er braucht kaum Leistung, ein Raspberry Pi oder ein Heimserver reicht.</p>
     <ul>
       <li><b>Ports:</b> UDP 47800 für das Spiel, TCP 47801 für WebSocket und Replays (z. B. hinter einem Cloudflare Tunnel – dann braucht es keine Portweiterleitung).</li>
-      <li><b>Cloudflare Tunnel eingebaut:</b> Im Docker-Image steckt cloudflared. Mit der Umgebungsvariable <code>TUNNEL_TOKEN</code> startet der Tunnel im selben Container mit; im Cloudflare-Dashboard zeigt der Hostname dann auf <b>HTTP → localhost:47801</b>. Ohne Token bleibt er aus.</li>
+      <li><b>Cloudflare Tunnel eingebaut:</b> Token in der <code>server.json</code> bei <code>tunnel_token</code> (oder Umgebungsvariable <code>TUNNEL_TOKEN</code>) – der Server startet cloudflared selbst, hält es am Laufen und lädt es beim ersten Mal von GitHub, falls es fehlt (im Docker-Image ist es schon drin). Im Cloudflare-Dashboard zeigt der Hostname auf <b>HTTP → localhost:47801</b>. Ohne Token bleibt der Tunnel aus.</li>
       <li><b>Einstellungen</b> in <code>server.json</code>: Name, Begrüßung, Ports, Passwort, max. Räume, Log-Datei, Chat und Verlauf (<code>chat_history_hours</code>, Standard 24), Auto-Update, <code>listed</code> + <code>public_address</code> (in den <a href="#serverliste">Server-Browser</a>), <code>replays</code> (Bestläufe und geteilte Replays).</li>
       <li><b>Auto-Update:</b> Der Server lädt neue Versionen selbst, prüft sie und startet neu, sobald niemand verbunden ist.</li>
     </ul>
@@ -755,6 +755,7 @@ end</code></pre>
     <p>Das Spiel sucht beim Start nach neuen Versionen und installiert sie mit einem Klick (abschaltbar). Alternativ hält <b>W Hub</b> JumpNDodge aktuell. Alle Änderungen stehen in den <a href="https://github.com/erqf1/JumpNDodge/releases">Release-Notizen</a>.</p>
     <div class="tw"><table class="wt">
       <tr><th>Version</th><th>Wichtigstes</th></tr>
+      <tr><td class="n">5.11.3</td><td>Cloudflare Tunnel direkt im Server-Programm (alle Systeme, <code>tunnel_token</code> in der server.json).</td></tr>
       <tr><td class="n">5.11.2</td><td>Server-Docker-Image mit eingebautem Cloudflare Tunnel (<code>TUNNEL_TOKEN</code>).</td></tr>
       <tr><td class="n">5.11.1</td><td>Eigenes Menü „Experimentell“ (Schnell fallen, Kurz springen, Vibration – Vibration hörte nicht mehr auf, ist repariert und standardmäßig aus).</td></tr>
       <tr><td class="n">5.11</td><td>Geister von Freunden, Replays per Code teilen.</td></tr>
