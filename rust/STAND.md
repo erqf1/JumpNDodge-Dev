@@ -1,6 +1,6 @@
 # Stand der Rust Edition
 
-Letzte Aktualisierung: 2026-11-14 · Branch: `main`
+Letzte Aktualisierung: 2026-11-15 · Branch: `main`
 
 ## Fertig und veröffentlicht
 - **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
@@ -37,6 +37,14 @@ Letzte Aktualisierung: 2026-11-14 · Branch: `main`
 - **Updater-Fix (nach 5.3.0):** Portable Windows-Installationen luden das Server-Zip statt des Spiels (beide endeten auf
   `-windows-x64.zip`). Im Release 5.3.0 heißt die Server-Datei jetzt `JumpNDodge-Server-win-x64.zip` (damit klappt es auch
   für alte 5.2.1), der Updater sucht ab 5.3.1 nur noch exakte Spiel-Dateinamen und gibt PowerShell normale Pfade.
+- **5.6.0 – 5.11.0 (Feature-Fahrplan 14.11.):** Schnell spielen, Raum-Chef (starten/kicken/privat), Schnell-Nachrichten
+  (Tasten 1–4), CasaOS-Fix (Container startet als root, chown /data, setpriv 1000) · Kosmetik online sichtbar, Zuschauen ·
+  Server-Browser (öffentliche Liste beim offiziellen Server: `server/src/registry.rs`, `listed`/`public_address`; LAN-Broadcast),
+  Freunde einladen (DM `[jnd-join ADRESSE CODE]`, Banner) · Steuerung: Sprung vormerken 120 ms (online per gehaltener Taste),
+  Controller-Vibration, RT/LT, Experimentell schnell fallen (Aktion `down`) + kurz springen · Beta-Hindernisse im Custom-Modus
+  (`tall`, `bouncer`, `dasher`, `bar`) · Replays online: HTTP auf dem WebSocket-Port (`ws.rs` `bind_with_http`,
+  `server/src/replays.rs`), Spiel `src/game/replay_net.rs` (Rekord hochladen, bis 3 Freundes-Geister, Teilen per Code).
+  Historie: `CHANGELOG.md`; Release-Text je Version: `packaging/release-notes.md`.
 - **5.5.0:** Online bis 8 Spieler (Protokoll 3): `Sim2p::new_n`, `players: Vec`, `Winner::Other(u8)`/`of`/`index`,
   `check_winner` (VS: Letzter übrig gewinnt). Räume mit 2–8 Plätzen, Start wenn ≥2 da und alle bereit; `Start` schickt
   `you` + `names`. Online-Feld in echten Pixeln = kleinster Bildschirm aller Spieler (5.4.6). Chat-Verlauf 24 h im Server
@@ -93,5 +101,5 @@ Letzte Aktualisierung: 2026-11-14 · Branch: `main`
 ## Offen / Ideen für später
 - Lua-Mods: eigene Powers im Shop.
 - Restliche Bildschirme (Online-Hub, Rangliste, Chat) zeichnen Knöpfe teils noch selbst im alten Stil.
-- Online: Bestenliste für Online-Runden, Zuschauen.
+- Online: Bestenliste für Online-Runden.
 - GPU-Ausgabe (aktuell CPU über softbuffer – flüssig auch in 4K, aber eine GPU-Ausgabe würde Strom sparen).
