@@ -1,7 +1,5 @@
-## JumpNDodge 5.12.0
+## JumpNDodge 5.12.1
 
-- **Eigener Song „Falling Pixels“:** emotionaler Breakcore mit Klavier, zerhackten Breaks und Sub-Bass – im Spiel, dazu eine ruhige Klavier-Fassung im Menü. Einstellungen → Sound → „JumpNDodge“.
-- **Ping im Raum:** Auf jeder Spielerkarte steht jetzt der Ping (grün/gelb/rot).
-- **Server-Liste nach Ping sortiert:** die schnellsten Server stehen oben.
+- **Online-Bildschirme im neuen Stil:** Freunde, Nachrichten, Clan, Rangliste, Spielersuche und Profile sehen jetzt aus wie der Rest des Spiels (Tabs, Listen, Rahmen, Ladeanzeige, Suchfeld).
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

@@ -137,21 +137,13 @@ impl G {
         let fr_tab = Rect::new(166, 65, 100, 36);
         for (r, active, label) in [(all_tab, !self._lb_friends_only, self.get_text("all_tab_lb")), (fr_tab, self._lb_friends_only, self.get_text("friends_tab"))] {
             let hov = r.collidepoint(mp);
-            if active {
-                draw::rect(&bs, self.get_button_color(), r, 0, 10);
-                draw::rect(&bs, (100, 160, 255), r, 2, 10);
-            } else {
-                draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_panel_color() }, r, 0, 10);
-                draw::rect(&bs, (180, 180, 180), r, 1, 10);
-            }
-            let t = sf.render(&label, true, self.get_text_color());
-            bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
+            self.draw_tab(&bs, r, &label, &sf, active, hov);
         }
         let dl = self.get_difficulty_display_name(DIFFICULTIES[self._lb_difficulty_idx]);
         let dr = Rect::new(w / 2 - 95, 65, 190, 36);
         let dleft = Rect::new(dr.x - 32, dr.y, 26, 36);
         let dright = Rect::new(dr.right() + 6, dr.y, 26, 36);
-        self.draw_panel(&bs, dr, 10, (180, 180, 180), 2);
+        self.draw_panel(&bs, dr, 10, self.ui_line(), 2);
         let ls = sf.render(&dl, true, self.get_text_color());
         bs.blit(&ls, (dr.centerx() - ls.get_width() / 2, dr.centery() - ls.get_height() / 2));
         for (ar, at) in [(dleft, "<"), (dright, ">")] {
@@ -166,7 +158,7 @@ impl G {
         let content_top = 136;
         let fade_bottom = h - 90;
         if self._lb_loading || self._lb_entries.is_none() {
-            let s = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (w / 2 - s.get_width() / 2, content_top + 30));
         } else if self._lb_entries.as_ref().unwrap().is_empty() {
             let k = if self._lb_friends_only && self.friends_local.is_empty() { "no_friends_yet" } else { "no_entries_yet" };
@@ -181,7 +173,7 @@ impl G {
                 self._lb_row_rects.push((rr, e.gos("username")));
                 let hov = rr.collidepoint(mp);
                 draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                draw::rect(&bs, self.ui_line(), rr, 1, 8);
                 let rank = e.gi("rank", 0);
                 let medal = match rank { 1 => Some((255, 210, 60)), 2 => Some((200, 200, 210)), 3 => Some((205, 140, 80)), _ => None };
                 if let Some(mc) = medal {
@@ -305,15 +297,22 @@ impl G {
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
         let bx = Rect::new(w / 2 - 220, 75, 440, 46);
-        draw::rect(&bs, self.get_bg_color(), bx, 0, 10);
-        draw::rect(&bs, (120, 180, 255), bx, 2, 10);
+        draw::rect(&bs, self.get_panel_color(), bx, 0, 10);
+        draw::rect(&bs, super::ui_c::ACCENT, bx, 2, 10);
         let cursor = if (self.get_ticks() / 500) % 2 == 0 { "|" } else { " " };
-        let inp = self.menu_font.render(&format!("{}{}", self._search_query, cursor), true, self.get_text_color());
-        bs.blit(&inp, (bx.x + 12, bx.centery() - inp.get_height() / 2));
+        if self._search_query.is_empty() {
+            let ph = sf.render(&self.tde("Spielername eingeben …", "Type a player name …"), true, (130, 130, 155));
+            bs.blit(&ph, (bx.x + 14, bx.centery() - ph.get_height() / 2));
+            let c = self.menu_font.render(cursor, true, self.get_text_color());
+            bs.blit(&c, (bx.x + 10, bx.centery() - c.get_height() / 2));
+        } else {
+            let inp = self.menu_font.render(&format!("{}{}", self._search_query, cursor), true, self.get_text_color());
+            bs.blit(&inp, (bx.x + 12, bx.centery() - inp.get_height() / 2));
+        }
         let content_top = 140;
         let fade_bottom = h - 45;
         if self._search_loading {
-            let s = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (w / 2 - s.get_width() / 2, content_top + 20));
         } else if self._search_results.as_ref().map(|r| r.is_empty()).unwrap_or(false) {
             let s = sf.render(&self.get_text("player_not_found"), true, self.get_text_color());
@@ -326,7 +325,7 @@ impl G {
                 let rr = Rect::new(w / 2 - 220, y, 440, row_h - 6);
                 self._search_row_rects.push((rr, e.gos("username")));
                 draw::rect(&bs, if rr.collidepoint(mp) { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                draw::rect(&bs, self.ui_line(), rr, 1, 8);
                 let ns = self.menu_font.render(&e.gs("name", ""), true, self.get_text_color());
                 bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                 let mut tag_x = rr.x + 20 + ns.get_width();
@@ -421,7 +420,7 @@ impl G {
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), ..Default::default() });
         if self._public_profile_loading || self._public_profile_data.is_none() {
-            let s = self.font.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = self.small_font.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2));
             self.flip();
             return (back, None, None, None);
@@ -443,14 +442,14 @@ impl G {
             let base = if is_friend { (200, 100, 100) } else { (100, 180, 120) };
             let hc = if is_friend { (220, 120, 120) } else { (120, 200, 140) };
             draw::rect(&bs, if hov { hc } else { base }, fr, 0, 10);
-            draw::rect(&bs, (180, 180, 180), fr, 2, 10);
+            draw::rect(&bs, self.ui_line(), fr, 2, 10);
             let fl = sf.render(&self.get_text(if is_friend { "remove_friend_btn" } else { "add_friend_btn" }), true, (255, 255, 255));
             bs.blit(&fl, (fr.centerx() - fl.get_width() / 2, fr.centery() - fl.get_height() / 2));
             friend_rect = Some(fr);
             if is_friend {
                 let mr = Rect::new(160, 15, 130, 35);
                 draw::rect(&bs, if mr.collidepoint(mp) { (140, 180, 240) } else { (120, 160, 220) }, mr, 0, 10);
-                draw::rect(&bs, (180, 180, 180), mr, 2, 10);
+                draw::rect(&bs, self.ui_line(), mr, 2, 10);
                 let ml = sf.render(&self.get_text("message_btn"), true, (255, 255, 255));
                 bs.blit(&ml, (mr.centerx() - ml.get_width() / 2, mr.centery() - ml.get_height() / 2));
                 message_rect = Some(mr);
@@ -659,7 +658,7 @@ impl G {
         let py = self.HEIGHT / 2 - ph / 2;
         let panel = Rect::new(px, py, pw, ph);
         draw::rect(&bs, self.get_panel_color(), panel, 0, 18);
-        draw::rect(&bs, if !dark { (100, 160, 255) } else { (80, 120, 200) }, panel, 3, 18);
+        draw::rect(&bs, super::ui_c::ACCENT, panel, 2, 18);
         let t = self.menu_font.render(&self.get_text("username_gate_title"), true, if !dark { (80, 140, 255) } else { (120, 170, 255) });
         bs.blit(&t, (px + pw / 2 - t.get_width() / 2, py + 22));
         let sf = self.small_font.clone();
@@ -678,7 +677,7 @@ impl G {
         let inp = self.menu_font.render(&format!("{}{}", self._username_gate_text, cursor), true, self.get_text_color());
         bs.blit(&inp, (bx.x + 10, bx.centery() - inp.get_height() / 2));
         if self._username_gate_busy {
-            let m = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let m = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&m, (px + pw / 2 - m.get_width() / 2, bx.bottom() + 12));
         } else if !self._username_gate_msg.is_empty() {
             let m = sf.render(&self._username_gate_msg, true, (220, 60, 60));

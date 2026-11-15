@@ -18,20 +18,15 @@ impl G {
     pub fn draw_tab_pair(&self, bs: &Surface, mp: (i32, i32), tabs: &[(Rect, bool, String)]) {
         for (r, active, label) in tabs {
             let hov = r.collidepoint(mp);
-            if *active {
-                draw::rect(bs, self.get_button_color(), *r, 0, 10);
-                draw::rect(bs, (100, 160, 255), *r, 2, 10);
-            } else {
-                draw::rect(bs, if hov { self.get_button_hover_color() } else { self.get_panel_color() }, *r, 0, 10);
-                draw::rect(bs, (180, 180, 180), *r, 1, 10);
-            }
-            let t = self.small_font.render(label, true, self.get_text_color());
-            bs.blit(&t, (r.centerx() - t.get_width() / 2, r.centery() - t.get_height() / 2));
+            self.draw_tab(bs, *r, label, &self.small_font, *active, hov);
         }
     }
 
+    /// Linienfarbe für Listenzeilen/Rahmen im neuen Stil (wie die Einstellungszeilen)
+    pub fn ui_line(&self) -> (i32, i32, i32) { if self.is_dark_mode() { (70, 66, 96) } else { (200, 196, 225) } }
+
     fn centered_msg(&self, bs: &Surface, key: &str, y: i32) {
-        let s = self.small_font.render(&self.get_text(key), true, self.get_text_color());
+        let s = self.small_font.render(&self.get_text(key), true, (150, 150, 180));
         bs.blit(&s, (self.WIDTH / 2 - s.get_width() / 2, y));
     }
 
@@ -97,7 +92,7 @@ impl G {
                     if let Some(u) = username {
                         self._friends_hub_row_rects.push((rr, Some(u)));
                         draw::rect(&bs, if rr.collidepoint(mp) { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                        draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                        draw::rect(&bs, self.ui_line(), rr, 1, 8);
                         let ns = self.menu_font.render(&name, true, self.get_text_color());
                         bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                     } else {
@@ -122,7 +117,7 @@ impl G {
                 let fname = req.gs("from_name", "");
                 let funame = req.gos("from_username");
                 let rr = Rect::new(w / 2 - 260, y, 520, row_h - 6);
-                self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
+                self.draw_panel(&bs, rr, 8, self.ui_line(), 1);
                 let ns = self.menu_font.render(&fname, true, self.get_text_color());
                 bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                 let (ar, dr) = self.accept_decline(&bs, mp, rr);
@@ -341,7 +336,7 @@ impl G {
                 let unread = conv.truthy("unread");
                 let rr = Rect::new(w / 2 - 260, y, 520, row_h - 10);
                 draw::rect(&bs, if rr.collidepoint(mp) { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                draw::rect(&bs, if unread { (100, 160, 255) } else { (180, 180, 180) }, rr, if unread { 2 } else { 1 }, 8);
+                draw::rect(&bs, if unread { super::ui_c::ACCENT } else { self.ui_line() }, rr, if unread { 2 } else { 1 }, 8);
                 let ns = self.menu_font.render(&label, true, self.get_text_color());
                 bs.blit(&ns, (rr.x + 14, rr.y + 4));
                 let pc = if unread { self.get_text_color() } else { (140, 140, 155) };
@@ -479,7 +474,7 @@ impl G {
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
         let (mut create, mut join, mut leave, mut chat, mut roster_tab, mut req_tab) = (None, None, None, None, None, None);
         if self._clan_mine_loading || self._clan_mine_data.is_none() {
-            let s = self.font.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = self.small_font.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2));
             self.flip();
             return [Some(back), create, join, leave, chat, roster_tab, req_tab];
@@ -503,7 +498,7 @@ impl G {
                     if y + row_h > h - 20 { break; }
                     let tag = req.gs("tag", "");
                     let rr = Rect::new(w / 2 - 180, y, 360, row_h - 6);
-                    self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
+                    self.draw_panel(&bs, rr, 8, self.ui_line(), 1);
                     let ns = sf.render(&format!("[{}] {}", tag, req.gs("name", "")), true, self.get_text_color());
                     bs.blit(&ns, (rr.x + 10, rr.centery() - ns.get_height() / 2));
                     let cc = Rect::new(rr.right() - 76, rr.y + 3, 70, rr.h - 6);
@@ -545,7 +540,7 @@ impl G {
                         let fu = req.gos("from_username").filter(|s| !s.is_empty());
                         let fname = req.gs("from_name", "");
                         let rr = Rect::new(w / 2 - 260, y, 520, row_h - 6);
-                        self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
+                        self.draw_panel(&bs, rr, 8, self.ui_line(), 1);
                         let ns = self.menu_font.render(&fname, true, self.get_text_color());
                         bs.blit(&ns, (rr.x + 14, rr.centery() - ns.get_height() / 2));
                         let dr0 = Rect::new(rr.right() - 96, rr.y + 4, 88, rr.h - 8);
@@ -573,7 +568,7 @@ impl G {
                     let hov = rr.collidepoint(mp) && un.is_some();
                     let tc = if un.is_some() { self.get_text_color() } else { (130, 130, 145) };
                     draw::rect(&bs, if hov { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                    draw::rect(&bs, if un.is_some() { (180, 180, 180) } else { (110, 110, 120) }, rr, 1, 8);
+                    draw::rect(&bs, if un.is_some() { self.ui_line() } else { (110, 110, 120) }, rr, 1, 8);
                     let lt = if un.is_some() && un == owner { format!("{}  ({})", name, self.get_text("clan_owner_label")) } else { name.clone() };
                     let ns = sf.render(&lt, true, tc);
                     bs.blit(&ns, (rr.x + 12, rr.centery() - ns.get_height() / 2));

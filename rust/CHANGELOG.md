@@ -3,6 +3,10 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.12.1
+
+- Online-Bildschirme (Freunde, Nachrichten, Clan, Rangliste, Spielersuche, Profile) im neuen Stil: Tabs, Listenzeilen und Rahmen wie im Rest des Spiels, ruhige Ladeanzeige, Suchfeld mit Platzhalter.
+
 ## JumpNDodge 5.12.0
 
 - Eigener Song „Falling Pixels“ (emotionaler Breakcore, `src/game/music.rs`, komplett synthetisch): im Spiel und als ruhige Menü-Fassung; Auswahl „JumpNDodge“ unter Sound.

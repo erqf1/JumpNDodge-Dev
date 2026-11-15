@@ -59,7 +59,7 @@ impl G {
         let py = self.HEIGHT / 2 - ph / 2;
         let panel = Rect::new(px, py, pw, ph);
         draw::rect(&bs, self.get_panel_color(), panel, 0, 18);
-        draw::rect(&bs, if !dark { (100, 160, 255) } else { (80, 120, 200) }, panel, 3, 18);
+        draw::rect(&bs, super::ui_c::ACCENT, panel, 2, 18);
         let t = self.menu_font.render(&self.get_text(title_key), true, if !dark { (80, 140, 255) } else { (120, 170, 255) });
         bs.blit(&t, (px + pw / 2 - t.get_width() / 2, py + 22));
         (bs, px, py)
@@ -109,7 +109,7 @@ impl G {
         let ni = self.menu_font.render(&format!("{}{}", self._clan_create_name, if self._clan_create_focus == "name" { cur } else { "" }), true, self.get_text_color());
         bs.blit(&ni, (nb.x + 10, nb.centery() - ni.get_height() / 2));
         if self._clan_create_busy {
-            let m = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let m = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&m, (px + pw / 2 - m.get_width() / 2, py + 230));
         } else if !self._clan_create_msg.is_empty() {
             let m = sf.render(&self._clan_create_msg, true, (220, 60, 60));
@@ -226,7 +226,7 @@ impl G {
             content_top += 30;
         }
         if self._clan_search_loading {
-            let s = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (w / 2 - s.get_width() / 2, content_top + 20));
         } else if self._clan_search_results.as_ref().map(|r| r.is_empty()).unwrap_or(false) {
             let s = sf.render(&self.get_text("clan_not_found"), true, self.get_text_color());
@@ -240,7 +240,7 @@ impl G {
                 let rr = Rect::new(w / 2 - 240, y, 480, row_h - 6);
                 self._clan_search_row_rects.push((rr, tag.clone()));
                 draw::rect(&bs, if rr.collidepoint(mp) { self.get_button_hover_color() } else { self.get_panel_color() }, rr, 0, 8);
-                draw::rect(&bs, (180, 180, 180), rr, 1, 8);
+                draw::rect(&bs, self.ui_line(), rr, 1, 8);
                 let suf = if self._clan_search_my_pending_tags.contains(&tag) { format!("  ({})", self.get_text("clan_requested_label")) } else { String::new() };
                 let lt = format!("[{}] {}  ({}){}", tag, e.gs("name", ""), py_str(e.gv("member_count").unwrap_or(&Value::from(0))), suf);
                 let ns = self.menu_font.render(&lt, true, self.get_text_color());
@@ -333,7 +333,7 @@ impl G {
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
         let mut join = None;
         let data = match &self._clan_view_data {
-            None => { let s = self.font.render(&self.get_text("loading"), true, self.get_text_color()); bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2)); self.flip(); return (back, None); }
+            None => { let s = self.small_font.render(&self.get_text("loading"), true, (150, 150, 180)); bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2)); self.flip(); return (back, None); }
             Some(Value::Bool(false)) | Some(Value::Null) => { let s = self.font.render(&self.get_text("clan_not_found"), true, self.get_text_color()); bs.blit(&s, (w / 2 - s.get_width() / 2, h / 2 - s.get_height() / 2)); self.flip(); return (back, None); }
             Some(d) => d.clone(),
         };
@@ -347,7 +347,7 @@ impl G {
         for m in members {
             if y + row_h > h - 110 { break; }
             let rr = Rect::new(w / 2 - 220, y, 440, row_h - 6);
-            self.draw_panel(&bs, rr, 8, (180, 180, 180), 1);
+            self.draw_panel(&bs, rr, 8, self.ui_line(), 1);
             let un = m.gos("username").filter(|s| !s.is_empty());
             let lt = if un.is_some() && un == owner { format!("{}  ({})", m.gs("name", ""), self.get_text("clan_owner_label")) } else { m.gs("name", "") };
             let ns = sf.render(&lt, true, self.get_text_color());
@@ -466,9 +466,9 @@ impl G {
         let back = Rect::new(w - 120, 15, 100, 35);
         self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: back.collidepoint(mp), radius: Some(10), ..Default::default() });
         let panel = Rect::new(60, 70, w - 120, h - 220);
-        self.draw_panel(&bs, panel, 12, (180, 180, 180), 1);
+        self.draw_panel(&bs, panel, 12, self.ui_line(), 1);
         if self._chat_loading && self._chat_messages.is_empty() {
-            let s = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let s = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&s, (panel.centerx() - s.get_width() / 2, panel.centery() - s.get_height() / 2));
         } else if self._chat_messages.is_empty() {
             let s = sf.render(&self.get_text("no_messages_yet"), true, self.get_text_color());
@@ -614,7 +614,7 @@ impl G {
         let inp = sf.render(&format!("{}{}", vis, self.cursor()), true, self.get_text_color());
         bs.blit(&inp, (bx.x + 10, bx.centery() - inp.get_height() / 2));
         if self._redeem_code_busy {
-            let m = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let m = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&m, (px + pw / 2 - m.get_width() / 2, py + 150));
         } else if !self._redeem_code_msg.is_empty() {
             let ok = self._redeem_code_msg.starts_with(&self.get_text("redeem_code_success")) || self._redeem_code_msg == self.get_text("redeem_key_success");
@@ -693,7 +693,7 @@ impl G {
         let inp = self.menu_font.render(&format!("{}{}", self._rename_text, self.cursor()), true, self.get_text_color());
         bs.blit(&inp, (bx.x + 10, bx.centery() - inp.get_height() / 2));
         if self._rename_busy {
-            let m = sf.render(&self.get_text("loading"), true, self.get_text_color());
+            let m = sf.render(&self.get_text("loading"), true, (150, 150, 180));
             bs.blit(&m, (px + pw / 2 - m.get_width() / 2, py + 150));
         } else if !self._rename_msg.is_empty() {
             let ok = self._rename_msg == self.get_text("rename_success");
