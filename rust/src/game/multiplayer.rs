@@ -129,6 +129,8 @@ struct Mp {
     join_code: Option<String>,
     /// Freunde-einladen-Fenster offen
     invite_open: bool,
+    /// Ping je Platz im Raum (ms, 0 = unbekannt)
+    room_pings: Vec<u16>,
 }
 
 /// Ergebnis der Server-Suche im Hintergrund
@@ -176,7 +178,7 @@ impl Mp {
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
             public_servers: vec![], lan_servers: vec![], list_tx, list_rx, servers_at: None, servers_busy: 0, browser_scroll: 0,
-            join_code: None, invite_open: false,
+            join_code: None, invite_open: false, room_pings: vec![],
         }
     }
     fn say(&mut self, text: &str, err: bool) {
@@ -533,7 +535,12 @@ impl G {
             ServerMsg::Error(e) => {
                 if e.contains("beendet") { self.mp_disconnect(mp, Some(&e)); } else { mp.say(&e, true); }
             }
-            ServerMsg::Pong { t } => { mp.ping_ms = Some(now_ms().saturating_sub(t) as u32); }
+            ServerMsg::Pong { t } => {
+                let p = now_ms().saturating_sub(t) as u32;
+                mp.ping_ms = Some(p);
+                if mp.room.is_some() { mp.send(ClientMsg::MyPing(p.min(9999) as u16)); }
+            }
+            ServerMsg::Pings(p) => { mp.room_pings = p; }
             ServerMsg::Reject { reason } => self.mp_disconnect(mp, Some(&reason)),
             ServerMsg::Chat { from_id, from, text } => {
                 let own = from_id != 0 && from_id == mp.client_id;
@@ -1169,6 +1176,15 @@ impl G {
                     bs.blit(&ns, (if big { tx } else { r.x + 12 }, r.y + if big { 42 } else { 44 }));
                     let (t, c) = if p.ready { (self.tde("Bereit", "Ready"), (90, 190, 140)) } else { (self.tde("Wartet …", "Not ready"), (180, 150, 90)) };
                     self.mp_text(&bs, &sf, &t, c, r.x + 12, r.y + if big { 90 } else { 66 }, false);
+                    // Ping des Spielers (eigener: direkt gemessen)
+                    let pg = if i == room.you { mp.ping_ms.map(|v| v.min(9999) as u16).unwrap_or(0) } else { mp.room_pings.get(i).copied().unwrap_or(0) };
+                    if pg > 0 {
+                        let bf = self.badge_font.clone();
+                        let pc = if pg < 80 { (90, 190, 140) } else if pg < 160 { (215, 195, 90) } else { (220, 95, 105) };
+                        let pt = format!("{} ms", pg);
+                        let pw = bf.size(&pt).0;
+                        self.mp_text(&bs, &bf, &pt, pc, r.right() - 12 - pw, r.y + if big { 94 } else { 28 }, false);
+                    }
                 }
                 None => {
                     let t = if big { self.tde("frei - warte auf Mitspieler", "free - waiting for player") } else { self.tde("frei", "free") };
@@ -1531,6 +1547,13 @@ impl G {
         for s in &mp.public_servers { if !seen(&rows, &s.address) { rows.push((0, s.address.clone(), s.info.name.clone(), false)); } }
         for (a, i, _) in &mp.lan_servers { if !seen(&rows, a) { rows.push((1, a.clone(), i.name.clone(), false)); } }
         for a in self.mp_recent() { if !seen(&rows, &a) { rows.push((2, a.clone(), String::new(), true)); } }
+        // schnellste erreichbare Server zuerst, dann die noch geprüften, offline ganz unten
+        rows.sort_by_key(|r| match mp.infos.get(&r.1) {
+            Some(InfoState::Online(i, p)) if i.proto == PROTO_VERSION => (0u8, *p),
+            Some(InfoState::Online(..)) => (2, 0),
+            Some(InfoState::Checking) | None => (1, 0),
+            Some(InfoState::Offline) => (3, 0),
+        });
         let top = area.y + 38;
         if rows.is_empty() {
             let t = if busy { self.tde("Suche Server …", "Looking for servers …") } else { self.tde("Keine weiteren Server gefunden", "No other servers found") };

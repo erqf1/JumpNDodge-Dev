@@ -3,6 +3,11 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.12.0
+
+- Eigener Song „Falling Pixels“ (emotionaler Breakcore, `src/game/music.rs`, komplett synthetisch): im Spiel und als ruhige Menü-Fassung; Auswahl „JumpNDodge“ unter Sound.
+- Online: Ping jedes Spielers auf seiner Karte im Raum (`MyPing`/`Pings`), Server-Liste nach Ping sortiert.
+
 ## JumpNDodge 5.11.5
 
 - Server-Startanzeige: mit Tunnel kein Hinweis mehr auf Portweiterleitung; Web-Zeile ohne kaputten Platzhalter.

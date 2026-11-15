@@ -17,6 +17,7 @@ pub mod settings_ui;
 pub mod transitions;
 pub mod menus;
 pub mod mods;
+pub mod music;
 pub mod mods_ui;
 pub mod multiplayer;
 pub mod online;

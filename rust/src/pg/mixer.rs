@@ -112,6 +112,17 @@ impl Mixer {
         *self.music_sink.borrow_mut() = Some(sink);
         true
     }
+    /// Musik aus dem Speicher (Stereo/Mono i16) endlos abspielen
+    pub fn music_play_samples(&self, samples: &[i16], channels: u16, rate: u32) -> bool {
+        let Some(h) = self.handle.as_ref() else { return false; };
+        self.music_stop();
+        *self.music_path.borrow_mut() = None;
+        let Ok(sink) = Sink::try_new(h) else { return false; };
+        sink.set_volume(self.music_volume.get());
+        sink.append(SamplesBuffer::new(channels, rate, samples.to_vec()).repeat_infinite());
+        *self.music_sink.borrow_mut() = Some(sink);
+        true
+    }
     pub fn music_stop(&self) {
         if let Some(s) = self.music_sink.borrow_mut().take() { s.stop(); }
     }

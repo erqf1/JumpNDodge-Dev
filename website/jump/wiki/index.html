@@ -140,6 +140,7 @@
       <a href="#mods">Lua-Mods</a>
       <a href="#einstellungen">Einstellungen</a>
       <a href="#experimentell">Experimentell</a>
+      <a href="#musik">Musik</a>
       <a href="#grafik">Grafik &amp; Effekte</a>
       <a href="#dateien">Dateien &amp; Speicherorte</a>
       <a href="#updates">Updates &amp; Versionen</a>
@@ -395,6 +396,7 @@
       <tr><th>Was</th><th>Wie es funktioniert</th></tr>
       <tr><td><b>Zuschauen</b></td><td>Laufende Räume stehen in der Liste mit „läuft · zuschauen“. Du siehst die Runde mit den Namen über den Figuren; <span class="key">Esc</span> verlässt das Zuschauen. Nach der Runde rückst du auf einen freien Platz (ist keiner frei, geht es zurück in die Lobby). Höchstens 16 Zuschauer pro Raum, private Räume nicht.</td></tr>
       <tr><td><b>Kosmetik</b></td><td>Kopfbedeckung, Augen, Nase, Mund und Spur der anderen siehst du im Raum und in der Runde.</td></tr>
+      <tr><td><b>Ping</b></td><td>Auf jeder Spielerkarte im Raum steht der Ping: grün unter 80 ms, gelb unter 160 ms, sonst rot. Jedes Spiel misst seinen eigenen Ping alle 2 Sekunden und meldet ihn dem Server.</td></tr>
       <tr><td><b>Schnell-Nachrichten</b></td><td>Tasten <span class="key">1</span>–<span class="key">4</span>: „GG“, „Knapp!“, „Nochmal?“, „Haha“ als Blase über der Figur – im Raum, in der Runde und im Ergebnis.</td></tr>
       <tr><td><b>Spielfeld</b></td><td>So groß wie der kleinste Bildschirm aller Spieler (mind. 800 × 600, höchstens 3840 × 2160) – in echten Pixeln, nie hochskaliert.</td></tr>
       <tr><td><b>Server-Chat</b></td><td>Nachrichten an alle auf dem Server, mit einer Bremse gegen Spam. Der Verlauf bleibt <b>24 Stunden</b> (beim Server einstellbar); wer neu verbindet, sieht ihn.</td></tr>
@@ -616,7 +618,7 @@
       <tr><td><b>LAN</b></td><td>Server im eigenen Netzwerk (Suche per Broadcast auf Port 47800).</td></tr>
       <tr><td><b>Zuletzt</b></td><td>Die letzten 5 Server, mit denen du verbunden warst; „x“ entfernt einen.</td></tr>
     </table></div>
-    <p>Jede Zeile zeigt Name, Adresse, Spieler, Ping und ob es ein Passwort gibt. Server mit anderem Netzwerk-Protokoll sind ausgegraut.</p>
+    <p>Jede Zeile zeigt Name, Adresse, Spieler, Ping und ob es ein Passwort gibt. Die Liste ist nach Ping sortiert – die schnellsten erreichbaren Server stehen oben, offline ganz unten. Server mit anderem Netzwerk-Protokoll sind ausgegraut.</p>
   </section>
 
   <section id="einladen">
@@ -704,10 +706,20 @@ end</code></pre>
       <tr><td>Bestläufe hochladen</td><td>Deine Rekorde für die Geister deiner Freunde hochladen (an).</td></tr>
       <tr><td>Sprung vormerken</td><td>Ein Sprung bis 120 ms vor der Landung zählt (an), auch online.</td></tr>
       <tr><td>Steuerung</td><td>Alle Tasten neu belegen, auch für 2 Spieler.</td></tr>
-      <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel.</td></tr>
+      <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel. Eingebaut ist der Song <b>„Falling Pixels“</b> (siehe <a href="#musik">Musik</a>).</td></tr>
       <tr><td>Updates</td><td>Nach Updates suchen, automatisch beim Start suchen.</td></tr>
       <tr><td>Sprache exportieren</td><td>Texte als Datei speichern, z. B. um eine Übersetzung zu verbessern.</td></tr>
     </table></div>
+  </section>
+
+  <section id="musik">
+    <h2>Musik</h2>
+    <p>JumpNDodge hat einen eigenen Song: <b>„Falling Pixels“</b> – emotionaler Breakcore mit Klavier, zerhackten Breakbeats, Sub-Bass und viel Hall, 174 BPM in d-Moll, etwa 1:28 lang und nahtlos in Schleife. Er wird beim Start vom Spiel selbst erzeugt (keine Datei, braucht ca. 3 Sekunden im Hintergrund).</p>
+    <ul>
+      <li><b>Im Spiel:</b> Intro, Aufbau mit Snare-Wirbel, Drop mit Breaks, ruhiger Mittelteil, zweiter Drop mit höherer Melodie, Ausklang.</li>
+      <li><b>Im Menü:</b> eine ruhige Fassung nur mit Klavier und Fläche.</li>
+      <li><b>Auswahl:</b> Einstellungen → Sound → Musik im Spiel → „JumpNDodge“. Eigene Stücke: Dateien <code>ingame_music_&lt;name&gt;.mp3</code> (und <code>menu_music.mp3</code>) in den Ordner <code>sound/</code> legen – die haben Vorrang.</li>
+    </ul>
   </section>
 
   <section id="experimentell">
@@ -756,6 +768,8 @@ end</code></pre>
     <p>Das Spiel sucht beim Start nach neuen Versionen und installiert sie mit einem Klick (abschaltbar). Alternativ hält <b>W Hub</b> JumpNDodge aktuell. Alle Änderungen stehen in den <a href="https://github.com/erqf1/JumpNDodge/releases">Release-Notizen</a>.</p>
     <div class="tw"><table class="wt">
       <tr><th>Version</th><th>Wichtigstes</th></tr>
+      <tr><td class="n">5.12</td><td>Eigener Song „Falling Pixels“ (Spiel + Menü), Ping pro Spieler im Raum, Server-Liste nach Ping sortiert.</td></tr>
+      <tr><td class="n">5.11.5</td><td>Server-Startanzeige mit Tunnel ohne Hinweis auf Portweiterleitung.</td></tr>
       <tr><td class="n">5.11.4</td><td>Server nimmt genug Verbindungen für volle 8er-Räume an (vorher war bei 32 Räumen nach 96 Spielern Schluss).</td></tr>
       <tr><td class="n">5.11.3</td><td>Cloudflare Tunnel direkt im Server-Programm (alle Systeme, <code>tunnel_token</code> in der server.json).</td></tr>
       <tr><td class="n">5.11.2</td><td>Server-Docker-Image mit eingebautem Cloudflare Tunnel (<code>TUNNEL_TOKEN</code>).</td></tr>

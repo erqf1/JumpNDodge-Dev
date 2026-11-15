@@ -28,6 +28,8 @@ struct Conn {
     screen: Option<(u32, u32)>,
     /// Aussehen (Kosmetik)
     look: PlayerLook,
+    /// vom Spiel gemeldeter Ping (ms)
+    ping: u16,
     /// Chat-Spamschutz (Token-Eimer): verfügbare Nachrichten und letzter Stand
     chat_tokens: f64,
     chat_at: Instant,
@@ -233,6 +235,13 @@ impl Server {
         let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
         if let Some(c) = self.conns.get_mut(&a) { c.peer.send_reliable(&wires, encode(m)); }
     }
+    /// Pings aller Plätze an alle im Raum (unzuverlässig - es kommt ohnehin bald der nächste)
+    fn send_pings(&mut self, code: &str) {
+        let Some(r) = self.rooms.get(code) else { return; };
+        let m = ServerMsg::Pings(r.slots.iter().map(|s| s.and_then(|a| self.conns.get(&a)).map(|c| c.ping).unwrap_or(0)).collect());
+        let members: Vec<SocketAddr> = r.slots.iter().flatten().copied().collect();
+        for a in members { self.send_u(a, &m); }
+    }
     fn send_u(&mut self, a: SocketAddr, m: &ServerMsg) {
         let wires = Wires { udp: &self.sock, ws: self.ws.as_ref() };
         if let Some(c) = self.conns.get_mut(&a) { c.peer.send_unreliable(&wires, encode(m)); }
@@ -292,7 +301,7 @@ impl Server {
         peer.loss = self.loss;
         let id = self.next_id;
         self.next_id += 1;
-        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, screen: None, look: PlayerLook::default(), chat_tokens: CHAT_BURST, chat_at: Instant::now() });
+        self.conns.insert(a, Conn { id, peer, name: String::new(), welcomed: false, room: None, remove_after: None, screen: None, look: PlayerLook::default(), ping: 0, chat_tokens: CHAT_BURST, chat_at: Instant::now() });
     }
 
     fn reject(&mut self, a: SocketAddr, reason: String) {
@@ -389,6 +398,10 @@ impl Server {
                 if r.slot_of(a) != Some(r.host) { return; }
                 r.private = on;
                 self.broadcast_room(&code);
+            }
+            ClientMsg::MyPing(ms) => {
+                if let Some(c) = self.conns.get_mut(&a) { c.ping = ms.min(9999); }
+                if let Some(code) = self.conns[&a].room.clone() { self.send_pings(&code); }
             }
             ClientMsg::Look(look) => {
                 if let Some(c) = self.conns.get_mut(&a) { c.look = look.clean(); }
@@ -559,9 +572,10 @@ impl Server {
         let msgs: Vec<(SocketAddr, ServerMsg)> = (0..r.slots.len()).filter_map(|i| r.slots[i].map(|a| (a, ServerMsg::RoomState {
             code: r.code.clone(), mode: r.mode, difficulty: r.difficulty.clone(), you: i as u8, players: players.clone(),
         }))).collect();
+        let pings = ServerMsg::Pings(r.slots.iter().map(|s| s.and_then(|a| self.conns.get(&a)).map(|c| c.ping).unwrap_or(0)).collect());
         let extra = ServerMsg::RoomExtra { host: r.host as u8, private: r.private };
         let looks = ServerMsg::Looks { in_round: false, looks: r.slots.iter().map(|s| s.and_then(|a| self.conns.get(&a)).map(|c| c.look.clone()).unwrap_or_default()).collect() };
-        for (a, m) in msgs { self.send(a, &m); self.send(a, &extra); self.send(a, &looks); }
+        for (a, m) in msgs { self.send(a, &m); self.send(a, &extra); self.send(a, &looks); self.send_u(a, &pings); }
     }
 
     /// Spieler verlässt seinen Raum (freiwillig oder Verbindung weg)

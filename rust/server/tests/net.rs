@@ -471,3 +471,16 @@ fn replays_bestlauf_und_teilen() {
     let (i, _) = query_info(srv.ws.as_ref().unwrap(), Duration::from_secs(3)).expect("ws info");
     assert_eq!(i.name, "Testserver");
 }
+
+#[test]
+fn ping_im_raum() {
+    let srv = start_server("", 4, 0.0);
+    let mut p = Pool::new(["Anna", "Ben"].iter().map(|n| Client::connect(&srv.addr, opts(n, 0.0)).expect("verbindet")).collect());
+    p.send(0, ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Mittel".into(), max_players: 4 });
+    let code = p.wait(0, 10, |m| if let ServerMsg::RoomState { code, .. } = m { Some(code.clone()) } else { None });
+    p.send(1, ClientMsg::JoinRoom { code });
+    p.wait(1, 10, |m| matches!(m, ServerMsg::RoomState { .. }).then_some(()));
+    p.send(0, ClientMsg::MyPing(42));
+    let pings = p.wait(1, 10, |m| if let ServerMsg::Pings(v) = m { (v.first() == Some(&42)).then(|| v.clone()) } else { None });
+    assert_eq!(pings.len(), 4, "ein Wert pro Platz");
+}

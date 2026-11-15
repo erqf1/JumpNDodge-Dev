@@ -88,6 +88,8 @@ pub enum ClientMsg {
     ListServers,
     /// Unverbunden: ein Server meldet sich für die öffentliche Liste an
     Announce { address: String },
+    /// Eigener Ping (ms), damit die anderen im Raum ihn sehen
+    MyPing(u16),
 }
 
 /// Eintrag der öffentlichen Server-Liste
@@ -209,6 +211,8 @@ pub enum ServerMsg {
     ServerList(Vec<ListedServer>),
     /// Antwort auf Announce
     Announced { ok: bool, text: String },
+    /// Ping je Platz im Raum (ms, 0 = unbekannt)
+    Pings(Vec<u16>),
 }
 
 /// Texte der Schnell-Nachrichten (Tasten 1-4)

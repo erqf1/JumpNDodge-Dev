@@ -503,6 +503,8 @@ impl G {
         let lt = sf.render_fit(&self.get_text("ingame_music_label"), rw, self.get_text_color());
         bs.blit(&lt, (rx, y + 4));
         let list = self.INGAME_MUSIC_TRACKS.clone();
+        // fehlt die gewählte Datei, läuft der eingebaute Song - dann den auch so anzeigen
+        let chosen = if list.iter().any(|t| t.0 == chosen && (t.0 == super::sound::BUILTIN_TRACK || !t.2.is_empty())) { chosen } else { super::sound::BUILTIN_TRACK.to_string() };
         let n = list.len().max(1) as i32;
         let tw = ((rw - (n - 1) * 6) / n).min(120);
         let mut tx = rx;
