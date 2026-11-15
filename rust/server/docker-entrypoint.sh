@@ -9,6 +9,9 @@
 #      /data/bin/JumpNDodge-Server       (vom Auto-Update geladen, liegt im Volume)
 #    Verglichen wird über "--version" (sort -V). Startet die /data-Datei nicht (falsche Architektur,
 #    fehlende Bibliotheken), wird die Datei aus dem Image benutzt.
+# 3. Cloudflare Tunnel (eingebaut): Ist TUNNEL_TOKEN gesetzt, läuft cloudflared im selben Container mit
+#    und wird neu gestartet, falls er abbricht. Im Cloudflare-Dashboard zeigt der Hostname dann auf
+#    HTTP -> localhost:47801. Ohne Token passiert nichts (kein Neustart-Kreislauf).
 
 if [ "$(id -u)" = "0" ]; then
     mkdir -p /data/bin 2>/dev/null
@@ -37,6 +40,24 @@ if [ -x "$UPD" ]; then
     else
         echo "Update-Datei $UPD startet nicht - nehme die Version aus dem Image ($img_ver)"
     fi
+fi
+
+if [ -n "$TUNNEL_TOKEN" ]; then
+    if command -v cloudflared >/dev/null 2>&1; then
+        echo "Cloudflare Tunnel: wird gestartet (im Dashboard: Hostname -> HTTP -> localhost:47801)"
+        export TUNNEL_TOKEN
+        (
+            while true; do
+                cloudflared tunnel --no-autoupdate run 2>&1 | sed -u 's/^/[Tunnel] /'
+                echo "[Tunnel] beendet - neuer Versuch in 15 s (Token richtig?)"
+                sleep 15
+            done
+        ) &
+    else
+        echo "Cloudflare Tunnel: cloudflared fehlt im Image - TUNNEL_TOKEN wird ignoriert"
+    fi
+else
+    echo "Cloudflare Tunnel: aus (kein TUNNEL_TOKEN gesetzt)"
 fi
 
 echo "Starte $BIN ($("$BIN" --version 2>/dev/null | head -n1)) als Benutzer $(id -u)"

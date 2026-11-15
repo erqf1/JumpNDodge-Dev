@@ -3,6 +3,11 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.2
+
+- Server-Docker-Image mit eingebautem Cloudflare Tunnel: `TUNNEL_TOKEN` setzen, Hostname -> HTTP -> localhost:47801. Ohne Token aus.
+- CasaOS-Paket: ein Container für Server + Tunnel, Umlaute repariert, neue Anleitung; `cloudflared-optional.yml` entfällt.
+
 ## JumpNDodge 5.11.1
 
 - Controller-Vibration hörte nicht mehr auf: abgelaufene Vibrationen werden jetzt aktiv gestoppt, keine Stapelung mehr; standardmäßig aus.

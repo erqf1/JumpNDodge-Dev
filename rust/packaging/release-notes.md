@@ -1,7 +1,6 @@
-## JumpNDodge 5.11.1
+## JumpNDodge 5.11.2
 
-- **Controller-Vibration repariert:** Sie hörte nicht mehr auf. Jetzt stoppt sie nach dem Treffer zuverlässig – und ist standardmäßig aus.
-- **Neues Menü „Experimentell“** (Einstellungen → Experimentell): Schnell fallen, Kurz springen und Controller-Vibration.
-- Wiki aktualisiert.
+- **Server mit eingebautem Cloudflare Tunnel:** Im Docker-Image steckt jetzt cloudflared. Token bei `TUNNEL_TOKEN` eintragen, im Cloudflare-Dashboard den Hostnamen auf **HTTP → localhost:47801** zeigen lassen – fertig, ein Container für alles. Ohne Token bleibt der Tunnel aus.
+- CasaOS-Paket und Anleitung dazu überarbeitet.
 
 Website: [mert.win/jump](https://mert.win/jump/) – Passwort: **W** oder **Mert**

@@ -19,6 +19,8 @@ LABEL org.opencontainers.image.title="JumpNDodge-Server" \
       org.opencontainers.image.licenses="Apache-2.0"
 RUN useradd -r -u 1000 -m jnd && mkdir -p /data && chown jnd /data
 COPY --from=build /src/target/release/JumpNDodge-Server /usr/local/bin/JumpNDodge-Server
+# Cloudflare Tunnel eingebaut: startet nur, wenn TUNNEL_TOKEN gesetzt ist (siehe Startskript)
+COPY --from=cloudflare/cloudflared:latest /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 COPY server/LIESMICH.txt /usr/share/doc/jumpndodge-server/LIESMICH.txt
 # Startskript: nimmt die neuere Datei (Image oder Auto-Update in /data/bin)
 COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

@@ -120,16 +120,13 @@ services:
       <ol class="steps">
         <li><h3><span data-lang-de>Tunnel anlegen</span><span data-lang-en>Create a tunnel</span></h3>
           <p><span data-lang-de>Cloudflare-Dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Den angezeigten Token kopieren (geheim halten).</span><span data-lang-en>Cloudflare dashboard → <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> → Cloudflared. Copy the token shown (keep it secret).</span></p></li>
-        <li><h3><span data-lang-de>cloudflared neben dem Server starten</span><span data-lang-en>Run cloudflared next to the server</span></h3>
-          <p><span data-lang-de>In CasaOS/Docker Compose als zweiten Dienst ergänzen und den Token eintragen:</span><span data-lang-en>Add it as a second service in CasaOS/Docker Compose and fill in the token:</span></p>
-<pre><code>  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: "dein-token"</code></pre></li>
+        <li><h3><span data-lang-de>Token beim Server eintragen</span><span data-lang-en>Give the token to the server</span></h3>
+          <p><span data-lang-de>cloudflared ist im Docker-Image <b>schon eingebaut</b>. Einfach in CasaOS/Docker die Umgebungsvariable setzen – der Tunnel startet im selben Container mit (ohne Token bleibt er aus):</span><span data-lang-en>cloudflared is <b>already built into</b> the Docker image. Just set the environment variable in CasaOS/Docker – the tunnel starts in the same container (without a token it stays off):</span></p>
+<pre><code>    environment:
+      TUNNEL_TOKEN: "dein-token"</code></pre>
+          <p><span data-lang-de>Ohne Docker: cloudflared selbst installieren und mit dem Token als Dienst starten.</span><span data-lang-en>Without Docker: install cloudflared yourself and run it as a service with the token.</span></p></li>
         <li><h3>Public Hostname</h3>
-          <p><span data-lang-de>Im Tunnel unter <b>Public Hostnames</b> z.B. <code>spiel.deine-domain.de</code> → Service <b>HTTP</b> → <code>jumpndodge-server:47801</code> (Containername; ohne Docker <code>localhost:47801</code>).</span><span data-lang-en>Under <b>Public Hostnames</b> add e.g. <code>game.your-domain.com</code> → service <b>HTTP</b> → <code>jumpndodge-server:47801</code> (container name; without Docker <code>localhost:47801</code>).</span></p></li>
+          <p><span data-lang-de>Im Tunnel unter <b>Public Hostnames</b> z.B. <code>spiel.deine-domain.de</code> → Service <b>HTTP</b> → <code>localhost:47801</code>.</span><span data-lang-en>Under <b>Public Hostnames</b> add e.g. <code>game.your-domain.com</code> → service <b>HTTP</b> → <code>localhost:47801</code>.</span></p></li>
         <li><h3><span data-lang-de>Verbinden</span><span data-lang-en>Connect</span></h3>
           <p><span data-lang-de>Freunde tragen nur den Hostnamen ein, ohne Port. Cloudflare leitet kein UDP weiter – das Spiel merkt das und verbindet sich automatisch über <code>wss://</code>. So läuft auch der offizielle Server <code>play.mert.win</code>.</span><span data-lang-en>Friends enter just the hostname, without a port. Cloudflare doesn't forward UDP – the game notices and connects over <code>wss://</code> automatically. The official server <code>play.mert.win</code> works this way too.</span></p></li>
       </ol>

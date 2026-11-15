@@ -309,6 +309,21 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:47801/ || true)
           echo "WebSocket-Antwort: $code"
           test "$code" = "101"
+          docker logs jnd 2>&1 | grep -q "Cloudflare Tunnel: aus"
+      - name: Eingebauter Cloudflare Tunnel (falscher Token darf den Server nicht stören)
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/cloudflared jnd-test --version
+          docker run -d --name jndt -p 47811:47801 -e JND_SERVER_AUTO_UPDATE=0 -e TUNNEL_TOKEN=ungueltig jnd-test
+          sleep 12
+          docker logs jndt
+          test "$(docker inspect -f '{{.State.Running}}' jndt)" = "true"
+          test "$(docker inspect -f '{{.RestartCount}}' jndt)" = "0"
+          docker logs jndt 2>&1 | grep -q "Cloudflare Tunnel: wird gestartet"
+          docker logs jndt 2>&1 | grep -q "\[Tunnel\]"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:47811/ || true)
+          echo "WebSocket-Antwort: $code"
+          test "$code" = "101"
+          test "$(curl -s --max-time 5 http://127.0.0.1:47811/replays/ping)" = "ok"
 
   # Docker-Image des Servers (für CasaOS) - nur beim Veröffentlichen
   server-docker:
