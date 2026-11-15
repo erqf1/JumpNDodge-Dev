@@ -98,6 +98,10 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
             let store = cfg_path.parent().map(|d| d.join("chat.json")).unwrap_or_else(|| PathBuf::from("chat.json"));
             server.set_chat_store(store);
         }
+        if server.cfg.replays {
+            let d = cfg_path.parent().map(|d| d.join("replays")).unwrap_or_else(|| PathBuf::from("replays"));
+            server.replays.set_dir(d);
+        }
         let stop = AtomicBool::new(false);
         server.run(&stop);
         let Some(ready) = server.restart_for_update.take() else { break; };

@@ -108,6 +108,8 @@ pub struct Server {
     pub registry: crate::registry::Registry,
     /// Eigene Anmeldung in der Liste (wenn cfg.listed)
     announcer: Option<crate::registry::Announcer>,
+    /// Replays (Bestläufe, geteilte) - über HTTP auf dem WebSocket-Port
+    pub replays: std::sync::Arc<crate::replays::ReplayStore>,
 }
 
 fn unix_now() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) }
@@ -119,8 +121,13 @@ impl Server {
         let sock = UdpSocket::bind((cfg.bind.as_str(), cfg.port))?;
         sock.set_nonblocking(true)?;
         let mut log = log;
+        let replays = std::sync::Arc::new(crate::replays::ReplayStore::new());
+        let http: Option<jnd_core::net::ws::HttpHandler> = if cfg.replays {
+            let st = replays.clone();
+            Some(std::sync::Arc::new(move |r: &jnd_core::net::ws::HttpRequest| st.handle(r)))
+        } else { None };
         let ws = if cfg.ws_port == 0 { None } else {
-            match WsHub::bind(&cfg.bind, cfg.ws_port) {
+            match WsHub::bind_with_http(&cfg.bind, cfg.ws_port, http) {
                 Ok(h) => Some(h),
                 Err(e) => { log(&format!("WebSocket-Port {} (TCP) nicht verfügbar: {} - nur UDP", cfg.ws_port, e)); None }
             }
@@ -132,7 +139,7 @@ impl Server {
             if cfg.listed { log("listed ist an, aber public_address fehlt - Server erscheint nicht in der Liste"); }
             None
         };
-        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log, ws, updater, restart_for_update: None, chat_log: VecDeque::new(), chat_store: None, registry: crate::registry::Registry::new(), announcer })
+        Ok(Server { sock, cfg, conns: HashMap::new(), rooms: BTreeMap::new(), next_id: 1, start: Instant::now(), ticks_done: 0, loss: Lossy::default(), log, ws, updater, restart_for_update: None, chat_log: VecDeque::new(), chat_store: None, registry: crate::registry::Registry::new(), announcer, replays })
     }
 
     /// Chat-Verlauf in dieser Datei aufheben (und vorhandenen laden)

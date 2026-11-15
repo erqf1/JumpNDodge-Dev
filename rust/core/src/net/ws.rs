@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
+use std::io::{Read, Write};
 use std::time::Duration;
 use tungstenite::{Message, WebSocket};
 
@@ -55,16 +57,21 @@ pub struct WsHub {
 }
 
 impl WsHub {
-    pub fn bind(bind: &str, port: u16) -> std::io::Result<WsHub> {
+    pub fn bind(bind: &str, port: u16) -> std::io::Result<WsHub> { WsHub::bind_with_http(bind, port, None) }
+
+    /// Wie bind; Anfragen ohne WebSocket-Upgrade gehen an `http` (z.B. Replays), sonst 404
+    pub fn bind_with_http(bind: &str, port: u16, http: Option<HttpHandler>) -> std::io::Result<WsHub> {
         let listener = TcpListener::bind((bind, port))?;
         let local = listener.local_addr()?;
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let tx = tx.clone();
+                let http = http.clone();
                 std::thread::spawn(move || {
                     let _ = stream.set_nodelay(true);
                     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    if !is_upgrade(&stream) { serve_http(stream, http.as_ref()); return; }
                     if let Ok(ws) = tungstenite::accept(stream) {
                         let _ = ws.get_ref().set_read_timeout(None);
                         if ws.get_ref().set_nonblocking(true).is_ok() { let _ = tx.send(ws); }
@@ -106,6 +113,85 @@ impl Wire for WsHub {
     fn send_bytes(&self, to: SocketAddr, b: &[u8]) {
         if let Some(ws) = self.conns.borrow_mut().get_mut(&to) { let _ = ws.send(Message::binary(b.to_vec())); }
     }
+}
+
+// ---------------------------------------------------------------- einfache HTTP-Anfragen
+
+/// HTTP-Anfrage (nur was der Server braucht)
+pub struct HttpRequest { pub method: String, pub path: String, pub query: Vec<(String, String)>, pub body: Vec<u8> }
+impl HttpRequest {
+    pub fn param(&self, k: &str) -> Option<&str> { self.query.iter().find(|(a, _)| a == k).map(|(_, v)| v.as_str()) }
+}
+pub struct HttpResponse { pub status: u16, pub content_type: &'static str, pub body: Vec<u8> }
+impl HttpResponse {
+    pub fn text(status: u16, t: &str) -> HttpResponse { HttpResponse { status, content_type: "text/plain; charset=utf-8", body: t.as_bytes().to_vec() } }
+    pub fn bytes(b: Vec<u8>) -> HttpResponse { HttpResponse { status: 200, content_type: "application/octet-stream", body: b } }
+}
+pub type HttpHandler = Arc<dyn Fn(&HttpRequest) -> HttpResponse + Send + Sync>;
+/// Größte erlaubte Anfrage (Replays)
+pub const HTTP_MAX_BODY: usize = 6 * 1024 * 1024;
+
+/// Kopf der Anfrage ansehen, ohne etwas zu verbrauchen: WebSocket-Upgrade?
+fn is_upgrade(s: &TcpStream) -> bool {
+    let mut buf = [0u8; 4096];
+    for _ in 0..200 {
+        let n = match s.peek(&mut buf) { Ok(n) => n, Err(_) => return true };
+        if n == 0 { return true; }
+        let head = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+        if head.contains("\r\n\r\n") || n == buf.len() { return head.contains("upgrade: websocket"); }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+fn pct_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => { out.push(b' '); i += 1; }
+            b'%' if i + 2 < b.len() => {
+                match u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16) { Ok(v) => { out.push(v); i += 3; } Err(_) => { out.push(b'%'); i += 1; } }
+            }
+            c => { out.push(c); i += 1; }
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+fn serve_http(mut s: TcpStream, h: Option<&HttpHandler>) {
+    let mut data: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 8192];
+    let head_end = loop {
+        if let Some(p) = data.windows(4).position(|w| w == b"\r\n\r\n") { break p; }
+        if data.len() > 16 * 1024 { return; }
+        match s.read(&mut buf) { Ok(0) | Err(_) => return, Ok(n) => data.extend_from_slice(&buf[..n]) }
+    };
+    let head = String::from_utf8_lossy(&data[..head_end]).to_string();
+    let mut lines = head.split("\r\n");
+    let first = lines.next().unwrap_or("");
+    let mut parts = first.split_whitespace();
+    let (method, target) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("/").to_string());
+    let mut len = 0usize;
+    for l in lines {
+        if let Some((k, v)) = l.split_once(':') { if k.trim().eq_ignore_ascii_case("content-length") { len = v.trim().parse().unwrap_or(0); } }
+    }
+    let resp = if len > HTTP_MAX_BODY { HttpResponse::text(413, "zu groß") } else {
+        let mut body = data[head_end + 4..].to_vec();
+        let _ = s.set_read_timeout(Some(Duration::from_secs(20)));
+        while body.len() < len { match s.read(&mut buf) { Ok(0) | Err(_) => break, Ok(n) => body.extend_from_slice(&buf[..n]) } }
+        body.truncate(len);
+        let (path, q) = target.split_once('?').unwrap_or((target.as_str(), ""));
+        let query = q.split('&').filter(|p| !p.is_empty()).map(|p| { let (k, v) = p.split_once('=').unwrap_or((p, "")); (pct_decode(k), pct_decode(v)) }).collect();
+        let req = HttpRequest { method, path: path.to_string(), query, body };
+        match h { Some(h) => h(&req), None => HttpResponse::text(404, "nicht gefunden") }
+    };
+    let reason = match resp.status { 200 => "OK", 400 => "Bad Request", 403 => "Forbidden", 404 => "Not Found", 413 => "Payload Too Large", 429 => "Too Many Requests", _ => "Error" };
+    let hdr = format!("HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", resp.status, reason, resp.content_type, resp.body.len());
+    let _ = s.write_all(hdr.as_bytes());
+    let _ = s.write_all(&resp.body);
+    let _ = s.flush();
 }
 
 // ---------------------------------------------------------------- Spiel

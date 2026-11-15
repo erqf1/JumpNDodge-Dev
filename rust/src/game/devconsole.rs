@@ -64,6 +64,8 @@ const DEV_COMMANDS: &[(&str, &str)] = &[
     ("equip", "Kosmetik anlegen, z.B.: run equip yellow_crown / run equip fire_trail"),
     ("setting", "Einstellung setzen, z.B.: run setting exp_fast_fall true"),
     ("settings_game", "Einstellungen > Spiel öffnen"),
+    ("replays", "Replay-Liste öffnen"),
+    ("fakeghost", "Test: letzte Runde als Freundes-Geist einsetzen, z.B.: run fakeghost Anna"),
     ("theme", "Hell/Dunkel setzen, z.B.: run theme light / run theme dark"),
     ("settings_more", "Einstellungen > Mehr öffnen"),
     ("settings_sound", "Einstellungen > Sound öffnen"),
@@ -261,6 +263,11 @@ impl G {
                 self.save_section("settings", None);
                 super::art::set_legacy(v);
                 println!("[DEV] legacy_art {}", v);
+            }
+            "replays" => { self.run_replays_menu(); }
+            "fakeghost" => {
+                let n = args.first().copied().unwrap_or("Anna");
+                match self.load_last_recording() { Some(r) => { println!("[DEV] fakeghost {} ({}, {} Frames)", n, r.difficulty, r.frames.len()); self.dev_fake_friend_ghost(n, r); } None => println!("[DEV] fakeghost: keine letzte Runde") }
             }
             "settings_game" => { for f in ALL_SCREEN_FLAGS { self.set_screen_flag(f, false); } self.open_settings_page(super::settings_ui::PAGE_GAME); }
             "setting" => {

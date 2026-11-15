@@ -249,6 +249,7 @@ impl G {
             r.score = score;
             let best = new_record && difficulty != "Custom" && !self.klassik_mode;
             self.save_recording(&r, best);
+            if best && !self._round_modded { self.upload_best_replay(&r); }
         }
         self.saved_scores.insert(difficulty.into(), json!(old.max(score)));
         let ss = self.session_scores.gi(difficulty, 0).max(score);
@@ -361,6 +362,7 @@ impl G {
         // Aufzeichnung (Replay) und Geist des Rekordlaufs
         let mut rec = super::replay::Recording::new(w0, h0, self.get_player_color(), &difficulty);
         let ghost = if self.settings.gb("ghost", true) && difficulty != "Custom" && !self.klassik_mode && !free_roam { self.load_best_recording(&difficulty) } else { None };
+        let friend_ghosts = if difficulty != "Custom" && !self.klassik_mode && !free_roam && mod_mode.is_none() { self.friend_ghosts_for(&difficulty) } else { vec![] };
         let dark_round = self.is_dark_mode();
         let perf = super::art::perf_on();
         loop {
@@ -820,6 +822,19 @@ impl G {
                 let r = o.draw_rect(alpha);
                 if free_roam { super::art::draw_faller_c(&bs, r, o.tint.unwrap_or(super::art::FALLER)); } else { super::art::draw_faller_live(&bs, r, o.tint.unwrap_or(super::art::FALLER), h - 50); }
                 super::art::draw_faller_marker(&bs, r, tsec);
+            }
+            // Geister von Freunden (ihre Bestläufe vom Server), mit Namen
+            for (name, g) in &friend_ghosts {
+                let gi = tick_no as usize;
+                if let (Some(a), Some(b)) = (g.frames.get(gi.saturating_sub(1)), g.frames.get(gi)) {
+                    let gx = a.px as f64 + (b.px - a.px) as f64 * alpha;
+                    let gy = a.py as f64 + (b.py - a.py) as f64 * alpha;
+                    let gy = (h - 50) as f64 - ((g.h - 50) as f64 - gy);
+                    let gr = Rect::new(gx.round() as i32, gy.round() as i32, 50, 50);
+                    super::art::draw_ghost(&bs, gr, g.color);
+                    let lbl = self.badge_font.render(name, true, (190, 190, 215));
+                    bs.blit(&lbl, (gr.centerx() - lbl.get_width() / 2, gr.top() - lbl.get_height() - 2));
+                }
             }
             if let Some(g) = &ghost {
                 // Geist: Position aus dem Rekordlauf, Höhe relativ zum Boden (Fenstergröße darf abweichen)

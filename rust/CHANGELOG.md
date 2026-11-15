@@ -3,6 +3,12 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.11.0
+
+- Geister von Freunden: Bestläufe werden beim offiziellen Server gespeichert; in der Runde laufen bis zu 3 Freunde (gleiche Schwierigkeit) mit Namen mit.
+- Replays teilen: in der Replay-Liste „Teilen“ (6-stelliger Code, wird kopiert), „Code eingeben“ zum Ansehen; Freundes-Rekorde stehen auch in der Liste.
+- Server: Replays über HTTP auf dem WebSocket-Port (`/replays/...`), Einstellung `replays`.
+
 ## JumpNDodge 5.10.0
 
 - Custom-Modus: Schalter „Neue Hindernisse (Beta)“ mit hohem Block, Hüpfball, Sprinter (rollt langsam an, dann schnell) und Laser-Balken (drunter bleiben, nicht springen).

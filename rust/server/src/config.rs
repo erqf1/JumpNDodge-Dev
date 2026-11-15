@@ -39,6 +39,8 @@ pub struct Config {
     pub registry: String,
     /// Selbst eine Server-Liste führen (andere Server dürfen sich hier anmelden)
     pub server_list: bool,
+    /// Replays annehmen (Bestläufe für Freundes-Geister, geteilte Replays) - über den WebSocket-Port
+    pub replays: bool,
 }
 
 impl Default for Config {
@@ -60,6 +62,7 @@ impl Default for Config {
             public_address: String::new(),
             registry: "play.mert.win".into(),
             server_list: true,
+            replays: true,
         }
     }
 }

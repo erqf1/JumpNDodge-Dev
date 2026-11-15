@@ -15,6 +15,9 @@ pub use rect::{rect, Num, Rect};
 pub use surface::{draw, transform, Color, Pos, RectOpts, Surface};
 
 /// Zwischenablage lesen (pygame.scrap.get(SCRAP_TEXT))
+pub fn clipboard_set(t: &str) -> bool {
+    arboard::Clipboard::new().and_then(|mut c| c.set_text(t.to_string())).is_ok()
+}
 pub fn clipboard_get() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }

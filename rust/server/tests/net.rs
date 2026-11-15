@@ -8,6 +8,7 @@ use jnd_server::config::Config;
 use jnd_server::server::Server;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::io::Read;
 use std::time::{Duration, Instant};
 
 struct TestServer { addr: String, ws: Option<String>, stop: Arc<AtomicBool>, handle: Option<std::thread::JoinHandle<()>> }
@@ -39,6 +40,7 @@ fn start_with(cfg: Config, loss: f64, allow_local: bool) -> TestServer {
         let mut s = Server::bind(cfg, Box::new(|l: &str| println!("[server] {l}"))).expect("bind");
         s.loss = Lossy(loss);
         s.registry.allow_local = allow_local;
+        s.replays.set_dir(std::env::temp_dir().join(format!("jnd-replays-test-{}-{}", std::process::id(), rand_suffix())));
         tx.send((s.local_addr().to_string(), s.ws_addr().map(|a| format!("ws://127.0.0.1:{}", a.port())))).unwrap();
         s.run(&st);
     });
@@ -426,4 +428,46 @@ fn oeffentliche_server_liste() {
     std::thread::sleep(Duration::from_millis(4800));
     let l = fetch_server_list(&reg.addr, Duration::from_secs(2)).expect("Liste kommt");
     assert_eq!(l.len(), 1, "nur der echte Server steht in der Liste: {l:?}");
+}
+
+fn rand_suffix() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0) }
+
+/// Minimales Replay (JNR1) mit Punktzahl
+fn fake_replay(diff: &str, score: i64) -> Vec<u8> {
+    let mut b = b"JNR1".to_vec();
+    b.extend_from_slice(&800i16.to_le_bytes()); b.extend_from_slice(&600i16.to_le_bytes());
+    b.extend_from_slice(&[10, 20, 30]);
+    b.push(diff.len() as u8); b.extend_from_slice(diff.as_bytes());
+    b.extend_from_slice(&score.to_le_bytes());
+    b.extend_from_slice(&1u32.to_le_bytes());
+    b.extend_from_slice(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 3, 0]);
+    b
+}
+
+#[test]
+fn replays_bestlauf_und_teilen() {
+    let srv = start_server_ws("", 4, 0.0, free_tcp_port());
+    let base = srv.ws.clone().expect("ws").replace("ws://", "http://");
+    let get = |p: &str| ureq::get(&format!("{base}{p}")).call();
+    let post = |p: &str, b: &[u8]| ureq::post(&format!("{base}{p}")).send_bytes(b);
+    assert_eq!(get("/replays/ping").expect("ping").into_string().unwrap(), "ok");
+    // Bestlauf speichern, schlechterer wird ignoriert, fremder Schlüssel abgelehnt
+    let r = post("/replays/best?user=Anna&diff=Mittel&key=0123456789abcdef0123", &fake_replay("Mittel", 50)).expect("upload");
+    assert_eq!(r.into_string().unwrap(), "gespeichert");
+    assert_eq!(post("/replays/best?user=anna&diff=Mittel&key=0123456789abcdef0123", &fake_replay("Mittel", 40)).unwrap().into_string().unwrap(), "alt");
+    match post("/replays/best?user=anna&diff=Mittel&key=ffffffffffffffffffff", &fake_replay("Mittel", 99)) { Err(ureq::Error::Status(403, _)) => {}, x => panic!("fremder Schlüssel: {:?}", x.map(|r| r.status())) }
+    let mut got = vec![];
+    get("/replays/best?user=ANNA&diff=mittel").expect("download").into_reader().read_to_end(&mut got).unwrap();
+    assert_eq!(got, fake_replay("Mittel", 50));
+    assert!(matches!(get("/replays/best?user=ben&diff=mittel"), Err(ureq::Error::Status(404, _))));
+    assert!(matches!(post("/replays/share", b"kaputt"), Err(ureq::Error::Status(400, _))));
+    // Teilen per Code
+    let code = post("/replays/share", &fake_replay("Hölle", 7)).expect("teilen").into_string().unwrap();
+    assert_eq!(code.len(), 6, "{code}");
+    let mut got = vec![];
+    get(&format!("/replays/s/{}", code.to_lowercase())).expect("abholen").into_reader().read_to_end(&mut got).unwrap();
+    assert_eq!(got, fake_replay("Hölle", 7));
+    // WebSocket-Spiel geht weiter über denselben Port
+    let (i, _) = query_info(srv.ws.as_ref().unwrap(), Duration::from_secs(3)).expect("ws info");
+    assert_eq!(i.name, "Testserver");
 }

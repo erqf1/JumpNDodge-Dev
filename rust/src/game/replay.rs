@@ -135,11 +135,43 @@ impl G {
     /// Liste der gespeicherten Replays (letzte Runde, Rekordläufe je Schwierigkeit)
     pub fn run_replays_menu(&mut self) {
         let mut clock = Clock::new();
+        // Online: Teilen (Code) und Laden per Code laufen im Hintergrund
+        enum NetRes { Shared(Result<String, String>), Loaded(Result<Recording, String>) }
+        let (ntx, nrx) = std::sync::mpsc::channel::<NetRes>();
+        let mut busy = false;
+        let mut note: Option<(String, bool, std::time::Instant)> = None;
+        let mut code_input: Option<String> = None;
+        let mut items: Vec<(String, Recording)> = vec![];
+        let mut reload_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         loop {
-            let mut items: Vec<(String, Recording)> = vec![];
+            if reload_at.elapsed().as_secs() >= 3 {
+            reload_at = std::time::Instant::now();
+            items.clear();
             if let Some(r) = self.load_last_recording() { items.push((self.tde("Letzte Runde", "Last round"), r)); }
             for d in crate::game::save::DIFFICULTIES.iter() {
                 if let Some(r) = self.load_best_recording(d) { items.push((format!("{} · {}", self.tde("Rekord", "Best"), self.get_difficulty_name(d)), r)); }
+            }
+            for (n, r) in self.all_friend_replays() {
+                items.push((format!("{} · {}", n, self.get_difficulty_name(&r.difficulty)), r));
+            }
+            }
+            let mut to_play: Option<Recording> = None;
+            while let Ok(res) = nrx.try_recv() {
+                busy = false;
+                match res {
+                    NetRes::Shared(Ok(code)) => {
+                        let copied = clipboard_set(&code);
+                        let t = if copied { format!("{} {} ({})", self.tde("Code:", "Code:"), code, self.tde("kopiert", "copied")) } else { format!("{} {}", self.tde("Code:", "Code:"), code) };
+                        note = Some((t, false, std::time::Instant::now()));
+                    }
+                    NetRes::Shared(Err(e)) | NetRes::Loaded(Err(e)) => note = Some((format!("{}: {}", self.tde("Fehler", "Error"), e), true, std::time::Instant::now())),
+                    NetRes::Loaded(Ok(r)) => to_play = Some(r),
+                }
+            }
+            if let Some(r) = to_play {
+                self.run_replay(&r);
+                if self.sound_enabled { self.play_menu_music(); }
+                continue;
             }
             let fps = self.target_fps();
             clock.tick(fps);
@@ -152,6 +184,7 @@ impl G {
             let sf = self.small_font.clone();
             let tc = self.get_text_color();
             let mut rows = vec![];
+            let mut share_btns: Vec<Rect> = vec![];
             if items.is_empty() {
                 let t = sf.render(&self.tde("Noch keine Replays - spiel eine Runde!", "No replays yet - play a round!"), true, (150, 150, 170));
                 bs.blit(&t, (w / 2 - t.get_width() / 2, 160));
@@ -165,17 +198,74 @@ impl G {
                 let secs = r.seconds() as i64;
                 let info = format!("{} {} · {}:{:02}", r.score, self.get_text("score"), secs / 60, secs % 60);
                 let is = sf.render(&info, true, (150, 160, 190));
-                bs.blit(&is, (row.right() - 14 - is.get_width(), row.y + 10));
+                bs.blit(&is, (row.right() - 110 - is.get_width(), row.y + 10));
+                let sb = Rect::new(row.right() - 98, row.y + 6, 88, 30);
+                let sh = sb.collidepoint(mp);
+                self.draw_ui_button(&bs, sb, &self.tde("Teilen", "Share"), BtnOpts { font: Some(self.badge_font.clone()), hovered: sh, ..Default::default() });
+                share_btns.push(sb);
                 rows.push(row);
             }
-            let back = Rect::new(w / 2 - 90, h - 64, 180, 44);
+            let code_btn = Rect::new(w / 2 + 6, h - 64, 200, 44);
+            let ch = code_btn.collidepoint(mp);
+            self.draw_ui_button(&bs, code_btn, &self.tde("Code eingeben", "Enter code"), BtnOpts { font: Some(sf.clone()), hovered: ch, ..Default::default() });
+            if let Some((t, err, at)) = &note {
+                if at.elapsed().as_secs() < 8 {
+                    let ts = sf.render(t, true, if *err { (220, 110, 120) } else { (120, 200, 160) });
+                    bs.blit(&ts, (w / 2 - ts.get_width() / 2, h - 104));
+                }
+            }
+            if busy {
+                let ts = sf.render(&self.tde("Einen Moment …", "One moment …"), true, (150, 150, 180));
+                bs.blit(&ts, (w / 2 - ts.get_width() / 2, h - 104));
+            }
+            let back = Rect::new(w / 2 - 206, h - 64, 200, 44);
             let bh = back.collidepoint(mp) || self.nav_is_focused("replays", rows.len(), rows.len() + 1);
             self.draw_ui_button(&bs, back, &self.get_text("back"), BtnOpts { font: Some(sf.clone()), hovered: bh, ..Default::default() });
+            if let Some(ci) = &code_input {
+                let veil = Surface::new_alpha(w, h);
+                veil.fill((0, 0, 0, 150));
+                bs.blit(&veil, (0, 0));
+                let p = Rect::new(w / 2 - 220, h / 2 - 90, 440, 180);
+                self.draw_panel(&bs, p, 14, super::ui_c::ACCENT, 2);
+                let t = sf.render(&self.tde("Replay-Code eingeben (Enter = laden, Esc = zurück)", "Enter replay code (Enter = load, Esc = back)"), true, tc);
+                bs.blit(&t, (p.centerx() - t.get_width() / 2, p.y + 22));
+                let shown = format!("{}{}", ci, if (self.get_ticks() / 400) % 2 == 0 { "_" } else { " " });
+                let cs = self.menu_font.render(&shown, true, tc);
+                bs.blit(&cs, (p.centerx() - cs.get_width() / 2, p.y + 76));
+            }
             self.flip();
             let mut all = rows.clone();
             all.push(back);
             let mut pick: Option<usize> = None;
+            let mut share: Option<usize> = None;
             for ev in self.event_get() {
+                // Code-Eingabe hat Vorrang
+                if let Some(ci) = code_input.as_mut() {
+                    match &ev {
+                        Event::Quit => self.quit(),
+                        Event::KeyDown { key, unicode, mods } => {
+                            if *key == K_ESCAPE { code_input = None; continue; }
+                            if *key == K_BACKSPACE { ci.pop(); continue; }
+                            if *key == K_v && (*mods & KMOD_CTRL) != 0 {
+                                if let Some(t) = clipboard_get() { for c in t.chars().filter(|c| c.is_ascii_alphanumeric()) { if ci.len() < 6 { ci.push(c.to_ascii_uppercase()); } } }
+                                continue;
+                            }
+                            if *key == K_RETURN || *key == K_KP_ENTER {
+                                let code = ci.clone();
+                                code_input = None;
+                                if let Some(base) = self.replay_base() {
+                                    busy = true;
+                                    let tx = ntx.clone();
+                                    std::thread::spawn(move || { let _ = tx.send(NetRes::Loaded(super::replay_net::load_shared_replay(&base, &code))); });
+                                }
+                                continue;
+                            }
+                            for c in unicode.chars().filter(|c| c.is_ascii_alphanumeric()) { if ci.len() < 6 { ci.push(c.to_ascii_uppercase()); } }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
                 match ev {
                     Event::Quit => self.quit(),
                     Event::KeyDown { key, .. } => {
@@ -190,9 +280,22 @@ impl G {
                     Event::MouseButtonDown { button: 1, .. } => {
                         let p = self.get_mouse_pos_logical();
                         if back.collidepoint(p) { self.play_sound(Snd::ClickBack); return; }
-                        pick = rows.iter().position(|r| r.collidepoint(p));
+                        if code_btn.collidepoint(p) { self.play_sound(Snd::MenuClick); code_input = Some(String::new()); continue; }
+                        share = share_btns.iter().position(|r| r.collidepoint(p));
+                        if share.is_none() { pick = rows.iter().position(|r| r.collidepoint(p)); }
                     }
                     _ => {}
+                }
+            }
+            if let Some(i) = share {
+                if !busy {
+                    if let Some(base) = self.replay_base() {
+                        self.play_sound(Snd::Click);
+                        busy = true;
+                        let r = items[i].1.clone();
+                        let tx = ntx.clone();
+                        std::thread::spawn(move || { let _ = tx.send(NetRes::Shared(super::replay_net::share_replay(&base, &r))); });
+                    }
                 }
             }
             if let Some(i) = pick {

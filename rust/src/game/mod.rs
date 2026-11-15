@@ -25,6 +25,7 @@ pub mod online_screens2;
 pub mod online_screens3;
 pub mod runtime;
 pub mod replay;
+pub mod replay_net;
 pub mod save;
 pub mod screens_a;
 pub mod screens_b;
