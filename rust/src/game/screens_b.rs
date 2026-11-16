@@ -504,22 +504,49 @@ impl G {
         bs.blit(&lt, (rx, y + 4));
         let list = self.INGAME_MUSIC_TRACKS.clone();
         // fehlt die gewählte Datei, läuft der eingebaute Song - dann den auch so anzeigen
-        let chosen = if list.iter().any(|t| t.0 == chosen && (t.0 == super::sound::BUILTIN_TRACK || !t.2.is_empty())) { chosen } else { super::sound::BUILTIN_TRACK.to_string() };
+        let chosen = if list.iter().any(|t| t.0 == chosen && (super::music::is_builtin(&t.0) || !t.2.is_empty())) { chosen } else { super::sound::BUILTIN_TRACK.to_string() };
+        // Raster: 3 Spalten, Zeilenhöhe passt sich dem Platz bis zum Zurück-Knopf an
+        let cols = 3i32;
         let n = list.len().max(1) as i32;
-        let tw = ((rw - (n - 1) * 6) / n).min(120);
-        let mut tx = rx;
+        let rows = (n + cols - 1) / cols;
+        let tw = (rw - (cols - 1) * 6) / cols;
+        let top = y + 24;
+        let info_h = 20;
+        let avail = (back.y - 8 - info_h) - top;
+        let th = ((avail - (rows - 1) * 5) / rows).clamp(18, 30);
+        let mut info: Option<String> = None;
         for (ti, (tk, tl, _)) in list.iter().enumerate() {
-            let tr = Rect::new(tx, y + 26, tw, 32);
+            let (cx, cy) = (ti as i32 % cols, ti as i32 / cols);
+            let tr = Rect::new(rx + cx * (tw + 6), top + cy * (th + 5), tw, th);
             let sel = *tk == chosen;
             let prev = self.is_previewing_track(tk);
+            let loading = self.is_loading_track(tk);
             let hv = tr.collidepoint(mp) || self.nav_is_focused("settings_sound_menu", 16 + ti, nav_total);
-            let base = if prev { (200, 140, 40) } else if sel { (60, 150, 90) } else if hv { self.get_button_hover_color() } else { self.get_button_color() };
+            // Vorschau violett (nie Orange neben dem grünen „gewählt“)
+            let base = if prev || loading { (112, 92, 206) } else if sel { (60, 150, 90) } else if hv { self.get_button_hover_color() } else { self.get_button_color() };
             draw::rect(&bs, base, tr, 0, 6);
-            let tc = if sel || prev { (255, 255, 255) } else { self.get_text_color() };
+            if loading {
+                // Ladebalken, solange der Song berechnet wird
+                let ph = (self.get_ticks() % 1200) as f64 / 1200.0;
+                let bw = (tr.w as f64 * 0.3) as i32;
+                let bx = tr.x + ((tr.w - bw) as f64 * ph) as i32;
+                draw::rect(&bs, (170, 155, 245), Rect::new(bx, tr.bottom() - 4, bw, 3), 0, 2);
+            }
+            let tc = if sel || prev || loading { (255, 255, 255) } else { self.get_text_color() };
             let ts = sf.render_fit(tl, tw - 10, tc);
             bs.blit(&ts, (tr.centerx() - ts.get_width() / 2, tr.centery() - ts.get_height() / 2));
+            if hv || (sel && info.is_none()) {
+                if let Some(si) = super::music::info(tk) {
+                    let de = matches!(self.lang().as_str(), "Deutsch" | "Schwiizerdütsch");
+                    info = Some(format!("{} · {} · {} BPM", si.title, if de { si.style } else { si.style_en }, si.bpm as i32));
+                }
+                else { info = Some(tl.clone()); }
+            }
             tracks.push((tr, tk.clone()));
-            tx += tw + 6;
+        }
+        if let Some(t) = info {
+            let it = sf.render_fit(&t, rw, self.get_text_color());
+            bs.blit(&it, (w / 2 - it.get_width() / 2, top + rows * (th + 5) + 2));
         }
         self.flip();
         (toggle, back, minus, plus, tracks)

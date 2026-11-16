@@ -480,6 +480,7 @@ impl G {
     /// pygame.display.flip() (= _jnd_flip + _patched_flip)
     pub fn flip(&mut self) {
         self.poll_online();
+        self.music_tick();
         // base_surface hat bereits Fensterauflösung (siehe sync_window_size) - keine Neuskalierung
         let mut target = if self._fade_dir != 0 || self._fade_alpha > 0 { Some(self.base_surface.copy()) } else { None };
         // Bildschirmwackeln (Treffer): Bild kurz versetzt zeigen

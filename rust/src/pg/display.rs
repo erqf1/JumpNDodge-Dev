@@ -9,7 +9,7 @@ use super::keys::*;
 use super::surface::Surface;
 use std::collections::{HashSet, VecDeque};
 use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
@@ -33,10 +33,21 @@ pub enum Event {
     FocusGained,
 }
 
+/// Wie das fertige Bild aufs Fenster kommt
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OutputMode { Auto, Gpu, Cpu }
+
+impl OutputMode {
+    pub fn from_str(s: &str) -> OutputMode { match s { "gpu" => OutputMode::Gpu, "cpu" => OutputMode::Cpu, _ => OutputMode::Auto } }
+}
+
+enum Presenter {
+    Soft { surface: softbuffer::Surface<Arc<Window>, Arc<Window>>, _ctx: softbuffer::Context<Arc<Window>> },
+    Gpu(super::gpu::Gpu),
+}
+
 struct App {
-    window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
-    _ctx: Option<softbuffer::Context<Rc<Window>>>,
+    window: Option<Arc<Window>>,
     events: VecDeque<Event>,
     title: String,
     init_size: (u32, u32),
@@ -68,12 +79,8 @@ impl ApplicationHandler for App {
             .with_visible(self.visible)
             .with_min_inner_size(LogicalSize::new(200, 150));
         if let Some(ic) = self.icon.clone() { attrs = attrs.with_window_icon(Some(ic)); }
-        let w = Rc::new(el.create_window(attrs).expect("Fenster konnte nicht erstellt werden"));
-        let ctx = softbuffer::Context::new(w.clone()).expect("softbuffer");
-        let surf = softbuffer::Surface::new(&ctx, w.clone()).expect("softbuffer surface");
+        let w = Arc::new(el.create_window(attrs).expect("Fenster konnte nicht erstellt werden"));
         self.window = Some(w);
-        self._ctx = Some(ctx);
-        self.surface = Some(surf);
     }
 
     fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, ev: WindowEvent) {
@@ -211,6 +218,12 @@ pub struct Display {
     pub hidden: bool,
     fullscreen: bool,
     present_buf_size: (u32, u32),
+    /// gewünschte Ausgabe (Einstellung), tatsächlicher Weg wird beim ersten Bild gewählt
+    output_mode: OutputMode,
+    output_vsync: bool,
+    presenter: Option<Presenter>,
+    /// „GPU · Vulkan · …“ oder „CPU“ (für Einstellungen und Log)
+    pub output_info: String,
 }
 
 impl Display {
@@ -221,7 +234,7 @@ impl Display {
         let mut d = Display {
             el,
             app: App {
-                window: None, surface: None, _ctx: None, events: VecDeque::new(), title: title.into(),
+                window: None, events: VecDeque::new(), title: title.into(),
                 // Tests: Fenstergröße vorgeben, z.B. JND_WIN_SIZE=2560x1440
                 init_size: std::env::var("JND_WIN_SIZE").ok().and_then(|v| { let (a, b) = v.split_once('x')?; Some((a.parse().ok()?, b.parse().ok()?)) }).unwrap_or((w, h)), resizable, visible: !hidden, mouse_phys: (0.0, 0.0),
                 keys_down: HashSet::new(), mods: 0, mouse_buttons: [false; 3], focused: true, icon,
@@ -230,6 +243,10 @@ impl Display {
             hidden,
             fullscreen: false,
             present_buf_size: (0, 0),
+            output_mode: OutputMode::Auto,
+            output_vsync: true,
+            presenter: None,
+            output_info: String::new(),
             pads: None,
             pad_held: HashSet::new(),
             pad_messages: Vec::new(),
@@ -444,12 +461,64 @@ impl Display {
         (1920, 1080)
     }
 
+    /// Ausgabeweg wählen (Einstellung „Ausgabe“). Gilt ab dem nächsten Bild, wenn noch nichts
+    /// gezeigt wurde – sonst ab dem nächsten Start (ein Wechsel im laufenden Fenster ist auf
+    /// manchen Systemen unzuverlässig).
+    pub fn set_output(&mut self, mode: OutputMode, vsync: bool) {
+        // Umgebungsvariable hat Vorrang (Fehlersuche): JND_OUTPUT=cpu|gpu|auto
+        let mode = std::env::var("JND_OUTPUT").ok().map(|v| OutputMode::from_str(&v.to_lowercase())).unwrap_or(mode);
+        if self.presenter.is_none() { self.output_mode = mode; self.output_vsync = vsync; }
+    }
+    pub fn output_mode(&self) -> OutputMode { self.output_mode }
+    pub fn output_is_gpu(&self) -> bool { matches!(self.presenter, Some(Presenter::Gpu(_))) }
+
+    fn make_soft(win: &Arc<Window>) -> Option<Presenter> {
+        let ctx = softbuffer::Context::new(win.clone()).ok()?;
+        let surface = softbuffer::Surface::new(&ctx, win.clone()).ok()?;
+        Some(Presenter::Soft { surface, _ctx: ctx })
+    }
+
+    fn init_presenter(&mut self, win: &Arc<Window>) {
+        // Unsichtbare Tests bleiben beim CPU-Weg (Screenshots kommen ohnehin aus der Fläche)
+        let forced = std::env::var("JND_OUTPUT").is_ok();
+        let want_gpu = match self.output_mode { OutputMode::Cpu => false, _ => !self.hidden || forced };
+        if want_gpu {
+            match super::gpu::Gpu::new(win.clone(), self.output_vsync, self.output_mode == OutputMode::Gpu) {
+                Ok(g) => {
+                    self.output_info = format!("GPU · {}", g.info);
+                    eprintln!("[INFO] Bildausgabe: {}", self.output_info);
+                    self.presenter = Some(Presenter::Gpu(g));
+                    return;
+                }
+                Err(e) => eprintln!("[INFO] GPU-Ausgabe nicht verfügbar ({e}) - nehme CPU"),
+            }
+        }
+        self.presenter = Self::make_soft(win);
+        self.present_buf_size = (0, 0);
+        self.output_info = "CPU".into();
+    }
+
     /// Zeigt eine Fläche (logische Größe) im Fenster an - skaliert auf die echte Pixelgröße.
     pub fn present(&mut self, surf: &Surface) {
         let Some(win) = self.app.window.clone() else { return; };
+        if self.presenter.is_none() { self.init_presenter(&win); }
         let ps: PhysicalSize<u32> = win.inner_size();
         let (pw, ph) = (ps.width.max(1), ps.height.max(1));
-        let Some(sb) = self.app.surface.as_mut() else { return; };
+        if let Some(Presenter::Gpu(g)) = self.presenter.as_mut() {
+            let mut res = Ok(());
+            surf.with_pixmap(|pm| { res = g.present(pm.data(), pm.width(), pm.height(), pw, ph); });
+            match res {
+                Ok(()) | Err(super::gpu::GpuErr::Skip) => return,
+                Err(super::gpu::GpuErr::Fatal(e)) => {
+                    // Rückfall auf die CPU (z.B. Treiberfehler, Gerät verloren)
+                    eprintln!("[WARN] GPU-Ausgabe fehlgeschlagen ({e}) - weiter mit CPU");
+                    self.presenter = Self::make_soft(&win);
+                    self.present_buf_size = (0, 0);
+                    self.output_info = "CPU".into();
+                }
+            }
+        }
+        let Some(Presenter::Soft { surface: sb, .. }) = self.presenter.as_mut() else { return; };
         if self.present_buf_size != (pw, ph) {
             if sb.resize(NonZeroU32::new(pw).unwrap(), NonZeroU32::new(ph).unwrap()).is_err() { return; }
             self.present_buf_size = (pw, ph);

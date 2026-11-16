@@ -9,6 +9,15 @@ pub const BUILTIN_TRACK: &str = "jumpndodge";
 
 thread_local! {
     static MENU_BUILTIN_PLAYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Spiel-Song, der noch gerendert wird und danach starten soll
+    static PENDING_GAME: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Vorschau, die noch auf das Rendern wartet (Schlüssel, Dauer in ms)
+    static PENDING_PREVIEW: std::cell::RefCell<Option<(String, i64)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Schlüssel des eingebauten Songs, der für die Auswahl wirklich läuft (fehlende Datei -> Falling Pixels)
+fn builtin_for(chosen: &str, has_file: bool) -> Option<String> {
+    if super::music::is_builtin(chosen) { Some(chosen.to_string()) } else if has_file { None } else { Some(BUILTIN_TRACK.to_string()) }
 }
 
 impl G {
@@ -66,14 +75,17 @@ impl G {
         }
         let get_path = |f: &str| -> Option<String> { let p = base_path.join(f); if p.exists() { Some(p.to_string_lossy().to_string()) } else { None } };
         self.menu_music_path = get_path("menu_music.mp3");
-        // Eingebauter Song (wird im Hintergrund berechnet) steht immer zuerst in der Liste
-        super::music::start_render();
+        // Eingebaute Songs stehen immer zuerst in der Liste
         self.INGAME_MUSIC_TRACKS = G::_discover_ingame_music_tracks(&base_path);
-        self.INGAME_MUSIC_TRACKS.insert(0, (BUILTIN_TRACK.to_string(), "JumpNDodge".to_string(), String::new()));
-        self.ingame_music_paths = self.INGAME_MUSIC_TRACKS.iter().map(|(k, _l, f)| (k.clone(), get_path(f))).collect();
+        for (i, song) in super::music::songs().iter().enumerate() {
+            self.INGAME_MUSIC_TRACKS.insert(i, (song.key.to_string(), song.title.to_string(), String::new()));
+        }
+        self.ingame_music_paths = self.INGAME_MUSIC_TRACKS.iter().map(|(k, _l, f)| (k.clone(), if f.is_empty() { None } else { get_path(f) })).collect();
         let chosen = self.settings.gs("ingame_music_track", "standard");
-        self.ingame_music_path = self.ingame_music_paths.iter().find(|(k, _)| *k == chosen).and_then(|(_, p)| p.clone())
-            .or_else(|| self.ingame_music_paths.first().and_then(|(_, p)| p.clone()));
+        self.ingame_music_path = self.ingame_music_paths.iter().find(|(k, _)| *k == chosen).and_then(|(_, p)| p.clone());
+        // Menü-Fassung und gewählten Song im Hintergrund berechnen (nur die)
+        let sel = builtin_for(&chosen, self.ingame_music_path.is_some()).unwrap_or_default();
+        super::music::start_render(&sel);
         self.heartbeat_sound = self._generate_heartbeat_sound();
     }
 
@@ -124,26 +136,48 @@ impl G {
     }
 
     pub fn play_menu_music(&mut self) {
+        PENDING_GAME.with(|p| *p.borrow_mut() = None);
         if self.sound_enabled {
             self.mixer.music_set_volume(get_pygame_volume(self.settings.gf("menu_music_volume", 0.8)));
             if let Some(p) = self.menu_music_path.clone() {
                 self.mixer.music_load(&p);
                 self.mixer.music_play(-1);
-            } else if let Some(s) = super::music::calm() {
-                // eingebaute ruhige Fassung des JumpNDodge-Songs
-                self.mixer.music_play_samples(s, 2, super::music::SR);
+            } else if let Some(s) = super::music::get(super::music::MENU) {
+                // eingebaute ruhige Fassung
+                self.mixer.music_play_shared(s, 2, super::music::SR);
                 MENU_BUILTIN_PLAYING.with(|c| c.set(true));
             } else {
+                super::music::request(super::music::MENU);
                 MENU_BUILTIN_PLAYING.with(|c| c.set(false));
             }
         }
     }
 
-    /// Menü: läuft noch keine Musik, weil der eingebaute Song beim Start noch berechnet wurde -> jetzt starten
+    /// Menü: läuft noch keine Musik, weil die Menü-Fassung beim Start noch berechnet wurde -> jetzt starten
     pub fn ensure_menu_music(&mut self) {
         if !self.sound_enabled || self.menu_music_path.is_some() || self.mixer.music_get_busy() { return; }
         if MENU_BUILTIN_PLAYING.with(|c| c.get()) { return; }
-        if super::music::calm().is_some() { self.play_menu_music(); }
+        if super::music::get(super::music::MENU).is_some() { self.play_menu_music(); }
+    }
+
+    /// Jedes Bild: Songs starten, die inzwischen fertig gerendert sind
+    pub fn music_tick(&mut self) {
+        if let Some(k) = PENDING_GAME.with(|p| p.borrow().clone()) {
+            if let Some(s) = super::music::get(&k) {
+                PENDING_GAME.with(|p| *p.borrow_mut() = None);
+                if self.sound_enabled {
+                    self.mixer.music_set_volume(get_pygame_volume(self.settings.gf("ingame_music_volume", 0.8)));
+                    self.mixer.music_play_shared(s, 2, super::music::SR);
+                }
+            }
+        }
+        if let Some((k, d)) = PENDING_PREVIEW.with(|p| p.borrow().clone()) {
+            if super::music::get(&k).is_some() {
+                PENDING_PREVIEW.with(|p| *p.borrow_mut() = None);
+                self._preview_track_key = None;
+                self.start_builtin_preview(&k, d);
+            }
+        }
     }
 
     pub fn play_ingame_music(&mut self) {
@@ -151,16 +185,22 @@ impl G {
         let chosen = self.settings.gs("ingame_music_track", "standard");
         let file = self.ingame_music_paths.iter().find(|(k, _)| *k == chosen).and_then(|(_, p)| p.clone());
         // Eingebauter Song: wenn gewählt, oder wenn die gewählte Datei fehlt (Releases haben keine Musikdateien)
-        if chosen == BUILTIN_TRACK || file.is_none() {
+        if let Some(key) = builtin_for(&chosen, file.is_some()) {
             self.ingame_music_path = None;
             if self.sound_enabled {
-                if let Some(s) = super::music::theme() {
+                if let Some(s) = super::music::get(&key) {
                     self.mixer.music_set_volume(get_pygame_volume(self.settings.gf("ingame_music_volume", 0.8)));
-                    self.mixer.music_play_samples(s, 2, super::music::SR);
+                    self.mixer.music_play_shared(s, 2, super::music::SR);
+                } else {
+                    // wird noch berechnet: startet von selbst, sobald er fertig ist
+                    self.mixer.music_stop();
+                    super::music::request(&key);
+                    PENDING_GAME.with(|p| *p.borrow_mut() = Some(key));
                 }
             }
             return;
         }
+        PENDING_GAME.with(|p| *p.borrow_mut() = None);
         self.ingame_music_path = file;
         if self.sound_enabled {
             if let Some(p) = self.ingame_music_path.clone() {
@@ -171,25 +211,46 @@ impl G {
         }
     }
 
-    pub fn stop_music(&mut self) { self.mixer.music_stop(); }
+    pub fn stop_music(&mut self) {
+        PENDING_GAME.with(|p| *p.borrow_mut() = None);
+        self.mixer.music_stop();
+    }
+
+    /// Wird der Song gerade für die Vorschau berechnet?
+    pub fn is_loading_track(&self, track_key: &str) -> bool {
+        PENDING_PREVIEW.with(|p| p.borrow().as_ref().map(|x| x.0 == track_key).unwrap_or(false))
+    }
+
+    fn start_builtin_preview(&mut self, key: &str, duration_ms: i64) {
+        let Some(s) = super::music::get(key) else { return; };
+        if !self.sound_enabled { return; }
+        let Some(info) = super::music::info(key) else { return; };
+        // Vorschau: ab dem ersten Drop
+        let start = ((60.0 / info.bpm * 4.0 * info.preview_bar) * super::music::SR as f32) as usize * 2;
+        let start = if start >= s.len() { 0 } else { start };
+        let end = (start + (duration_ms.max(1000) as usize * super::music::SR as usize / 1000) * 2).min(s.len());
+        let sound = self.mixer.sound_from_i16(&s[start..end], 2, super::music::SR);
+        sound.set_volume(get_pygame_volume(self.settings.gf("ingame_music_volume", 0.8)));
+        self._preview_channel = self.mixer.play(&sound, duration_ms);
+        self._preview_track_key = if self._preview_channel.is_some() { Some(key.to_string()) } else { None };
+    }
 
     pub fn preview_ingame_music_track(&mut self, track_key: &str, duration_ms: i64) {
-        let was_same = self._preview_track_key.as_deref() == Some(track_key);
+        let was_same = self._preview_track_key.as_deref() == Some(track_key) || self.is_loading_track(track_key);
+        let had_pending = PENDING_PREVIEW.with(|p| p.borrow_mut().take()).is_some();
         if let Some(ch) = self._preview_channel.take() {
             ch.stop();
             self._preview_track_key = None;
             if was_same { return; }
-        }
-        if track_key == BUILTIN_TRACK {
-            // Vorschau: ab dem ersten Drop
-            let Some(s) = super::music::theme() else { return; };
+        } else if had_pending && was_same { return; }
+        if super::music::is_builtin(track_key) {
             if !self.sound_enabled { return; }
-            let start = ((60.0 / 174.0 * 4.0 * 16.0) * super::music::SR as f32) as usize * 2;
-            let end = (start + (duration_ms.max(1000) as usize * super::music::SR as usize / 1000) * 2).min(s.len());
-            let sound = self.mixer.sound_from_i16(&s[start.min(end)..end], 2, super::music::SR);
-            sound.set_volume(get_pygame_volume(self.settings.gf("ingame_music_volume", 0.8)));
-            self._preview_channel = self.mixer.play(&sound, duration_ms);
-            self._preview_track_key = Some(track_key.to_string());
+            if super::music::get(track_key).is_some() {
+                self.start_builtin_preview(track_key, duration_ms);
+            } else {
+                super::music::request(track_key);
+                PENDING_PREVIEW.with(|p| *p.borrow_mut() = Some((track_key.to_string(), duration_ms)));
+            }
             return;
         }
         let path = self.ingame_music_paths.iter().find(|(k, _)| k == track_key).and_then(|(_, p)| p.clone());

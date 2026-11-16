@@ -123,6 +123,17 @@ impl Mixer {
         *self.music_sink.borrow_mut() = Some(sink);
         true
     }
+    /// Musik aus geteiltem Speicher endlos abspielen (ohne Kopie – die Songs sind ~25 MB groß)
+    pub fn music_play_shared(&self, samples: Arc<Vec<i16>>, channels: u16, rate: u32) -> bool {
+        let Some(h) = self.handle.as_ref() else { return false; };
+        self.music_stop();
+        *self.music_path.borrow_mut() = None;
+        let Ok(sink) = Sink::try_new(h) else { return false; };
+        sink.set_volume(self.music_volume.get());
+        sink.append(SharedLoop { data: samples, pos: 0, channels, rate });
+        *self.music_sink.borrow_mut() = Some(sink);
+        true
+    }
     pub fn music_stop(&self) {
         if let Some(s) = self.music_sink.borrow_mut().take() { s.stop(); }
     }
@@ -137,6 +148,25 @@ impl Mixer {
     pub fn music_get_busy(&self) -> bool {
         match self.music_sink.borrow().as_ref() { Some(s) => !s.empty() && !s.is_paused(), None => false }
     }
+}
+
+/// Endlosschleife über einen geteilten Puffer
+struct SharedLoop { data: Arc<Vec<i16>>, pos: usize, channels: u16, rate: u32 }
+impl Iterator for SharedLoop {
+    type Item = i16;
+    fn next(&mut self) -> Option<i16> {
+        if self.data.is_empty() { return None; }
+        if self.pos >= self.data.len() { self.pos = 0; }
+        let v = self.data[self.pos];
+        self.pos += 1;
+        Some(v)
+    }
+}
+impl Source for SharedLoop {
+    fn current_frame_len(&self) -> Option<usize> { None }
+    fn channels(&self) -> u16 { self.channels }
+    fn sample_rate(&self) -> u32 { self.rate }
+    fn total_duration(&self) -> Option<Duration> { None }
 }
 
 impl Default for Mixer { fn default() -> Self { Mixer::new() } }

@@ -696,6 +696,7 @@ end</code></pre>
       <tr><td>Animationen</td><td>Voll, Reduziert (nur Überblenden) oder Aus – für Menü-Übergänge.</td></tr>
       <tr><td>Vollbild (F11)</td><td>Scharf in echter Bildschirmauflösung.</td></tr>
       <tr><td>Bildrate</td><td>Monitor (passend zur Bildwiederholrate), feste FPS oder unbegrenzt. Die Spiellogik bleibt immer bei 60 Schritten pro Sekunde.</td></tr>
+      <tr><td>Ausgabe</td><td><b>Automatisch</b> (Standard), <b>GPU</b> oder <b>CPU</b>: wie das fertige Bild auf den Bildschirm kommt. Mit GPU übernimmt die Grafikkarte Anzeige, Skalierung und Vsync (Vulkan, DirectX 12, Metal oder OpenGL) – das spart Strom. Klappt die GPU nicht, nimmt das Spiel automatisch den CPU-Weg. „Automatisch“ nutzt keine reinen Software-Grafiktreiber. Ein Wechsel gilt ab dem nächsten Start; in der Zeile steht, welcher Weg gerade aktiv ist.</td></tr>
       <tr><td>Effekte</td><td>Partikel, Bildschirmwackeln, Treffer-Stopp, Combo-Anzeige, „Knapp!“ und die federnde Bewegung von Figur und Hindernissen.</td></tr>
       <tr><td>Hintergrund</td><td>Sterne, Ringe, Bewegung und einfarbiger Hintergrund einzeln schaltbar.</td></tr>
       <tr><td>Boden anzeigen</td><td>Bodenlinie ein/aus.</td></tr>
@@ -706,7 +707,7 @@ end</code></pre>
       <tr><td>Bestläufe hochladen</td><td>Deine Rekorde für die Geister deiner Freunde hochladen (an).</td></tr>
       <tr><td>Sprung vormerken</td><td>Ein Sprung bis 120 ms vor der Landung zählt (an), auch online.</td></tr>
       <tr><td>Steuerung</td><td>Alle Tasten neu belegen, auch für 2 Spieler.</td></tr>
-      <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel. Eingebaut ist der Song <b>„Falling Pixels“</b> (siehe <a href="#musik">Musik</a>).</td></tr>
+      <tr><td>Sound</td><td>Lautstärke für Musik (Menü/Spiel), Klicks, Treffer, Game Over und weitere Effekte; Musikstück im Spiel. Eingebaut sind <b>sechs eigene Songs</b> (siehe <a href="#musik">Musik</a>), ein Klick spielt 5 Sekunden Vorschau.</td></tr>
       <tr><td>Updates</td><td>Nach Updates suchen, automatisch beim Start suchen.</td></tr>
       <tr><td>Sprache exportieren</td><td>Texte als Datei speichern, z. B. um eine Übersetzung zu verbessern.</td></tr>
     </table></div>
@@ -714,11 +715,23 @@ end</code></pre>
 
   <section id="musik">
     <h2>Musik</h2>
-    <p>JumpNDodge hat einen eigenen Song: <b>„Falling Pixels“</b> – emotionaler Breakcore mit Klavier, zerhackten Breakbeats, Sub-Bass und viel Hall, 174 BPM in d-Moll, etwa 1:28 lang und nahtlos in Schleife. Er wird beim Start vom Spiel selbst erzeugt (keine Datei, braucht ca. 3 Sekunden im Hintergrund).</p>
+    <p>JumpNDodge hat sechs eigene Songs – emotionaler, epischer <b>Breakcore mit Klavier</b>, alles eigene Kompositionen. Sie werden vom Spiel selbst erzeugt (keine Dateien): Klavier, Glocken, Zupf- und Synth-Klänge, Flächen, Chor, Sub- und Reese-Bass, zerhackte Breakbeats und Effekte. Jeder Song läuft nahtlos in Schleife.</p>
+    <div class="tw"><table class="wt">
+      <tr><th>Song</th><th>Stil</th><th>Tempo</th><th>Länge</th></tr>
+      <tr><td><b>Falling Pixels</b></td><td>emotional, d-Moll – der erste JumpNDodge-Song (seit 5.12)</td><td class="n">174 BPM</td><td class="n">1:28</td></tr>
+      <tr><td><b>Banners in the Rain</b></td><td>episch-kämpferisch, c-Moll: Regen, Kriegstrommeln, Chor, Supersaw</td><td class="n">172 BPM</td><td class="n">1:46</td></tr>
+      <tr><td><b>Gearbreaker</b></td><td>chaotisch-mechanisch, e-Moll: Uhrwerk, Pluck-Ostinato, Stottern, Bandstopps, Spieluhr</td><td class="n">182 BPM</td><td class="n">1:45</td></tr>
+      <tr><td><b>Frostlight</b></td><td>kühl und eisig, h-Moll: Wind, Glasglocken mit Echo, hohe Flächen, „ooh“-Chor</td><td class="n">168 BPM</td><td class="n">1:49</td></tr>
+      <tr><td><b>Hollow Star</b></td><td>dunkel, d-Moll: tiefer Chor, Gongs, Sub-Drops, schwerer Reese, Halftime</td><td class="n">164 BPM</td><td class="n">1:51</td></tr>
+      <tr><td><b>Ember Rush</b></td><td>feurig und treibend, a-Moll: Klavier-Ostinato, harte Breaks mit Clap, verzerrter Reese</td><td class="n">180 BPM</td><td class="n">1:36</td></tr>
+    </table></div>
     <ul>
-      <li><b>Im Spiel:</b> Intro, Aufbau mit Snare-Wirbel, Drop mit Breaks, ruhiger Mittelteil, zweiter Drop mit höherer Melodie, Ausklang.</li>
-      <li><b>Im Menü:</b> eine ruhige Fassung nur mit Klavier und Fläche.</li>
-      <li><b>Auswahl:</b> Einstellungen → Sound → Musik im Spiel → „JumpNDodge“. Eigene Stücke: Dateien <code>ingame_music_&lt;name&gt;.mp3</code> (und <code>menu_music.mp3</code>) in den Ordner <code>sound/</code> legen – die haben Vorrang.</li>
+      <li><b>Aufbau:</b> Intro, Aufbau mit Riser und Snare-Wirbel, Drop mit zerhackten Breaks (Ghost-Notes, Stottern, Wirbel, Fills), Halftime-Teil, ruhiger Breakdown, zweiter Drop mit Call-and-Response, Ausklang zurück zum Anfang.</li>
+      <li><b>Schichten:</b> Klavier-Melodie plus Gegenstimme (Glocken, Pluck, Arpeggio), Flächen und Chor, Sub- und Reese-Bass mit Bewegung, Sidechain-Pumpen, Riser, Einschläge, Rückwärts-Becken und Filterfahrten.</li>
+      <li><b>Auswahl:</b> Einstellungen → Sound → Musik im Spiel. Ein Klick wählt den Song und spielt 5 Sekunden ab dem ersten Drop als Vorschau (noch einmal klicken stoppt). Darunter stehen Stil und Tempo.</li>
+      <li><b>Rechenzeit:</b> Berechnet wird nur, was gebraucht wird – die Menü-Fassung und der gewählte Song, im Hintergrund in 1–3 Sekunden. Ein Song braucht etwa 20 MB Arbeitsspeicher; mehr als zwei Songs werden nie gleichzeitig gehalten.</li>
+      <li><b>Im Menü:</b> eine ruhige Fassung von „Falling Pixels“ nur mit Klavier und Fläche.</li>
+      <li><b>Eigene Stücke:</b> Dateien <code>ingame_music_&lt;name&gt;.mp3</code> (und <code>menu_music.mp3</code>) in den Ordner <code>sound/</code> legen – sie erscheinen in der Auswahl, <code>menu_music.mp3</code> ersetzt die Menü-Musik.</li>
     </ul>
   </section>
 
@@ -768,6 +781,7 @@ end</code></pre>
     <p>Das Spiel sucht beim Start nach neuen Versionen und installiert sie mit einem Klick (abschaltbar). Alternativ hält <b>W Hub</b> JumpNDodge aktuell. Alle Änderungen stehen in den <a href="https://github.com/erqf1/JumpNDodge/releases">Release-Notizen</a>.</p>
     <div class="tw"><table class="wt">
       <tr><th>Version</th><th>Wichtigstes</th></tr>
+      <tr><td class="n">5.13</td><td>Fünf neue eigene Breakcore-Songs (Banners in the Rain, Gearbreaker, Frostlight, Hollow Star, Ember Rush) mit neuer Musik-Engine; Bildausgabe über die GPU mit automatischem Rückfall auf die CPU (Einstellung „Ausgabe“).</td></tr>
       <tr><td class="n">5.12.1</td><td>Online-Bildschirme (Freunde, Nachrichten, Clan, Rangliste, Suche, Profil) im neuen Stil.</td></tr>
       <tr><td class="n">5.12</td><td>Eigener Song „Falling Pixels“ (Spiel + Menü), Ping pro Spieler im Raum, Server-Liste nach Ping sortiert.</td></tr>
       <tr><td class="n">5.11.5</td><td>Server-Startanzeige mit Tunnel ohne Hinweis auf Portweiterleitung.</td></tr>

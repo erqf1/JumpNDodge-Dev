@@ -3,6 +3,13 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.13.0
+
+- Fünf neue eigene Breakcore-Songs mit Klavier, Chor und zerhackten Breaks: „Banners in the Rain“ (episch, 172 BPM), „Gearbreaker“ (mechanisch, 182 BPM), „Frostlight“ (eisig, 168 BPM), „Hollow Star“ (dunkel, 164 BPM), „Ember Rush“ (feurig, 180 BPM). Auswahl mit Vorschau unter Einstellungen → Sound; „Falling Pixels“ bleibt.
+- Neue Musik-Engine (`src/game/music/`): Instrumente als Bausteine (Klavier, FM-Glocken, Zupfsaite, Supersaw/Pad, Chor, Sub/Reese, Drums, Riser/Impact/Rückwärts-Effekte), Songs als Arrangement-Funktionen, synthetischer Breakbeat zum Zerhacken, Sidechain, Hall/Echo, Stottern/Bandstopp, Limiter. Rendert parallel in 1–3 s, nur den gewählten Song, nahtlose Schleife; abgespielt ohne Kopie aus geteiltem Speicher.
+- Bildausgabe über die GPU (wgpu: Vulkan/DX12/Metal/OpenGL) mit Skalierung und Vsync; fällt automatisch auf die CPU (softbuffer) zurück. Einstellung Darstellung → „Ausgabe: Automatisch / GPU / CPU“ (gilt ab dem nächsten Start), `JND_OUTPUT=cpu|gpu|auto` zum Testen.
+- Musikauswahl: Vorschau-Farbe violett statt orange.
+
 ## JumpNDodge 5.12.1
 
 - Online-Bildschirme (Freunde, Nachrichten, Clan, Rangliste, Spielersuche, Profile) im neuen Stil: Tabs, Listenzeilen und Rahmen wie im Rest des Spiels, ruhige Ladeanzeige, Suchfeld mit Platzhalter.

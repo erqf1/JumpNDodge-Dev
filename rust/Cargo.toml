@@ -19,13 +19,16 @@ members = ["core", "server", "tex", "tools/texturwerk"]
 
 [workspace.package]
 # Eine Version für Spiel, Bibliothek und Server (Online: Client und Server müssen gleich sein)
-version = "5.12.1"
+version = "5.13.0"
 
 [dependencies]
 jnd_core = { path = "core", features = ["tls"] }
 jnd_tex = { path = "tex" }
 winit = "0.30"
 softbuffer = "0.4"
+# GPU-Ausgabe (Present + Skalierung + Vsync), Rückfall auf softbuffer
+wgpu = { version = "25", default-features = false, features = ["dx12", "metal", "gles", "vulkan", "wgsl"] }
+pollster = "0.4"
 tiny-skia = "0.11"
 fontdue = "0.9"
 rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-wav", "symphonia-vorbis"] }

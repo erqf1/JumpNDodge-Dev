@@ -2,6 +2,7 @@
 
 pub mod display;
 pub mod font;
+pub mod gpu;
 pub mod keys;
 pub mod mixer;
 pub mod rect;

@@ -333,6 +333,7 @@ pub fn default_settings() -> Value {
         "menu_music_volume": 0.8,
         "ingame_music_volume": 0.8,
         "ingame_music_track": "standard",
+        "render_output": "auto",
         "show_floor_line": true,
         "game_mode": "standard",
         "difficulty_per_mode": {"standard": "Mittel", "klassik": "Mittel", "2player": "Mittel"},

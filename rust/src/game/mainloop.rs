@@ -63,6 +63,9 @@ impl G {
         g.modded_best_times = obj_of(&g.load_modded_section("modded_best_times", default_highscores()));
         g.modded_stats = obj_of(&g.load_modded_section("modded_stats", json!({"total_time_played": 0, "total_rounds": 0, "total_1ups": 0, "coins": 0})));
         g.settings = obj_of(&g.load_section("settings", default_settings()));
+        // Bildausgabe (GPU mit Rückfall auf CPU) – muss vor dem ersten Bild feststehen
+        let out = crate::pg::display::OutputMode::from_str(&g.settings.gs("render_output", "auto"));
+        g.display.set_output(out, true);
         super::art::init_texture_dir(&g.BASE_DIR);
         super::art::set_legacy(g.settings.gb("legacy_art", false));
         g.powers_state = obj_of(&g.load_section("powers", json!({"owned": [], "equipped": []})));

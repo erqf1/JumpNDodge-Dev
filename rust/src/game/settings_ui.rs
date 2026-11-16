@@ -113,6 +113,17 @@ impl G {
                 let lim = s.gi("fps_limit", 0);
                 let fps = if lim == 0 { format!("Monitor ({} Hz)", hz) } else if lim >= 1000 { self.tde("Unbegrenzt", "Unlimited") } else { format!("{} FPS", lim) };
                 let dark = self.is_dark_mode();
+                // Ausgabe: gewählt vs. tatsächlich aktiv (Wechsel gilt ab dem nächsten Start)
+                let want = crate::pg::display::OutputMode::from_str(&s.gs("render_output", "auto"));
+                let active = if self.display.output_is_gpu() { "GPU" } else { "CPU" };
+                let out = match want {
+                    crate::pg::display::OutputMode::Auto => format!("{} ({})", self.tde("Automatisch", "Automatic"), active),
+                    crate::pg::display::OutputMode::Gpu => "GPU".to_string(),
+                    crate::pg::display::OutputMode::Cpu => "CPU".to_string(),
+                };
+                let out = if want != self.display.output_mode() { format!("{} · {}", out, self.tde("nach Neustart", "after restart")) }
+                    else if want == crate::pg::display::OutputMode::Gpu && !self.display.output_is_gpu() { format!("GPU · {}", self.tde("nicht verfügbar", "unavailable")) }
+                    else { out };
                 vec![
                     r("theme", self.tde("Farbschema", "Colour scheme"), if dark { self.tde("Dunkel", "Dark") } else { self.tde("Hell", "Light") }, None),
                     r("legacy_art", self.tde("Legacy-Grafik (Python-Look)", "Legacy graphics (Python look)"), self.onoff(s.gb("legacy_art", false)), Some(s.gb("legacy_art", false))),
@@ -120,6 +131,7 @@ impl G {
                     r("ui_motion", self.tde("Animationen", "Animations"), match s.gi("ui_motion", 2) { 0 => self.tde("Aus", "Off"), 1 => self.tde("Reduziert", "Reduced"), _ => self.tde("Voll", "Full") }, None),
                     r("fullscreen", self.tde("Vollbild (F11)", "Fullscreen (F11)"), self.onoff(s.gb("fullscreen", false)), Some(s.gb("fullscreen", false))),
                     r("fps", self.tde("Bildrate", "Frame rate"), fps, None),
+                    r("render_output", self.tde("Ausgabe", "Output"), out, None),
                     r("effects", self.tde("Effekte (Partikel, Wackeln)", "Effects (particles, shake)"), self.onoff(s.gb("effects", true)), Some(s.gb("effects", true))),
                     r("bg_stars", self.tde("Hintergrund: Sterne", "Background: stars"), self.onoff(s.gb("bg_stars", true)), Some(s.gb("bg_stars", true))),
                     r("bg_rings_enabled", self.tde("Hintergrund: Ringe", "Background: rings"), self.onoff(s.gb("bg_rings_enabled", true)), Some(s.gb("bg_rings_enabled", true))),
@@ -287,6 +299,17 @@ impl G {
                 let ni = (i + dir).rem_euclid(FPS_STEPS.len() as i32) as usize;
                 self.settings.insert("fps_limit".into(), json!(FPS_STEPS[ni]));
                 self.save_section("settings", None);
+            }
+            "render_output" => {
+                let order = ["auto", "gpu", "cpu"];
+                let cur = self.settings.gs("render_output", "auto");
+                let i = order.iter().position(|v| *v == cur).unwrap_or(0) as i32;
+                let ni = (i + dir).rem_euclid(order.len() as i32) as usize;
+                self.settings.insert("render_output".into(), json!(order[ni]));
+                self.save_section("settings", None);
+                let info = self.display.output_info.clone();
+                let msg = format!("{} – {}: {}", self.tde("Wird beim nächsten Start übernommen", "Applies after a restart"), self.tde("jetzt aktiv", "active now"), info);
+                self.push_overlay(&msg, (150, 130, 230), 3.0, None);
             }
             "effects" => self.flip_bool("effects", true),
             "bg_stars" => self.flip_bool("bg_stars", true),

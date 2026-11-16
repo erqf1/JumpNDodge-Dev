@@ -1,8 +1,29 @@
 # Stand der Rust Edition
 
-Letzte Aktualisierung: 2026-11-15 · Branch: `main`
+Letzte Aktualisierung: 2026-11-16 · Branch: `main` (5.13.0 kommt per PR von `claude/inspiring-wright-jckfn8`)
 
 ## Fertig und veröffentlicht
+- **5.13.0 – Musik-Engine + fünf neue Songs (`src/game/music/`):**
+  `dsp.rs` (bandbegrenzte Wellentabellen, SVF-Filter, Freeverb-Hall, Ping-Pong-Echo, Limiter), `inst.rs` (Instrumente als
+  Stimmen: Klavier, FM-Glocke, Karplus-Strong-Zupfsaite, Synth für Pad/Supersaw/Pluck/Streicher, Formant-Chor, Sub, Reese,
+  Kick/Snare/Clap/Hat/Becken/Tom, Riser/Downlifter/Impact, Rauschflächen, Sampler), `engine.rs` (8 Busse mit Filterspuren,
+  Sidechain, Sends; Master mit Stottern/Bandstopp, Gain-Lücken, Limiter; rendert in Blöcken und in Abschnitten parallel – jeder
+  Abschnitt mit 7 s Vorlauf, der erste vom Song-Ende → nahtlose Schleife), `arr.rs` (Notenschrift `"g5:4 eb5:2 | r:4"`,
+  Akkordschrift `"Cm Ab Eb:2 Bb/D:2"`, synthetischer Break zum Zerhacken mit Chop-Mustern `"0 _ 4s 12t 30^ 4r"`, Helfer für
+  Melodie/Arpeggio/Fläche/Comping/Bass/Effekte), `songs/` (je Song eine Funktion; `common.rs` = Chop-Bibliothek + Übergänge).
+  Songs: Falling Pixels (174, unverändert komponiert), Banners in the Rain (172), Gearbreaker (182), Frostlight (168),
+  Hollow Star (164), Ember Rush (180), je 1:36–1:51. Mix-Analyse im Test `music::tests::songs_rendern` (RMS je 8 Takte, Bänder,
+  Busse, Stereo-Breite, Naht); WAVs mit `JND_MUSIC_OUT=<ordner>`, einzelner Song mit `JND_MUSIC_ONLY=<schlüssel>`,
+  Profil `cargo test --release --bin JumpNDodge profil -- --ignored`. Speicher: Hintergrund-Thread rendert nur Menü + gewählten
+  Song, Cache hält höchstens Menü + 2 Songs (`music::request/get`), `Mixer::music_play_shared` spielt ohne Kopie.
+  Neuer Song: Datei in `songs/` anlegen und in `songs::LIST` eintragen (Schlüssel = Einstellungswert `ingame_music_track`).
+- **5.13.0 – GPU-Ausgabe (Punkt 16):** `src/pg/gpu.rs` (wgpu 25: Vulkan/Metal/DX12, sonst OpenGL). Das CPU-gezeichnete Bild
+  (tiny-skia) wird als Textur hochgeladen und per GPU gezeigt (1:1 scharf, sonst linear skaliert, Vsync über Mailbox/Fifo).
+  Das Zeichnen selbst bleibt CPU – die GPU übernimmt Present/Skalierung/Vsync (spart die Pixel-Umwandlung und das Kopieren in
+  softbuffer). `Display` wählt beim ersten Bild: Einstellung `render_output` (`auto`/`gpu`/`cpu`, Darstellung → Ausgabe, gilt
+  ab Neustart). „Automatisch“ lässt reine Software-Adapter (llvmpipe/WARP) weg, unsichtbare Tests (`JND_HIDDEN=1`) nehmen
+  immer CPU; `JND_OUTPUT=gpu|cpu|auto` erzwingt einen Weg. Jeder GPU-Fehler (kein Adapter, Gerät verloren …) → softbuffer.
+  Getestet unter Xvfb mit Mesa-Vulkan (lavapipe): Bild identisch zum CPU-Weg; ohne Treiber greift der Rückfall.
 - **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
   (Windows-Setup + Zip, .deb, Arch, tar.gz, macOS-DMG Apple Silicon/Intel, Server-Zips) und portable Zips in
   **erqf1/JumpNDodge-Archive**. W Hub **v1.2.1** (erqf1/whub) installiert/aktualisiert die Rust Edition, **v1.2.2** behebt
@@ -102,4 +123,6 @@ Letzte Aktualisierung: 2026-11-15 · Branch: `main`
 - Lua-Mods: eigene Powers im Shop.
 - Restliche Bildschirme (Online-Hub, Rangliste, Chat) zeichnen Knöpfe teils noch selbst im alten Stil.
 - Online: Bestenliste für Online-Runden.
-- GPU-Ausgabe (aktuell CPU über softbuffer – flüssig auch in 4K, aber eine GPU-Ausgabe würde Strom sparen).
+- GPU-Ausgabe: nächster Schritt wäre, auch das Zeichnen (Sprites/Texturen) auf die GPU zu legen – bisher macht die GPU nur
+  Present/Skalierung/Vsync. Unter echten Grafikkarten (Windows/macOS) noch nicht von Hand ausprobiert.
+- Musik: Menü-Fassung ist noch die ruhige Version von Falling Pixels; denkbar wäre je Song eine eigene ruhige Fassung.
