@@ -24,6 +24,9 @@ Letzte Aktualisierung: 2026-11-16 · Branch: `main` (5.13.0 kommt per PR von `cl
   ab Neustart). „Automatisch“ lässt reine Software-Adapter (llvmpipe/WARP) weg, unsichtbare Tests (`JND_HIDDEN=1`) nehmen
   immer CPU; `JND_OUTPUT=gpu|cpu|auto` erzwingt einen Weg. Jeder GPU-Fehler (kein Adapter, Gerät verloren …) → softbuffer.
   Getestet unter Xvfb mit Mesa-Vulkan (lavapipe): Bild identisch zum CPU-Weg; ohne Treiber greift der Rückfall.
+  **Achtung Cargo.lock:** `gpu-allocator` muss unter Windows auf `windows 0.58` zeigen (wie wgpu-hal 25). Cargo wählt sonst
+  0.54 (wegen gilrs/cpal) und der DX12-Teil kompiliert nicht. Nach `cargo update` prüfen:
+  `cargo check --locked -p wgpu-hal --target x86_64-pc-windows-msvc` (Ziel per `rustup target add` holen).
 - **Releases:** v5.0.0 bis v5.2.0 in **erqf1/JumpNDodge** (Latest) mit allen Paketen
   (Windows-Setup + Zip, .deb, Arch, tar.gz, macOS-DMG Apple Silicon/Intel, Server-Zips) und portable Zips in
   **erqf1/JumpNDodge-Archive**. W Hub **v1.2.1** (erqf1/whub) installiert/aktualisiert die Rust Edition, **v1.2.2** behebt
