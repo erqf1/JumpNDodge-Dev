@@ -294,7 +294,7 @@ fn vier_spieler_ein_raum() {
     cs[0].send(&ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: 4 });
     let code = {
         let (a, rest) = cs.split_at_mut(1);
-        wait_pump(&mut a[0], Some(&mut rest[0]), 10, |m| if let ServerMsg::RoomState { code, players, .. } = m { (players.len() == 4).then(|| code.clone()) } else { None })
+        wait_pump(&mut a[0], Some(&mut rest[0]), 10, |m| if let ServerMsg::RoomState { code, players, .. } = m { (players.len() == ROOM_SLOTS as usize).then(|| code.clone()) } else { None })
     };
     for i in 1..4 { cs[i].send(&ClientMsg::JoinRoom { code: code.clone() }); }
     // warten, bis alle vier drin sind (alle Clients am Leben halten)
@@ -302,7 +302,7 @@ fn vier_spieler_ein_raum() {
     let mut full = false;
     while start.elapsed() < Duration::from_secs(10) && !full {
         for c in cs.iter_mut() {
-            for m in c.poll() { if let ServerMsg::RoomState { players, .. } = m { if players.iter().all(|p| p.is_some()) { full = true; } } }
+            for m in c.poll() { if let ServerMsg::RoomState { players, .. } = m { if players.iter().flatten().count() == 4 { full = true; } } }
         }
         std::thread::sleep(Duration::from_millis(3));
     }
@@ -384,7 +384,7 @@ fn aussehen_und_zuschauen() {
     p.send(0, ClientMsg::Look(PlayerLook { headwear: "Yellow_Crown!<>".into(), trail: "fire_trail".into(), ..Default::default() }));
     p.send(1, ClientMsg::JoinRoom { code: code.clone() });
     let looks = p.wait(1, 10, |m| if let ServerMsg::Looks { in_round: false, looks } = m { (looks.first().map(|l| l.headwear.as_str()) == Some("yellow_crown")).then(|| looks.clone()) } else { None });
-    assert_eq!(looks.len(), 3, "ein Aussehen pro Platz");
+    assert_eq!(looks.len(), ROOM_SLOTS as usize, "ein Aussehen pro Platz");
     assert_eq!(looks[0].trail, "fire_trail");
     p.send(0, ClientMsg::Ready(true));
     p.send(1, ClientMsg::Ready(true));
@@ -482,5 +482,58 @@ fn ping_im_raum() {
     p.wait(1, 10, |m| matches!(m, ServerMsg::RoomState { .. }).then_some(()));
     p.send(0, ClientMsg::MyPing(42));
     let pings = p.wait(1, 10, |m| if let ServerMsg::Pings(v) = m { (v.first() == Some(&42)).then(|| v.clone()) } else { None });
-    assert_eq!(pings.len(), 4, "ein Wert pro Platz");
+    assert_eq!(pings.len(), ROOM_SLOTS as usize, "ein Wert pro Platz");
+}
+
+/// Jeder Raum hat 8 Plätze, egal was der Client bei `max_players` schickt; Start, sobald alle Anwesenden bereit sind
+#[test]
+fn raum_hat_immer_8_plaetze() {
+    let srv = start_server("", 4, 0.0);
+    let mut p = Pool::new(["Anna", "Ben", "Cem"].iter().map(|n| Client::connect(&srv.addr, opts(n, 0.0)).expect("verbindet")).collect());
+    let mut code = String::new();
+    for wunsch in [2u8, 0, 200] {
+        p.send(0, ClientMsg::CreateRoom { mode: Mode::Vs, difficulty: "Leicht".into(), max_players: wunsch });
+        let (c, n) = p.wait(0, 10, |m| if let ServerMsg::RoomState { code, players, .. } = m { Some((code.clone(), players.len())) } else { None });
+        assert_eq!(n, ROOM_SLOTS as usize, "max_players {wunsch} wird ignoriert");
+        code = c;
+    }
+    p.send(1, ClientMsg::ListRooms);
+    let list = p.wait(1, 10, |m| if let ServerMsg::RoomList(l) = m { Some(l.clone()) } else { None });
+    assert!(list.iter().any(|r| r.code == code && r.max == ROOM_SLOTS), "Liste zeigt 8 Plätze");
+    // Allein bereit startet nicht; Ben dazu, beide bereit -> Runde mit 2 von 8
+    p.send(0, ClientMsg::Ready(true));
+    p.send(1, ClientMsg::JoinRoom { code: code.clone() });
+    p.wait(1, 10, |m| if let ServerMsg::RoomState { players, .. } = m { (players.iter().flatten().count() == 2).then_some(()) } else { None });
+    p.send(0, ClientMsg::Ready(true));
+    p.send(1, ClientMsg::Ready(true));
+    let names = p.wait(1, 15, |m| if let ServerMsg::Start { names, .. } = m { Some(names.clone()) } else { None });
+    assert_eq!(names.len(), 2, "Start mit den zwei Anwesenden");
+}
+
+/// `max_rooms: 0` = unbegrenzt viele Räume
+#[test]
+fn unbegrenzte_raeume() {
+    let c = Config { max_rooms: 0, ..Config::default() };
+    assert_eq!(c.room_limit(), None);
+    assert_eq!(c.max_connections(), jnd_server::config::UNLIMITED_MAX_CONNECTIONS);
+    assert_eq!(c.max_rooms_text(), "unbegrenzt");
+    let c = Config { max_rooms: 16, ..Config::default() };
+    assert_eq!((c.room_limit(), c.max_connections()), (Some(16), 16 * 8 + 64));
+
+    let srv = start_server("", 0, 0.0);
+    let (info, _) = query_info(&srv.addr, Duration::from_secs(3)).expect("Info");
+    assert_eq!(info.max_rooms, 0, "Spiel bekommt 0 = unbegrenzt");
+    // mehr Räume als die alte Standardgrenze (16), jeder Spieler einen eigenen
+    let n = 20;
+    let mut p = Pool::new((0..n).map(|i| Client::connect(&srv.addr, opts(&format!("S{i}"), 0.0)).expect("verbindet")).collect());
+    for i in 0..n {
+        p.send(i, ClientMsg::CreateRoom { mode: Mode::Coop, difficulty: "Leicht".into(), max_players: 8 });
+        p.wait(i, 10, |m| match m {
+            ServerMsg::RoomState { .. } => Some(()),
+            ServerMsg::Error(e) => panic!("Raum {i} abgelehnt: {e}"),
+            _ => None,
+        });
+    }
+    let (info, _) = query_info(&srv.addr, Duration::from_secs(3)).expect("Info");
+    assert_eq!(info.rooms, n as u32);
 }

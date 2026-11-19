@@ -3,7 +3,7 @@
 //! Aufruf: JumpNDodge-Server [--config <datei>] [--port <port>]
 //! Ohne Angabe liegt server.json neben dem Programm und wird beim ersten Start angelegt.
 
-use jnd_core::net::proto::{GAME_VERSION, PROTO_VERSION};
+use jnd_core::net::proto::{GAME_VERSION, PROTO_VERSION, ROOM_SLOTS};
 use jnd_server::config::Config;
 use jnd_server::server::Server;
 use std::io::Write;
@@ -28,7 +28,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version" || a == "-V") { println!("{GAME_VERSION}"); return; }
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS,
+        println!("JumpNDodge-Server {GAME_VERSION}\n\nAufruf: JumpNDodge-Server [--config <datei>] [--port <port>]\n\nOhne --config wird server.json neben dem Programm benutzt (beim ersten Start angelegt).\nUmgebungsvariablen (überschreiben server.json): JND_SERVER_NAME, JND_SERVER_MOTD,\nJND_SERVER_PASSWORD, JND_SERVER_PORT, JND_SERVER_BIND, JND_SERVER_MAX_ROOMS (0 = unbegrenzt),
 JND_SERVER_WS_PORT (WebSocket für Cloudflare Tunnel, 0 = aus), JND_SERVER_AUTO_UPDATE (1/0),
 TUNNEL_TOKEN (Cloudflare Tunnel eingebaut: Token, leer = aus)");
         return;
@@ -99,6 +99,7 @@ Läuft der Server schon? Sonst in server.json einen anderen Port eintragen.");
             None if ws_port != 0 => println!(" Web:    aus (Port {ws_port} belegt)"),
             None => {}
         }
+        println!(" Räume:  {} (je {} Plätze)", server.cfg.max_rooms_text(), ROOM_SLOTS);
         println!(" Chat:   {}", if !server.cfg.chat { "aus".to_string() } else if server.cfg.chat_history_hours == 0 { "nur live".to_string() } else { format!("Verlauf {} Stunden (chat.json)", server.cfg.chat_history_hours) });
         println!(" Tunnel: {}", if tunnel.is_some() { format!("an (Cloudflare) - im Dashboard: Hostname -> HTTP -> localhost:{}", ws_port) }
             else if !server.cfg.tunnel_token.trim().is_empty() { "aus (ws_port ist 0)".to_string() } else { "aus (kein tunnel_token / TUNNEL_TOKEN)".to_string() });

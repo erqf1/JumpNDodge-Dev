@@ -3,6 +3,13 @@
 Alle Versionen der Rust Edition, neueste oben. Der Text für das jeweils nächste Release steht kurz in
 `packaging/release-notes.md` (den benutzt der Release-Workflow als Release-Text).
 
+## JumpNDodge 5.13.1
+
+- Online-Räume haben immer 8 Plätze; die Auswahl der Spielerzahl beim Erstellen (und `run mp create … N`) ist weg. Der Server ignoriert `CreateRoom.max_players` (Protokoll unverändert, das Spiel schickt 8). Start wie bisher, sobald alle Anwesenden (mindestens 2) bereit sind oder der Chef startet.
+- Server: `max_rooms: 0` (bzw. `JND_SERVER_MAX_ROOMS=0`) = unbegrenzt viele Räume, dann höchstens 10.000 Verbindungen (`UNLIMITED_MAX_CONNECTIONS`). Startanzeige zeigt „Räume: 16 (je 8 Plätze)“ bzw. „unbegrenzt“.
+- Spiel: Raumzahl im Server-Browser und in der Lobby-Kopfzeile („3/16 Räume“, unbegrenzt „3/∞“).
+- Windows-Installer: Desktop-Symbol nur bei der Erst-Installation (kein Uninstall-Eintrag, kein Spiel im Zielordner). Updates – auch still über den eingebauten Updater – legen kein gelöschtes Symbol mehr neu an.
+
 ## JumpNDodge 5.13.0
 
 - Fünf neue eigene Breakcore-Songs mit Klavier, Chor und zerhackten Breaks: „Banners in the Rain“ (episch, 172 BPM), „Gearbreaker“ (mechanisch, 182 BPM), „Frostlight“ (eisig, 168 BPM), „Hollow Star“ (dunkel, 164 BPM), „Ember Rush“ (feurig, 180 BPM). Auswahl mit Vorschau unter Einstellungen → Sound; „Falling Pixels“ bleibt.

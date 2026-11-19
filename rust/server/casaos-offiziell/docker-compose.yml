@@ -22,6 +22,7 @@ services:
       JND_SERVER_NAME: "JumpNDodge Offiziell"
       JND_SERVER_MOTD: "Viel Spaß!"
       JND_SERVER_PASSWORD: ""
+      # Räume gleichzeitig (je 8 Plätze), "0" = unbegrenzt
       JND_SERVER_MAX_ROOMS: "32"
       JND_SERVER_AUTO_UPDATE: "1"
       # Token aus Cloudflare Zero Trust -> Networks -> Tunnels -> (Tunnel) -> Docker-Befehl (der lange Teil nach --token)

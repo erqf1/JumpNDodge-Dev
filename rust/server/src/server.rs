@@ -280,7 +280,7 @@ impl Server {
         match self.conns.get(&from) {
             None => {
                 if !hello_seq0 { return; }
-                if self.conns.len() >= (self.cfg.max_rooms as usize) * 8 + 64 { return; }
+                if self.conns.len() >= self.cfg.max_connections() { return; }
                 self.new_conn(from);
             }
             Some(c) if hello_seq0 && c.peer.recv_next() > 0 => {
@@ -364,7 +364,8 @@ impl Server {
                 list.truncate(MAX_ROOMS_IN_LIST);
                 self.send(a, &ServerMsg::RoomList(list));
             }
-            ClientMsg::CreateRoom { mode, difficulty, max_players } => self.create_room(a, mode, difficulty, max_players),
+            // max_players wird ignoriert: jeder Raum hat ROOM_SLOTS Plätze
+            ClientMsg::CreateRoom { mode, difficulty, .. } => self.create_room(a, mode, difficulty),
             ClientMsg::QuickPlay => {
                 // offener öffentlicher Raum in der Lobby, der vollste zuerst (schneller voll = schneller los)
                 let pick = self.rooms.values()
@@ -373,7 +374,7 @@ impl Server {
                     .map(|r| r.code.clone());
                 match pick {
                     Some(code) => self.handle(a, ClientMsg::JoinRoom { code }),
-                    None => self.create_room(a, Mode::Vs, QUICK_ROOM_DIFFICULTY.into(), QUICK_ROOM_MAX),
+                    None => self.create_room(a, Mode::Vs, QUICK_ROOM_DIFFICULTY.into()),
                 }
             }
             ClientMsg::HostStart => {
@@ -543,12 +544,12 @@ impl Server {
         for t in to { self.chat_notice(t, text); }
     }
 
-    fn create_room(&mut self, a: SocketAddr, mode: Mode, difficulty: String, max_players: u8) {
+    fn create_room(&mut self, a: SocketAddr, mode: Mode, difficulty: String) {
         if !DIFFICULTIES.contains(&difficulty.as_str()) { return self.send(a, &ServerMsg::Error("Unbekannte Schwierigkeit".into())); }
         self.leave_room(a, "hat den Raum verlassen");
-        if self.rooms.len() as u32 >= self.cfg.max_rooms { return self.send(a, &ServerMsg::Error("Server ist voll (keine freien Räume)".into())); }
+        if self.cfg.room_limit().is_some_and(|n| self.rooms.len() >= n) { return self.send(a, &ServerMsg::Error("Server ist voll (keine freien Räume)".into())); }
         let code = self.new_code();
-        let max = (max_players as usize).clamp(2, sim2p::MAX_PLAYERS);
+        let max = ROOM_SLOTS as usize;
         let mut slots = vec![None; max];
         slots[0] = Some(a);
         self.rooms.insert(code.clone(), Room { code: code.clone(), mode, difficulty: difficulty.clone(), slots, host: 0, private: false, spectators: vec![], ready: vec![false; max], phase: Phase::Lobby });

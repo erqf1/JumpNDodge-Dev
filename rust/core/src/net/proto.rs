@@ -57,7 +57,8 @@ pub enum ClientMsg {
     Info,
     Hello { proto: u32, game_version: String, name: String, password: String },
     ListRooms,
-    /// `max_players` = Plätze im Raum (2 bis 8)
+    /// `max_players` wird seit 5.13.1 nicht mehr ausgewertet: jeder Raum hat `ROOM_SLOTS` Plätze.
+    /// Das Feld bleibt für ältere Server/Spiele im Protokoll (das Spiel schickt `ROOM_SLOTS`).
     CreateRoom { mode: Mode, difficulty: String, max_players: u8 },
     JoinRoom { code: String },
     LeaveRoom,
@@ -119,6 +120,7 @@ pub struct ServerInfo {
     pub game_version: String,
     pub proto: u32,
     pub rooms: u32,
+    /// 0 = unbegrenzt viele Räume
     pub max_rooms: u32,
     pub players: u32,
     pub password: bool,
@@ -219,8 +221,10 @@ pub enum ServerMsg {
 pub const EMOTES: [&str; 4] = ["GG", "Knapp!", "Nochmal?", "Haha"];
 pub const EMOTES_EN: [&str; 4] = ["GG", "Close!", "Again?", "Haha"];
 
+/// Plätze in jedem Raum (Start trotzdem ab 2 Spielern)
+pub const ROOM_SLOTS: u8 = crate::sim2p::MAX_PLAYERS as u8;
 /// Beim Schnell spielen neu angelegte Räume
-pub const QUICK_ROOM_MAX: u8 = 8;
+pub const QUICK_ROOM_MAX: u8 = ROOM_SLOTS;
 pub const QUICK_ROOM_DIFFICULTY: &str = "Mittel";
 
 

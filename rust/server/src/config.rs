@@ -16,7 +16,8 @@ pub struct Config {
     pub bind: String,
     /// Leer = jeder darf rein
     pub password: String,
-    /// Maximale Anzahl gleichzeitiger Räume (je bis zu 8 Spieler)
+    /// Maximale Anzahl gleichzeitiger Räume (jeder Raum hat 8 Plätze). 0 = unbegrenzt
+    /// (dann gilt nur die Obergrenze von UNLIMITED_MAX_CONNECTIONS Verbindungen gegen Missbrauch).
     pub max_rooms: u32,
     /// Log-Datei (leer = nur Konsole)
     pub log_file: String,
@@ -71,7 +72,26 @@ impl Default for Config {
     }
 }
 
+/// Höchstzahl gleichzeitiger Verbindungen bei `max_rooms: 0` (unbegrenzte Räume)
+pub const UNLIMITED_MAX_CONNECTIONS: usize = 10_000;
+
 impl Config {
+    /// Raumgrenze; `None` = unbegrenzt (`max_rooms: 0`)
+    pub fn room_limit(&self) -> Option<usize> { (self.max_rooms > 0).then_some(self.max_rooms as usize) }
+
+    /// Höchstzahl gleichzeitiger Verbindungen: alle Plätze plus Luft für Lobby/Zuschauer
+    pub fn max_connections(&self) -> usize {
+        match self.room_limit() {
+            Some(n) => (n * jnd_core::net::proto::ROOM_SLOTS as usize + 64).min(UNLIMITED_MAX_CONNECTIONS),
+            None => UNLIMITED_MAX_CONNECTIONS,
+        }
+    }
+
+    /// Für Anzeigen: "16" oder "unbegrenzt"
+    pub fn max_rooms_text(&self) -> String {
+        match self.room_limit() { Some(n) => n.to_string(), None => "unbegrenzt".into() }
+    }
+
     /// Lädt die Config; fehlt sie, wird sie mit Standardwerten angelegt.
     pub fn load_or_create(path: &Path) -> Result<Config, String> {
         if path.exists() {

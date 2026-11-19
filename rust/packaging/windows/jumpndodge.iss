@@ -44,7 +44,9 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Nur bei der Erst-Installation angeboten. Bei Updates (auch still über den eingebauten Updater, der sonst die
+; gemerkte Auswahl wiederholt) wird der Desktop nie angefasst - ein gelöschtes Symbol bleibt gelöscht.
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; Check: IsFirstInstall
 
 [InstallDelete]
 ; Reste der Python-Version - data\ wird nie angefasst
@@ -69,14 +71,55 @@ Name: "{app}\data"; Permissions: users-modify
 
 [Icons]
 Name: "{autoprograms}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"
-; Desktop-Verknüpfung nur anlegen, wenn es noch keine gibt: Bei Updates bleibt die vorhandene unangetastet
-; (neu angelegt setzt Windows sie ans Ende - sie sprang nach jedem Update von ihrem Platz).
-Name: "{autodesktop}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"; Tasks: desktopicon; Check: NoDesktopIconYet
+; Desktop-Verknüpfung nur bei der Erst-Installation (und nur, wenn es noch keine gibt). Bei Updates bleibt der
+; Desktop unangetastet: vorhandene Symbole springen nicht ans Ende, gelöschte kommen nicht wieder.
+Name: "{autodesktop}\JumpNDodge"; Filename: "{app}\JumpNDodge.exe"; Tasks: desktopicon; Check: IsFirstInstall and NoDesktopIconYet
 
 [Run]
 Filename: "{app}\JumpNDodge.exe"; Description: "{cm:LaunchProgram,JumpNDodge}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+const
+  UninstKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B44A592F-4DB5-4419-BCA6-7C5F80AA4472}_is1';
+
+var
+  HadPreviousInstall: Boolean;  // Uninstall-Eintrag gefunden (Rust- oder alte Python-Version, gleiche AppId)
+  ExeCheckDone: Boolean;
+  ExeExisted: Boolean;          // JumpNDodge.exe lag vor dem Kopieren schon im Zielordner
+
+function InitializeSetup: Boolean;
+begin
+  // alle Benutzer (64 und 32 Bit, der alte Installer war 32 Bit) und nur ich
+  HadPreviousInstall := RegKeyExists(HKLM64, UninstKey) or RegKeyExists(HKLM32, UninstKey)
+                     or RegKeyExists(HKCU, UninstKey);
+  ExeCheckDone := False;
+  ExeExisted := False;
+  Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // vor dem Kopieren merken, ob das Spiel schon da war (z.B. Installation ohne Uninstall-Eintrag)
+  if CurStep = ssInstall then
+  begin
+    ExeExisted := FileExists(ExpandConstant('{app}\JumpNDodge.exe'));
+    ExeCheckDone := True;
+  end;
+end;
+
+// Erst-Installation: kein Uninstall-Eintrag und noch kein Spiel im Zielordner
+function IsFirstInstall: Boolean;
+begin
+  Result := not HadPreviousInstall;
+  if Result then
+  begin
+    if ExeCheckDone then
+      Result := not ExeExisted
+    else
+      Result := not FileExists(AddBackslash(WizardDirValue) + 'JumpNDodge.exe');
+  end;
+end;
+
 function NoDesktopIconYet: Boolean;
 begin
   // beide Desktops prüfen (alle Benutzer / nur ich), egal in welchem Modus installiert wird

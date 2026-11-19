@@ -18,7 +18,8 @@ Beim ersten Start wird server.json neben dem Programm angelegt:
   ws_port    TCP-Port für WebSocket (Standard 47801, 0 = aus) - für Cloudflare Tunnel
   bind       "0.0.0.0" = alle Netzwerke (IPv4), "::" = IPv6
   password   leer = jeder darf rein
-  max_rooms  maximale Anzahl Räume (je 2 Spieler)
+  max_rooms  maximale Anzahl Räume (je 8 Plätze), 0 = unbegrenzt
+             (dann höchstens 10000 Verbindungen als Schutz)
   log_file   Log-Datei (leer = nur Konsole)
   auto_update           true = neue Versionen selbst laden (Standard)
   update_check_minutes  wie oft nachgesehen wird (Minuten, mindestens 5)

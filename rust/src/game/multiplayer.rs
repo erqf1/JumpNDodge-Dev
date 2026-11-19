@@ -73,7 +73,6 @@ struct Mp {
     create_mode: Mode,
     create_diff: usize,
     /// Plätze für einen neuen Raum (2 bis 8)
-    create_max: usize,
     /// Namen der Spieler in der laufenden Runde (Rundenreihenfolge)
     round_names: Vec<String>,
     /// Raum-Chef (Platz) und privat - kommt mit RoomExtra (alte Server: Platz 0, öffentlich)
@@ -109,7 +108,7 @@ struct Mp {
     buttons: Vec<(Rect, String)>,
     /// Test/Dev: dem ersten offenen Raum beitreten, sobald einer in der Liste steht
     auto_join: Option<Instant>,
-    /// Test/Dev: bereit melden, sobald man in einem vollen Raum ist
+    /// Test/Dev: bereit melden, sobald noch jemand im Raum ist (Beitritt setzt "bereit" zurück)
     auto_ready: bool,
     fx: super::art::Fx,
     client_id: u32,
@@ -173,7 +172,7 @@ impl Mp {
             screen: Screen::Browser, client: None, connect_rx: None, connecting_addr: String::new(), connect_started: now,
             addr_input: String::new(), code_input: String::new(), focus: Field::None, infos: HashMap::new(), info_tx, info_rx,
             last_info_query: None, message: String::new(), message_err: false, message_until: now, rooms: vec![], last_list: now,
-            create_mode: Mode::Vs, create_diff: 1, create_max: 2, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room_looks: vec![], round_looks: vec![], trails: HashMap::new(), auto_spectate: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
+            create_mode: Mode::Vs, create_diff: 1, round_names: vec![], room_host: 0, room_private: false, emotes: vec![], quick_sent: None, auto_quick: false, room_looks: vec![], round_looks: vec![], trails: HashMap::new(), auto_spectate: false, room: None, countdown: None, round: None, round_started: now, acc_ms: 0.0,
             jump_latch: false, jump_hold_until: None, leave_confirm_until: None, result: None, server_name: String::new(), motd: String::new(),
             ping_ms: None, last_ping_sent: now, buttons: vec![], auto_join: None, auto_ready: false, fx: super::art::Fx::new(),
             client_id: 0, chat: VecDeque::new(), chat_input: String::new(), sent_screen: (0, 0),
@@ -230,6 +229,8 @@ pub fn round_active() -> bool { ROUND_ACTIVE.with(|r| r.get()) }
 fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
 
 fn mode_name(g: &G, m: Mode) -> String { match m { Mode::Vs => "VS".into(), Mode::Coop => g.tde("Koop", "Co-op") } }
+/// Räume belegt/Grenze, z.B. "3/16" oder "3/∞" (max_rooms 0 = unbegrenzt)
+fn rooms_text(i: &ServerInfo) -> String { if i.max_rooms == 0 { format!("{}/∞", i.rooms) } else { format!("{}/{}", i.rooms, i.max_rooms) } }
 
 impl G {
     pub fn open_multiplayer(&mut self) {
@@ -418,6 +419,20 @@ impl G {
         if mp.screen == Screen::Lobby && mp.last_list.elapsed() >= Duration::from_secs(3) {
             mp.last_list = Instant::now();
             mp.send(ClientMsg::ListRooms);
+            // Raumzahl/Grenze für die Kopfzeile der Lobby (Serverinfo im Hintergrund, höchstens alle 6 s)
+            if mp.last_info_query.map(|t| t.elapsed() >= Duration::from_secs(6)).unwrap_or(true) {
+                mp.last_info_query = Some(Instant::now());
+                let (a, tx) = (mp.connecting_addr.clone(), mp.info_tx.clone());
+                std::thread::spawn(move || {
+                    let r = query_info(&a, Duration::from_millis(1500)).ok().map(|(i, d)| (i, d.as_millis() as u32));
+                    let _ = tx.send((a, r));
+                });
+            }
+        }
+        if mp.screen == Screen::Lobby {
+            while let Ok((addr, res)) = mp.info_rx.try_recv() {
+                if let Some((i, p)) = res { mp.infos.insert(addr, InfoState::Online(i, p)); }
+            }
         }
         for m in msgs { self.mp_message(mp, m); if mp.client.is_none() { return; } }
     }
@@ -453,7 +468,7 @@ impl G {
                 if matches!(mp.screen, Screen::Lobby | Screen::Connecting) { mp.screen = Screen::Room; }
                 if mp.auto_ready {
                     if let Some(r) = &mp.room {
-                        if r.players.iter().all(|p| p.is_some()) && !r.me_ready() {
+                        if r.players.iter().flatten().count() >= 2 && !r.me_ready() {
                             mp.auto_ready = false;
                             mp.send(ClientMsg::Ready(true));
                         }
@@ -819,10 +834,6 @@ impl G {
             "private" => { self.play_sound(Snd::Click); mp.send(ClientMsg::SetPrivate(!mp.room_private)); }
             "emote" => { if let Ok(i) = arg.parse::<u8>() { mp.send(ClientMsg::Emote(i)); } }
             "mode" => { self.play_sound(Snd::Click); mp.create_mode = if arg == "coop" { Mode::Coop } else { Mode::Vs }; }
-            "max" => {
-                self.play_sound(Snd::Click);
-                mp.create_max = if arg == "-" { if mp.create_max <= 2 { 8 } else { mp.create_max - 1 } } else if mp.create_max >= 8 { 2 } else { mp.create_max + 1 };
-            }
             "diff" => {
                 self.play_sound(Snd::Click);
                 let n = DIFFICULTIES.len();
@@ -831,7 +842,7 @@ impl G {
             "create" => {
                 self.play_sound(Snd::MenuClick);
                 let d = DIFFICULTIES[mp.create_diff].to_string();
-                mp.send(ClientMsg::CreateRoom { mode: mp.create_mode, difficulty: d, max_players: mp.create_max as u8 });
+                mp.send(ClientMsg::CreateRoom { mode: mp.create_mode, difficulty: d, max_players: ROOM_SLOTS });
             }
             "join" => { self.play_sound(Snd::MenuClick); mp.send(ClientMsg::JoinRoom { code: arg.to_string() }); }
             "join_code" => {
@@ -885,7 +896,6 @@ impl G {
             "create" => {
                 mp.create_mode = if p.get(1).map(|m| m.eq_ignore_ascii_case("coop")).unwrap_or(false) { Mode::Coop } else { Mode::Vs };
                 if let Some(i) = p.get(2).and_then(|d| DIFFICULTIES.iter().position(|x| x.eq_ignore_ascii_case(d))) { mp.create_diff = i; }
-                if let Some(n) = p.get(3).and_then(|n| n.parse::<usize>().ok()) { mp.create_max = n.clamp(2, 8); }
                 self.mp_action(mp, "create");
             }
             "join" => {
@@ -985,7 +995,7 @@ impl G {
         self.flip();
     }
 
-    fn mp_status_line(&self, st: Option<&InfoState>) -> (String, (i32, i32, i32)) {
+    fn mp_status_line(&self, st: Option<&InfoState>, rooms: bool) -> (String, (i32, i32, i32)) {
         match st {
             None | Some(InfoState::Checking) => (self.tde("prüfe …", "checking …"), (150, 150, 170)),
             Some(InfoState::Offline) => (self.tde("offline", "offline"), (200, 90, 100)),
@@ -995,7 +1005,8 @@ impl G {
                     (format!("{} {} ({} {})", self.tde("online · andere Version", "online · other version"), i.game_version, self.tde("du:", "you:"), GAME_VERSION), (210, 170, 70))
                 } else {
                     let pw = if i.password { self.tde(" · Passwort", " · password") } else { String::new() };
-                    (format!("online · {} {} · {} ms{}", i.players, self.tde("Spieler", "players"), ping, pw), (90, 190, 140))
+                    let r = if rooms { format!(" · {} {}", rooms_text(i), self.tde("Räume", "rooms")) } else { String::new() };
+                    (format!("online · {} {}{} · {} ms{}", i.players, self.tde("Spieler", "players"), r, ping, pw), (90, 190, 140))
                 }
             }
         }
@@ -1016,7 +1027,9 @@ impl G {
         let card = Rect::new(cx, 112, 600, 74);
         self.draw_panel(&bs, card, 12, (100, 160, 220), 2);
         self.mp_text(&bs, &mf, &self.tde("Offizieller Server", "Official server"), tc, card.x + 16, card.y + 8, false);
-        let (st, sc) = self.mp_status_line(mp.infos.get(&off));
+        // Platz bis zum Schnell-spielen-Knopf; passt die Raumzahl nicht hin, fällt sie weg
+        let (mut st, sc) = self.mp_status_line(mp.infos.get(&off), true);
+        if sf.size(&st).0 > card.w - 312 - 36 - 12 { st = self.mp_status_line(mp.infos.get(&off), false).0; }
         draw::circle(&bs, sc, (card.x + 22, card.y + 54), 6, 0);
         self.mp_text(&bs, &sf, &st, sc, card.x + 36, card.y + 45, false);
         let online = matches!(mp.infos.get(&off), Some(InfoState::Online(..)));
@@ -1058,7 +1071,11 @@ impl G {
         let tc = self.get_text_color();
         self.draw_title_shadow(&bs, &mp.server_name.clone(), 14);
         let ping = mp.ping_ms.map(|p| format!(" · {} ms", p)).unwrap_or_default();
-        self.mp_text(&bs, &sf, &format!("{}{}", mp.motd, ping), (150, 150, 180), w / 2, 82, true);
+        let rooms = match mp.infos.get(&mp.connecting_addr) {
+            Some(InfoState::Online(i, _)) => format!(" · {} {}", rooms_text(i), self.tde("Räume", "rooms")),
+            _ => String::new(),
+        };
+        self.mp_text(&bs, &sf, &format!("{}{}{}", mp.motd, rooms, ping), (150, 150, 180), w / 2, 82, true);
         // Raumliste
         let lx = w / 2 - 385;
         let list = Rect::new(lx, 110, 430, 190);
@@ -1100,10 +1117,9 @@ impl G {
         self.mp_button(&bs, mp, Rect::new(rx + 271, panel.y + 92, 40, 38), ">", "diff:+", (110, 110, 130), None);
         let dn = self.get_difficulty_name(DIFFICULTIES[mp.create_diff]);
         self.mp_text(&bs, &sf, &dn, tc, rx + 162, panel.y + 101, true);
-        self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 140, 40, 38), "<", "max:-", (110, 110, 130), None);
-        self.mp_button(&bs, mp, Rect::new(rx + 271, panel.y + 140, 40, 38), ">", "max:+", (110, 110, 130), None);
-        let mt = format!("{} {}", mp.create_max, self.tde("Spieler", "players"));
-        self.mp_text(&bs, &sf, &mt, tc, rx + 162, panel.y + 149, true);
+        // Jeder Raum hat 8 Plätze; los geht's, sobald alle Anwesenden (mindestens 2) bereit sind
+        let mt = format!("{} {} · {}", ROOM_SLOTS, self.tde("Plätze", "slots"), self.tde("Start ab 2 Spielern", "starts with 2+ players"));
+        self.mp_text(&bs, &self.badge_font.clone(), &mt, (150, 150, 180), rx + 162, panel.y + 152, true);
         self.mp_button(&bs, mp, Rect::new(rx + 14, panel.y + 190, 297, 42), &self.tde("Erstellen", "Create"), "create", (90, 190, 140), None);
         // Code
         let jp = Rect::new(rx, 366, 325, 104);
@@ -1588,7 +1604,7 @@ impl G {
             let nx = tr.right() + 10;
             self.mp_text(bs, &sf, &shown, tc, nx, r.y + 2, false);
             if shown != *addr { self.mp_text(bs, &bf, addr, (130, 130, 150), nx, r.y + 22, false); }
-            let (st, sc) = self.mp_status_line(info);
+            let (st, sc) = self.mp_status_line(info, true);
             let stw = bf.size(&st).0.min(280);
             let sts = bf.render(&st, true, sc);
             bs.blit_area(&sts, (r.right() - 12 - stw, r.centery() - sts.get_height() / 2), Some(Rect::new(sts.get_width() - stw, 0, stw, sts.get_height())));

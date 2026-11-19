@@ -1,8 +1,18 @@
 # Stand der Rust Edition
 
-Letzte Aktualisierung: 2026-11-16 · Branch: `main` (5.13.0 kommt per PR von `claude/inspiring-wright-jckfn8`)
+Letzte Aktualisierung: 2026-11-19 · Branch: `main` (5.13.1 aus `claude/nifty-feynman-4f5ofl`)
 
 ## Fertig und veröffentlicht
+- **5.13.1 – Räume/Server/Installer:** Jeder Raum hat `ROOM_SLOTS` = 8 Plätze (`core/src/net/proto.rs`); der Server ignoriert
+  `CreateRoom.max_players` (Feld bleibt fürs Protokoll, das Spiel schickt 8), Start wie gehabt ab 2 Anwesenden, alle bereit
+  oder Chef. Auswahl „max“ im Spiel und `run mp create … N` sind weg; Dev-`run mp ready` meldet erneut bereit, sobald ein
+  Zweiter im Raum ist (Beitritt setzt bereit zurück). `max_rooms: 0` = unbegrenzt: `Config::room_limit()` (None),
+  `max_connections()` (sonst `max_rooms × 8 + 64`, höchstens/bei 0 `UNLIMITED_MAX_CONNECTIONS` = 10000), Startanzeige
+  „Räume: …“. Spiel zeigt „3/16 Räume“ bzw. „3/∞“ in der Server-Liste und der Lobby-Kopfzeile (Lobby fragt `query_info` alle
+  6 s im Hintergrund; auf der Karte des offiziellen Servers fällt die Raumzahl weg, wenn sie nicht neben die Knöpfe passt).
+  Windows-Setup: Task `desktopicon` und die Desktop-Verknüpfung nur bei `IsFirstInstall` (kein Uninstall-Eintrag
+  HKLM64/HKLM32/HKCU `{B44A…}_is1`, keine `JumpNDodge.exe` im Zielordner). Linux-Pakete/Updater legen keine
+  Desktop-Symbole an (nur den Menüeintrag) – unverändert. Tests: `raum_hat_immer_8_plaetze`, `unbegrenzte_raeume`.
 - **5.13.0 – Musik-Engine + fünf neue Songs (`src/game/music/`):**
   `dsp.rs` (bandbegrenzte Wellentabellen, SVF-Filter, Freeverb-Hall, Ping-Pong-Echo, Limiter), `inst.rs` (Instrumente als
   Stimmen: Klavier, FM-Glocke, Karplus-Strong-Zupfsaite, Synth für Pad/Supersaw/Pluck/Streicher, Formant-Chor, Sub, Reese,
@@ -70,10 +80,10 @@ Letzte Aktualisierung: 2026-11-16 · Branch: `main` (5.13.0 kommt per PR von `cl
   `server/src/replays.rs`), Spiel `src/game/replay_net.rs` (Rekord hochladen, bis 3 Freundes-Geister, Teilen per Code).
   Historie: `CHANGELOG.md`; Release-Text je Version: `packaging/release-notes.md`.
 - **5.5.0:** Online bis 8 Spieler (Protokoll 3): `Sim2p::new_n`, `players: Vec`, `Winner::Other(u8)`/`of`/`index`,
-  `check_winner` (VS: Letzter übrig gewinnt). Räume mit 2–8 Plätzen, Start wenn ≥2 da und alle bereit; `Start` schickt
+  `check_winner` (VS: Letzter übrig gewinnt). Räume mit 2–8 Plätzen (seit 5.13.1 immer 8), Start wenn ≥2 da und alle bereit; `Start` schickt
   `you` + `names`. Online-Feld in echten Pixeln = kleinster Bildschirm aller Spieler (5.4.6). Chat-Verlauf 24 h im Server
   (`chat_history_hours`, Datei `chat.json` neben der `server.json`, beim Beitreten mit `CHAT_HISTORY_ID` nachgeschickt).
-  Test mit mehreren Clients: Skript-Muster in `tests/mp_e2e.sh`, Raum per `run mp create vs Hölle 4`.
+  Test mit mehreren Clients: Skript-Muster in `tests/mp_e2e.sh`, Raum per `run mp create vs Hölle` (immer 8 Plätze).
 - **5.4.0:** Menüs überall im Startmenü-Look (`ui_c.rs`, `G::draw_panel`/`draw_tab`), Einstellungen neu sortiert
   (`settings_ui.rs`), Übergänge mit Herkunft und **Pop-ups** (`transitions.rs`: Einstellungen, Belohnungen, Profil, Online,
   Anleitung, Code, Mods, Schwierigkeit als Karte über dem Menü; direkt in Kartengröße gezeichnet), Einstellungen als Zahnrad

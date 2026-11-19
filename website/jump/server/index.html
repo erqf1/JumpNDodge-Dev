@@ -30,8 +30,8 @@
     <span class="eyebrow"><span data-lang-de>Für Online-VS und Online-Koop</span><span data-lang-en>For online versus and co-op</span></span>
     <h1 style="font-size:clamp(32px,5vw,48px);margin:16px 0 10px;letter-spacing:-.02em"><span data-lang-de>Eigenen Server hosten</span><span data-lang-en>Host your own server</span></h1>
     <p class="lead" style="font-size:19px;color:var(--muted);max-width:40em;margin:0">
-      <span data-lang-de>Der JumpNDodge-Server ist ein kleines Programm ohne Fenster. Er braucht kaum Leistung – ein alter Laptop, ein Raspberry Pi oder ein Heimserver mit CasaOS reichen. Jeder Raum hat Platz für zwei Spieler, ein Server schafft viele Räume gleichzeitig.</span>
-      <span data-lang-en>The JumpNDodge server is a small program without a window. It needs almost no power – an old laptop, a Raspberry Pi or a home server with CasaOS is enough. Each room holds two players, one server handles many rooms at once.</span>
+      <span data-lang-de>Der JumpNDodge-Server ist ein kleines Programm ohne Fenster. Er braucht kaum Leistung – ein alter Laptop, ein Raspberry Pi oder ein Heimserver mit CasaOS reichen. Jeder Raum hat 8 Plätze, ein Server schafft viele Räume gleichzeitig.</span>
+      <span data-lang-en>The JumpNDodge server is a small program without a window. It needs almost no power – an old laptop, a Raspberry Pi or a home server with CasaOS is enough. Each room has 8 slots, one server handles many rooms at once.</span>
     </p>
   </div>
 
@@ -65,7 +65,7 @@
   "ws_port": 47801,             // TCP, WebSocket (Tunnel), 0 = aus
   "bind": "0.0.0.0",            // "::" für IPv6
   "password": "",               // leer = jeder darf rein
-  "max_rooms": 16,
+  "max_rooms": 16,              // Räume gleichzeitig (je 8 Plätze), 0 = unbegrenzt
   "log_file": "server.log",
   "auto_update": true,          // neue Versionen selbst laden
   "update_check_minutes": 60,
