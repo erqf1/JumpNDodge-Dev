@@ -2,18 +2,20 @@ ERGEBNIS CLOUD-SESSION jnd-raeume
 
 1. Aufgabe und Status
    Version 5.13.1 mit drei Punkten: max_rooms 0 = unbegrenzt, Räume immer mit 8 Plätzen, Desktop-Symbol nur bei
-   der Erst-Installation. Code, Tests und Doku sind fertig und auf main. Der Release-Lauf v5.13.1 lief beim
-   Schreiben dieses Berichts noch.
+   der Erst-Installation. Fertig: Code, Tests und Doku sind auf main, Release v5.13.1 ist veröffentlicht, alle
+   CI-Jobs sind grün.
 
 2. Branch, Commits, PR, Release, CI
    - Branch claude/nifty-feynman-4f5ofl, außerdem direkt auf main gepusht (Fast-Forward). Kein PR nötig.
+   - Commit 1c87732 (+ Folge-Commit): dieser Bericht
    - Commit 8bfea1b: „Räume immer mit 8 Plätzen, max_rooms 0 = unbegrenzt, Desktop-Symbol nur bei Erst-Installation; Version 5.13.1“
    - Workflow build-rust.yml auf main mit tag=v5.13.1 gestartet: https://github.com/erqf1/JumpNDodge-Dev/actions/runs/44598564223
-   - CI-Stand beim Schreiben (19:31 UTC):
-     - grün: version, test, server-docker-test, linux, macos apple-silicon
-     - läuft noch: windows (Bauen; der Schritt „Installer (Inno Setup)“ kommt erst noch), macos intel, multiplayer-e2e, server-docker, arch
-     - danach folgt der Release-Job
-   - Noch NICHT geprüft: ob alle Jobs grün sind und ob das Release in erqf1/JumpNDodge 12 Dateien hat.
+   - CI: alle 11 Jobs grün, inklusive windows mit dem Schritt „Installer (Inno Setup)“. Geprüft wurden das Lauf-Ergebnis
+     und die Job-Liste.
+   - Release v5.13.1 (Latest) in erqf1/JumpNDodge mit 12 Dateien. Laut Log des Release-Jobs hochgeladen:
+     .deb, .pkg.tar.zst, linux tar.gz, windows-x64.zip, windows-x64-setup.exe, 2× macOS-DMG, 4× Server-Zip und
+     SHA256SUMS.txt. Dazu v5.13.1 in erqf1/JumpNDodge-Archive mit den 4 portablen Zips.
+     Gelesen aus dem Job-Log, weil diese Session keinen API-Zugriff auf erqf1/JumpNDodge hat.
 
 3. Was geändert wurde
    - core/net/proto.rs: neue Konstante ROOM_SLOTS = 8 (QUICK_ROOM_MAX = ROOM_SLOTS). Doku: CreateRoom.max_players
@@ -54,14 +56,11 @@ ERGEBNIS CLOUD-SESSION jnd-raeume
      (∞ wird gezeichnet), Karte des offiziellen Servers ohne Überlappung.
    - Startanzeige des Servers mit max_rooms 0: „Räume: unbegrenzt (je 8 Plätze)“.
    - NICHT getestet:
-     - Inno-Setup-Skript lokal kompiliert (kein Inno Setup im Container, das macht der Windows-Job)
+     - Inno-Setup-Skript lokal (kein Inno Setup im Container). In der CI kompiliert es fehlerfrei.
      - Installer-Verhalten von Hand unter Windows (Erst-Installation mit Symbol, Update ohne Symbol)
      - deutsche Texte im Spiel per Screenshot (nur Englisch angeschaut)
 
 5. Offene Punkte / was der Nutzer tun muss
-   - Release-Lauf 44598564223 zu Ende prüfen: alle Jobs grün, besonders „windows“ mit dem Inno-Setup-Schritt, und
-     12 Dateien im Release v5.13.1 in erqf1/JumpNDodge. Schlägt der Inno-Schritt fehl, liegt es am neuen [Code]-Teil
-     der .iss.
    - Unter Windows einmal von Hand prüfen:
      a) frische Installation mit Haken „Desktop-Symbol“ legt das Symbol an
      b) Symbol löschen, Update (Setup oder eingebauter Updater): Symbol bleibt weg
@@ -71,5 +70,4 @@ ERGEBNIS CLOUD-SESSION jnd-raeume
 6. Nächste Schritte für die Haupt-Session
    - Testversion 5.13.1 mit Spielstand-Schlüssel lokal bauen.
    - Website hochladen: website/jump/wiki/index.html und website/jump/server/index.html nach mert.win/jump/.
-   - Falls der Release-Lauf rot ist: Logs des fehlgeschlagenen Jobs ansehen und den Lauf erneut starten
-     (Actions → „Rust Edition – Build & Release“ → Run workflow, tag v5.13.1).
+   - Release v5.13.1 ist schon veröffentlicht, die Spieler bekommen das Update über den eingebauten Updater.
